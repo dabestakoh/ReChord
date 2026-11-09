@@ -8,6 +8,8 @@ import com.music.bitchord.playback.QueueCoordinator
 import com.music.bitchord.playback.QueueCoordinator.asQueueEntry
 import com.music.bitchord.playback.QueueSource
 import com.music.bitchord.ui.screens.matching
+import com.music.bitchord.ui.screens.sortedForDetail
+import com.music.bitchord.data.settings.SongSort
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -222,4 +224,27 @@ class DetailScreenQueueTest {
         assertEquals(QueueTier.CONTEXT, timeline[0].queueTier)
         assertEquals("Search", timeline[0].playbackSource)
     }
+    @Test
+    fun `newly cached playlist additions appear first when date added is descending`() {
+        val rows = listOf(
+            testSong("dragon-ball").copy(playlistAddedOrdinal = 1L),
+            testSong("lemonade").copy(playlistAddedOrdinal = 3002L),
+            testSong("bye-bye").copy(playlistAddedOrdinal = 3000L),
+            testSong("deserve").copy(playlistAddedOrdinal = 3003L),
+        )
+        assertEquals(listOf("deserve", "lemonade", "bye-bye", "dragon-ball"),
+            rows.sortedForDetail(SongSort.DATE_ADDED_DESC).map { it.videoId })
+        assertEquals(listOf("dragon-ball", "bye-bye", "lemonade", "deserve"),
+            rows.sortedForDetail(SongSort.DATE_ADDED_ASC).map { it.videoId })
+    }
+
+    @Test
+    fun `first-page playlist fallback treats first row as newest`() {
+        val rows = listOf(testSong("lemonade"), testSong("deserve"), testSong("bye-bye"))
+        assertEquals(listOf("lemonade", "deserve", "bye-bye"),
+            rows.sortedForDetail(SongSort.DATE_ADDED_DESC).map { it.videoId })
+        assertEquals(listOf("bye-bye", "deserve", "lemonade"),
+            rows.sortedForDetail(SongSort.DATE_ADDED_ASC).map { it.videoId })
+    }
+
 }

@@ -561,7 +561,7 @@ private fun TvTopBar(
         // The mark only, as the phone's Home heading shows it.
         Icon(
             painter = painterResource(R.drawable.ic_logo),
-            contentDescription = "BitChord",
+            contentDescription = "ReChord",
             tint = TvGlass.TextPrimary,
             modifier = Modifier
                 .align(Alignment.CenterStart)
@@ -654,7 +654,7 @@ private fun TvAvatarButton(
     }
 }
 
-/** The BitChord mark, for the few places that show the app itself. */
+/** The ReChord mark, for the few places that show the app itself. */
 @Composable
 fun TvAppMark(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 96.dp) {
     Box(
@@ -662,13 +662,13 @@ fun TvAppMark(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp =
             .size(size)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(size * 0.225f))
             .background(
-                Brush.linearGradient(listOf(Color(0xFFFF5468), Color(0xFFE3173A))),
+                Brush.linearGradient(listOf(Color(0xFF151515), Color(0xFF050505))),
             ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_logo),
-            contentDescription = "BitChord",
+            contentDescription = "ReChord",
             tint = Color.White,
             modifier = Modifier.size(size * 0.52f),
         )

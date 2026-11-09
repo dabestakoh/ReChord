@@ -1273,28 +1273,24 @@ private fun DetailSearchField(
     }
 }
 
+/**
+ * Date added uses our cached entry insertion sequence when known. YouTube does
+ * not expose reliable historical add timestamps; unindexed rows use the remote
+ * playlist's current order as the initial baseline (front = newest).
+ */
 internal fun List<Song>.sortedForDetail(sort: SongSort): List<Song> = when (sort) {
     SongSort.DEFAULT -> this
     SongSort.TITLE_ASC -> sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
     SongSort.TITLE_DESC -> sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.title })
-    // A catalogue row carries no added date, so its place in the running
-    // order stands in for one: a playlist is appended to as songs are added,
-    // and reversed that puts the most recent addition on top. Rows that do
-    // carry a MediaStore timestamp — device tracks, downloads — are dated
-    // properly, with the position order left to break the ties.
     SongSort.DATE_ADDED_ASC -> withIndex()
-        .sortedWith(
-            compareBy<IndexedValue<Song>> { (_, song) ->
-                song.localDateAddedSeconds ?: Long.MAX_VALUE
-            }.thenBy { (position, _) -> position },
-        )
+        .sortedWith(compareBy<IndexedValue<Song>> { (position, song) ->
+            song.playlistAddedOrdinal ?: song.localDateAddedSeconds ?: (size - position).toLong()
+        }.thenByDescending { it.index })
         .map { it.value }
     SongSort.DATE_ADDED_DESC -> withIndex()
-        .sortedWith(
-            compareByDescending<IndexedValue<Song>> { (_, song) ->
-                song.localDateAddedSeconds ?: Long.MIN_VALUE
-            }.thenByDescending { (position, _) -> position },
-        )
+        .sortedWith(compareByDescending<IndexedValue<Song>> { (position, song) ->
+            song.playlistAddedOrdinal ?: song.localDateAddedSeconds ?: (size - position).toLong()
+        }.thenBy { it.index })
         .map { it.value }
 }
 

@@ -1269,7 +1269,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * flight is newer than this and will land with the addition already in it.
      */
     private fun appendToOpenPlaylist(browseId: String, song: Song, setVideoId: String?) {
-        val added = song.copy(setVideoId = setVideoId)
+        val currentRows = (_detailStack.value.firstOrNull { it.browseId == browseId }?.songs as? UiState.Success)?.data
+        val newestRank = currentRows?.mapIndexed { i, entry ->
+            entry.playlistAddedOrdinal ?: (currentRows.size - i).toLong()
+        }?.maxOrNull() ?: 0L
+        val added = song.copy(
+            setVideoId = setVideoId,
+            playlistAddedOrdinal = newestRank + 1L,
+        )
         playlistCacheListener()?.let { listener ->
             PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
                 if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows

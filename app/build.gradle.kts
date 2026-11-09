@@ -53,18 +53,6 @@ val listenTogetherServer: String = (
         ?: "https://bitchord-listen-together.onrender.com"
     ).trim().trimEnd('/')
 
-/*
- * The service that checks this app's hardware key attestation and issues addon
- * tokens. See AddonAuth. Overridable for a staging deployment. A fork that
- * points this at its own server gains nothing: addons only trust tokens signed
- * by the official service's key.
- */
-val addonAuthServer: String = (
-    localProps.getProperty("ADDON_AUTH_SERVER")
-        ?: System.getenv("ADDON_AUTH_SERVER")
-        ?: "https://bitchord-auth.kushagrasingh.in"
-    ).trim().trimEnd('/')
-
 // See the root build.gradle.kts: one version for the phone and its watch app.
 val betaSuffix = rootProject.extra["bitchordBetaSuffix"] as String
 
@@ -74,7 +62,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.music.bitchord"
+        applicationId = "com.music.rechord"
         // 26 keeps reach wide; real-time blur (RenderEffect) kicks in on API 31+,
         // Haze falls back to a translucent scrim below that.
         minSdk = 26
@@ -92,15 +80,10 @@ android {
             "LISTEN_TOGETHER_SERVER",
             "\"${listenTogetherServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
         )
-        buildConfigField(
-            "String",
-            "ADDON_AUTH_URL",
-            "\"${addonAuthServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
-        )
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.
-        buildConfigField("String", "UPDATE_APK_PREFIX", "\"BitChord-\"")
+        buildConfigField("String", "UPDATE_APK_PREFIX", "\"ReChord-\"")
     }
 
     splits {
@@ -138,7 +121,7 @@ android {
         create("dev") {
             dimension = "env"
             applicationId = "com.rechord.preview"
-            resValue("string", "app_name", "BitChord Preview")
+            resValue("string", "app_name", "ReChord Preview")
         }
         create("prod") {
             dimension = "env"

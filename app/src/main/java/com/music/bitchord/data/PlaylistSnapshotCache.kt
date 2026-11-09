@@ -7,6 +7,7 @@ import com.music.bitchord.data.model.ArtistRef
 import com.music.bitchord.data.model.PlaybackSourceType
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.playlist.PlaylistIndexBuilder
+import com.music.bitchord.data.playlist.preservePlaylistAddedOrder
 import com.music.bitchord.data.playlist.comparePlaylistSnapshots
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -166,8 +167,9 @@ object PlaylistSnapshotCache {
             ))
         }
         val complete = builder.completeSnapshot() ?: return
+        val dated = preservePlaylistAddedOrder(cached?.songs, complete)
         val newSnapshot = Snapshot(
-            songs = complete,
+            songs = dated,
             checkedAt = System.currentTimeMillis(),
             title = first.header?.title ?: cached?.title,
             subtitle = first.header?.subtitle ?: cached?.subtitle,
@@ -182,7 +184,7 @@ object PlaylistSnapshotCache {
                     // Compare entries, not just the count: additions and removals
                     // of equal size, metadata changes and reorders all matter.
                     val previous = readLocked(context, key)
-                    if (previous == null || comparePlaylistSnapshots(previous.songs, complete).changed ||
+                    if (previous == null || comparePlaylistSnapshots(previous.songs, dated).changed ||
                         previous.owned != newSnapshot.owned || previous.title != newSnapshot.title
                     ) {
                         writeLocked(context, key, newSnapshot)
@@ -195,7 +197,7 @@ object PlaylistSnapshotCache {
             }
         }
         if (committed) updatesFlow.emit(Update(
-            key.listener, key.browseId, complete, continuation = null,
+            key.listener, key.browseId, newSnapshot.songs, continuation = null,
             complete = true, owned = newSnapshot.owned,
         ))
     }
@@ -215,7 +217,10 @@ object PlaylistSnapshotCache {
             val updated: Snapshot
             synchronized(lock(key)) {
                 current = readLocked(context, key) ?: return@launch
-                updated = current.copy(songs = transform(current.songs), checkedAt = 0L)
+                updated = current.copy(
+                    songs = preservePlaylistAddedOrder(current.songs, transform(current.songs)),
+                    checkedAt = 0L,
+                )
                 writeLocked(context, key, updated)
             }
             updatesFlow.emit(Update(listener, browseId, updated.songs, null, true, updated.owned))
@@ -272,8 +277,12 @@ object PlaylistSnapshotCache {
             if (stored.schema != SCHEMA || stored.listener != key.listener ||
                 stored.browseId != key.browseId
             ) return null
+            val decoded = stored.songs.map { it.toSong() }
+            val ordered = if (decoded.any { it.playlistAddedOrdinal == null }) {
+                preservePlaylistAddedOrder(decoded, decoded)
+            } else decoded
             val snapshot = Snapshot(
-                songs = stored.songs.map { it.toSong() },
+                songs = ordered,
                 checkedAt = stored.checkedAt,
                 title = stored.title,
                 subtitle = stored.subtitle,
@@ -363,6 +372,7 @@ object PlaylistSnapshotCache {
         val isVideo: Boolean = false,
         val isVideoOrigin: Boolean = false,
         val setVideoId: String? = null,
+        val playlistAddedOrdinal: Long? = null,
         val trackNumber: Int? = null,
         val sourceQuality: String? = null,
         val sourceHiRes: Boolean = false,
@@ -377,6 +387,7 @@ object PlaylistSnapshotCache {
             artists = artists.map { ArtistRef(it.name, it.browseId) },
             albumId = albumId, albumName = albumName, isVideo = isVideo,
             isVideoOrigin = isVideoOrigin, setVideoId = setVideoId,
+            playlistAddedOrdinal = playlistAddedOrdinal,
             trackNumber = trackNumber, sourceQuality = sourceQuality, sourceHiRes = sourceHiRes,
             isExplicit = isExplicit, playbackSource = playbackSource,
             playbackSourceType = playbackSourceType?.let {
@@ -392,6 +403,7 @@ object PlaylistSnapshotCache {
                 artists = song.artists.map { StoredArtist(it.name, it.browseId) },
                 albumId = song.albumId, albumName = song.albumName, isVideo = song.isVideo,
                 isVideoOrigin = song.isVideoOrigin, setVideoId = song.setVideoId,
+                playlistAddedOrdinal = song.playlistAddedOrdinal,
                 trackNumber = song.trackNumber, sourceQuality = song.sourceQuality,
                 sourceHiRes = song.sourceHiRes, isExplicit = song.isExplicit,
                 playbackSource = song.playbackSource,
