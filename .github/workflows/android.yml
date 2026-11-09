@@ -20,18 +20,36 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    - name: Setup Secrets (Keystore & local.properties)
+    - name: Restore and validate release signing key
+      shell: bash
+      env:
+        RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+        RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       run: |
+        set -euo pipefail
         echo "LASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }}" > local.properties
         echo "LASTFM_SECRET=${{ secrets.LASTFM_SECRET }}" >> local.properties
         echo "LISTEN_TOGETHER_SERVER=${{ secrets.LISTEN_TOGETHER_SERVER }}" >> local.properties
 
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > bitchord-release.jks
+        for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS; do
+          if [ -z "${!name}" ]; then
+            echo "::error::Missing required GitHub secret $name"
+            exit 1
+          fi
+        done
+        umask 077
+        printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > bitchord-release.p12
+        test -s bitchord-release.p12
+        keytool -list -storetype PKCS12 -keystore bitchord-release.p12 \
+          -storepass "$RELEASE_STORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" >/dev/null
+
         {
-          echo "storeFile=bitchord-release.jks"
-          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}"
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}"
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+          printf 'storeFile=%s\n' 'bitchord-release.p12'
+          printf 'storePassword=%s\n' "$RELEASE_STORE_PASSWORD"
+          printf 'keyAlias=%s\n' "$RELEASE_KEY_ALIAS"
+          printf 'keyPassword=%s\n' "$RELEASE_KEY_PASSWORD"
         } > keystore.properties
 
     - name: Grant execute permission for gradlew
@@ -43,15 +61,15 @@ jobs:
     - name: Verify release APK signature and version
       shell: bash
       env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+        RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       run: |
         set -euo pipefail
         build_tools="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
         signer="$ANDROID_HOME/build-tools/$build_tools/apksigner"
         aapt="$ANDROID_HOME/build-tools/$build_tools/aapt"
-        expected="$(keytool -exportcert -keystore bitchord-release.jks \
-          -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>/dev/null | sha256sum | awk '{print $1}')"
+        expected="$(keytool -exportcert -storetype PKCS12 -keystore bitchord-release.p12 \
+          -storepass "$RELEASE_STORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" 2>/dev/null | sha256sum | awk '{print $1}')"
         test -n "$expected"
         shopt -s nullglob
         apks=(app/build/outputs/apk/prod/release/*.apk)
