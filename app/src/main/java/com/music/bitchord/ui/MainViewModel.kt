@@ -1044,7 +1044,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 appendToOpenPlaylist(playlist.browseId, song, added[song.videoId])
                 AddOutcome.ADDED
             },
-            onFailure = { AddOutcome.FAILED },
+            onFailure = {
+                // A request can time out *after* YouTube accepted the edit.
+                // Verify an ambiguous failure against a complete fresh listing,
+                // never the existing (possibly stale) playlist cache. This is
+                // deliberately the slow path only; the normal success path is
+                // unchanged. A truncated/failed listing cannot confirm an add.
+                val confirmed = YtMusicRepository.allSongs(playlist.browseId)
+                    .getOrNull()?.firstOrNull { it.videoId == song.videoId }
+                if (confirmed != null) {
+                    libraryStale = true
+                    appendToOpenPlaylist(playlist.browseId, confirmed, confirmed.setVideoId)
+                    AddOutcome.ADDED
+                } else {
+                    AddOutcome.FAILED
+                }
+            },
         )
     }
 

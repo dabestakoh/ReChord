@@ -66,6 +66,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
@@ -5999,11 +6000,9 @@ private fun FrostedSortMenu(
     onDismiss: () -> Unit,
 ) {
     FrostedMenuPanel(hazeState = hazeState, onDismiss = onDismiss) {
-        // Date added is one row, Spotify-style: the arrow on it shows
-        // the direction — up for newest first, down for oldest — and
-        // tapping flips it, the rotation animating the flip. Up is
-        // also where a fresh activation lands, newest first being the
-        // point of the feature.
+        // Date added is one row: down means newest first, up means
+        // oldest first. Tapping flips the direction with an animated arrow.
+        // Fresh activation starts newest first (descending).
         val dateActive = selected == SongSort.DATE_ADDED_ASC ||
             selected == SongSort.DATE_ADDED_DESC
         val arrowRotation by animateFloatAsState(
@@ -6026,7 +6025,7 @@ private fun FrostedSortMenu(
             )
             if (dateActive) {
                 Icon(
-                    Icons.Rounded.ArrowUpward,
+                    Icons.Rounded.ArrowDownward,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.rotate(arrowRotation),
