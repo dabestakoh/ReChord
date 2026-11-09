@@ -107,8 +107,13 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            if (providers.gradleProperty("bitchordArm64Only").orNull == "true") {
+                include("arm64-v8a")
+                isUniversalApk = false
+            } else {
+                include("armeabi-v7a", "arm64-v8a", "x86_64")
+                isUniversalApk = true
+            }
         }
     }
 
@@ -133,7 +138,7 @@ android {
         create("dev") {
             dimension = "env"
             applicationId = "com.dev.bitchord"
-            resValue("string", "app_name", "BitChord Dev")
+            resValue("string", "app_name", "BitChord Preview")
         }
         create("prod") {
             dimension = "env"
