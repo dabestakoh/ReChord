@@ -147,6 +147,16 @@ android {
     }
 
     signingConfigs {
+        // One persistent debug certificate for repeatable ARM64 Preview APK updates.
+        if (providers.gradleProperty("bitchordArm64Only").orNull == "true") {
+            getByName("debug") {
+                storeFile = rootProject.file("ci-debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+
         // Both halves have to be there, not just the properties file: it *names*
         // the keystore rather than containing it, and both are gitignored
         // separately, so a checkout can easily end up with the one and not the

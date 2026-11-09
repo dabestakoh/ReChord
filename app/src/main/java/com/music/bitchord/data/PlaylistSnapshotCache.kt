@@ -134,6 +134,7 @@ object PlaylistSnapshotCache {
         firstPage: YtMusicRepository.SongPage?,
         force: Boolean,
     ) {
+        if (activeListener(context) != key.listener) return
         val cached = read(context, key.listener, key.browseId)
         if (!force && firstPage == null && cached != null &&
             System.currentTimeMillis() - cached.checkedAt < REVALIDATE_AFTER_MS
@@ -153,6 +154,7 @@ object PlaylistSnapshotCache {
         var token = first.continuation
         var pages = 1
         while (token != null) {
+            if (activeListener(context) != key.listener) return
             if (pages++ >= MAX_SCAN_PAGES) return
             delay(INTER_PAGE_DELAY_MS)
             val page = YtMusicRepository.moreSongs(token).getOrNull() ?: return
@@ -174,7 +176,8 @@ object PlaylistSnapshotCache {
         )
         val committed = withContext(Dispatchers.IO) {
             synchronized(lock(key)) {
-                if (startedRevision != revision(key).get()) false
+                if (startedRevision != revision(key).get() ||
+                    activeListener(context) != key.listener) false
                 else {
                     // Compare entries, not just the count: additions and removals
                     // of equal size, metadata changes and reorders all matter.
@@ -207,6 +210,7 @@ object PlaylistSnapshotCache {
         val key = Key(listener, browseId)
         revision(key).incrementAndGet()
         scope.launch {
+            if (activeListener(context) != key.listener) return@launch
             val current: Snapshot
             val updated: Snapshot
             synchronized(lock(key)) {
@@ -247,6 +251,13 @@ object PlaylistSnapshotCache {
                 }
                 .distinct().take(2)
         }
+
+    private fun activeListener(context: Context): String? {
+        val auth = AuthStore(context.applicationContext)
+        val account = auth.activeSession?.accountId ?: return "anonymous"
+        val profile = auth.activeProfileId ?: return null
+        return "$account:$profile"
+    }
 
     private fun lock(key: Key): Any = locks.computeIfAbsent(key) { Any() }
     private fun revision(key: Key) = revisions.computeIfAbsent(key) { AtomicLong() }

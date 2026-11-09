@@ -1030,6 +1030,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val openSongs = (_detailStack.value.firstOrNull { it.browseId == playlist.browseId }
             ?.songs as? UiState.Success)?.data
         val known = openSongs
+            ?: playlistCacheListener()?.let { listener ->
+                PlaylistSnapshotCache.read(getApplication(), listener, playlist.browseId)?.songs
+            }
             ?: YtMusicRepository.allSongs(playlist.browseId).getOrNull()
         if (known?.any { it.videoId == song.videoId } == true) return AddOutcome.ALREADY_THERE
         return YtMusicRepository.addToPlaylist(playlist.playlistId, listOf(song.videoId)).fold(
@@ -1173,8 +1176,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ).fold(
                 onSuccess = {
                     libraryStale = true
-                    PlaylistSnapshotCache.mutate(getApplication(), listenerKey() ?: "anonymous", browseId) { rows ->
-                        rows.filterNot { it.setVideoId == setVideoId }
+                    playlistCacheListener()?.let { listener ->
+                        PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
+                            rows.filterNot { it.setVideoId == setVideoId }
+                        }
                     }
                     _detailStack.value = _detailStack.value.map { page ->
                         val songs = (page.songs as? UiState.Success)?.data
@@ -1250,10 +1255,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun appendToOpenPlaylist(browseId: String, song: Song, setVideoId: String?) {
         val added = song.copy(setVideoId = setVideoId)
-        val listener = listenerKey() ?: "anonymous"
-        PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
-            if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
-            else rows + added
+        playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
+                if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
+                else rows + added
+            }
         }
         _detailStack.value = _detailStack.value.map { page ->
             if (page.browseId != browseId) return@map page
@@ -1329,10 +1335,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ).fold(
                 onSuccess = {
                     libraryStale = true
-                    PlaylistSnapshotCache.mutate(getApplication(), listenerKey() ?: "anonymous", playlist.browseId) { rows ->
-                        if (rows.size == reordered.size &&
-                            rows.map(::playlistEntryKey).toSet() == reordered.map(::playlistEntryKey).toSet()
-                        ) reordered else rows
+                    playlistCacheListener()?.let { listener ->
+                        PlaylistSnapshotCache.mutate(getApplication(), listener, playlist.browseId) { rows ->
+                            if (rows.size == reordered.size &&
+                                rows.map(::playlistEntryKey).toSet() == reordered.map(::playlistEntryKey).toSet()
+                            ) reordered else rows
+                        }
                     }
                     _detailStack.value = _detailStack.value.map { page ->
                         if (page.browseId != playlist.browseId || page.songs !is UiState.Success) {
@@ -1353,7 +1361,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             YtMusicRepository.deletePlaylist(playlist.playlistId).fold(
                 onSuccess = {
-                    PlaylistSnapshotCache.remove(getApplication(), listenerKey() ?: "anonymous", playlist.browseId)
+                    playlistCacheListener()?.let { listener ->
+                        PlaylistSnapshotCache.remove(getApplication(), listener, playlist.browseId)
+                    }
                     _playlists.value = _playlists.value
                         .filterNot { it.playlistId == playlist.playlistId }
                     // The card in the library tab, which is the surface the
@@ -1475,7 +1485,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         PlaylistSnapshotCache.schedule(app)
         viewModelScope.launch {
             PlaylistSnapshotCache.updates.collectLatest { update ->
-                if (update.listener != (listenerKey() ?: "anonymous")) return@collectLatest
+                if (update.listener != playlistCacheListener()) return@collectLatest
                 update.owned?.let { setPlaylistOwned(update.browseId, it) }
                 _detailStack.value = _detailStack.value.map { page ->
                     if (page.browseId != update.browseId || page.type != BrowseType.PLAYLIST) {
@@ -2817,8 +2827,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // may be a "Playing from" label from before a rename.
             OfflinePlaylists.get(browseId)?.let { name = it.title }
             val local = localPageState(browseId)
-            val playlistListener = (listenerKey() ?: "anonymous")
-                .takeIf { local == null && resolved == BrowseType.PLAYLIST && PlaylistSnapshotCache.isPlaylist(browseId) }
+            val playlistListener = playlistCacheListener()
+                ?.takeIf { local == null && resolved == BrowseType.PLAYLIST && PlaylistSnapshotCache.isPlaylist(browseId) }
             val cachedPlaylist = playlistListener?.let {
                 PlaylistSnapshotCache.read(getApplication(), it, browseId)
             }
@@ -2949,8 +2959,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Force a fresh server comparison while retaining the current playable rows. */
     fun refreshPlaylist(browseId: String) {
         if (!PlaylistSnapshotCache.isPlaylist(browseId)) return
+        val listener = playlistCacheListener() ?: return
         PlaylistSnapshotCache.requestSync(
-            getApplication(), listenerKey() ?: "anonymous", browseId, force = true,
+            getApplication(), listener, browseId, force = true,
         )
     }
 
@@ -3340,8 +3351,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 is UiState.Error -> Result.failure(IllegalStateException(local.message))
                 UiState.Loading -> Result.failure(IllegalStateException(text(R.string.no_tracks_here)))
                 null -> {
-                    val cached = if (PlaylistSnapshotCache.isPlaylist(browseId)) {
-                        PlaylistSnapshotCache.read(getApplication(), listenerKey() ?: "anonymous", browseId)
+                    val listener = playlistCacheListener()
+                    val cached = if (listener != null && PlaylistSnapshotCache.isPlaylist(browseId)) {
+                        PlaylistSnapshotCache.read(getApplication(), listener, browseId)
                     } else null
                     if (cached != null) Result.success(cached.songs)
                     else YtMusicRepository.allSongs(browseId)
@@ -3614,6 +3626,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _account.value, _library.value, _history.value, _playlists.value, _playlistOwned.value,
         )
     }
+
+    private fun playlistCacheListener(): String? =
+        listenerKey() ?: if (!_signedIn.value) "anonymous" else null
 
     private fun listenerKey(): String? = _activeAccountId.value?.let { accountId ->
         _activeProfileId.value?.let { profileId -> "$accountId:$profileId" }
