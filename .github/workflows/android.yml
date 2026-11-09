@@ -40,6 +40,43 @@ jobs:
     - name: Build Signed Prod Release APK
       run: ./gradlew assembleProdRelease
 
+    - name: Verify release APK signature and version
+      shell: bash
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      run: |
+        set -euo pipefail
+        build_tools="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+        signer="$ANDROID_HOME/build-tools/$build_tools/apksigner"
+        aapt="$ANDROID_HOME/build-tools/$build_tools/aapt"
+        expected="$(keytool -exportcert -keystore bitchord-release.jks \
+          -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>/dev/null | sha256sum | awk '{print $1}')"
+        test -n "$expected"
+        shopt -s nullglob
+        apks=(app/build/outputs/apk/prod/release/*.apk)
+        if [ "${#apks[@]}" -eq 0 ]; then
+          echo "::error::No production release APKs were generated"
+          exit 1
+        fi
+        for apk in "${apks[@]}"; do
+          "$signer" verify --verbose "$apk"
+          actual="$("$signer" verify --print-certs "$apk" |
+            sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]:]+)[[:space:]]*$/\1/p' |
+            head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::Incorrect release APK signer: $apk"
+            exit 1
+          fi
+          badging="$("$aapt" dump badging "$apk")"
+          if ! grep -q "package: name='com.music.bitchord' " <<< "$badging" ||
+             ! grep -q "versionName='1.9.2'" <<< "$badging"; then
+            echo "::error::Incorrect package name or version in $apk"
+            exit 1
+          fi
+          echo "Verified signed release: $(basename "$apk")"
+        done
+
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
