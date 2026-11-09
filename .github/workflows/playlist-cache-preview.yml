@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
           info=$("$TOOLS/aapt" dump badging "${apks[0]}")
-          grep -q "package: name='com.dev.bitchord' " <<< "$info"
+          grep -q "package: name='com.rechord.preview' " <<< "$info"
           grep -q "versionName='1.9.2.1'" <<< "$info"
           echo "Preview signer, package and version verified"
       - name: Upload Preview APK

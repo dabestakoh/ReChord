@@ -137,7 +137,7 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
-            applicationId = "com.dev.bitchord"
+            applicationId = "com.rechord.preview"
             resValue("string", "app_name", "BitChord Preview")
         }
         create("prod") {
@@ -496,10 +496,10 @@ val verifyDevInstall = tasks.register("verifyDevInstall") {
             .drop(1)
             .mapNotNull { line -> line.split('\t').takeIf { it.size == 2 && it[1] == "device" }?.get(0) }
         serials.forEach { serial ->
-            logger.lifecycle("verifyDevInstall: compiling com.dev.bitchord on $serial")
+            logger.lifecycle("verifyDevInstall: compiling com.rechord.preview on $serial")
             ProcessBuilder(
                 adbPath, "-s", serial, "shell", "cmd", "package", "compile",
-                "-m", "verify", "-f", "com.dev.bitchord",
+                "-m", "verify", "-f", "com.rechord.preview",
             ).inheritIO().start().waitFor()
         }
     }
