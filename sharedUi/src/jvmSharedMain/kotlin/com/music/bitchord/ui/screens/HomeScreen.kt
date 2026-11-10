@@ -191,7 +191,9 @@ fun HomeScreen(
             },
         ) {
             if (title != null) {
-                item { HomeTitle(title, festiveLogo = festiveLogo, onFestiveLogoClick = onFestiveLogoClick) }
+                // Reserve the feed's original breathing room while the wordmark
+                // lives in the top bar beside the account avatar.
+                item(key = "home-header-space") { Spacer(Modifier.height(72.dp)) }
             }
             if (!signedIn && onSignIn != null) {
                 item {
