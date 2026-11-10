@@ -764,7 +764,7 @@ fun DetailScreen(
                     // already the largest thing on the page — Apple Music
                     // numbers those rows instead, and so does this.
                     val numbered = page.type == BrowseType.ALBUM
-                    val isCurrentRow = remember(queue, currentSong) { playingRowMatcher(queue, currentSong) }
+                    val isCurrentRow = playingRowMatcher(queue, currentSong)
                     if (matches.isEmpty() && state.data.isNotEmpty()) {
                         item(key = "no-matches") {
                             MessageState(stringResource(R.string.nothing_matches, query))
