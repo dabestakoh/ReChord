@@ -1515,13 +1515,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         val existing = (page.songs as? UiState.Success)?.data.orEmpty()
                         if (!update.complete && existing.size > update.songs.size) page
-                        else if (update.complete && page.continuation == null &&
-                            existing == update.songs) page
-                        else page.copy(
-                            songs = if (update.songs.isEmpty()) UiState.Error(text(R.string.no_tracks_here))
-                                else UiState.Success(update.songs.withArtwork(page.thumbnailUrl)),
-                            continuation = update.continuation,
-                        )
+                        else {
+                            // YouTube Music can change a playlist's collage
+                            // after a song is removed. The snapshot already
+                            // saves the new URL; it must also reach the page.
+                            // Missing server metadata is never a reason to
+                            // erase a valid cover or title.
+                            val art = if (update.complete) {
+                                update.thumbnailUrl?.takeIf(String::isNotBlank) ?: page.thumbnailUrl
+                            } else page.thumbnailUrl
+                            val title = if (update.complete) {
+                                update.title?.takeIf(String::isNotBlank) ?: page.title
+                            } else page.title
+                            val subtitle = if (update.complete) {
+                                update.subtitle?.takeIf(String::isNotBlank) ?: page.subtitle
+                            } else page.subtitle
+                            if (update.complete && page.continuation == null &&
+                                existing == update.songs && art == page.thumbnailUrl &&
+                                title == page.title && subtitle == page.subtitle) page
+                            else page.copy(
+                                songs = if (update.songs.isEmpty()) UiState.Error(text(R.string.no_tracks_here))
+                                    else UiState.Success(update.songs.withArtwork(art)),
+                                continuation = update.continuation,
+                                thumbnailUrl = art,
+                                title = title,
+                                subtitle = subtitle,
+                            )
+                        }
                     }
                 }
             }
@@ -2865,7 +2885,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             else UiState.Success(cachedPlaylist.songs.withArtwork(current.thumbnailUrl)),
                         title = if (current.title.isBlank()) cachedPlaylist.title ?: current.title else current.title,
                         subtitle = if (current.subtitle.isBlank()) cachedPlaylist.subtitle ?: current.subtitle else current.subtitle,
-                        thumbnailUrl = current.thumbnailUrl ?: cachedPlaylist.thumbnailUrl,
+                        thumbnailUrl = cachedPlaylist.thumbnailUrl?.takeIf(String::isNotBlank) ?: current.thumbnailUrl,
                         continuation = null,
                     )
                 }

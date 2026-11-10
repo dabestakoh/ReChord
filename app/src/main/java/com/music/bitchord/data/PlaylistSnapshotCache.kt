@@ -73,6 +73,10 @@ object PlaylistSnapshotCache {
         val continuation: String?,
         val complete: Boolean,
         val owned: Boolean?,
+        // Metadata is only authoritative after a complete successful scan.
+        val title: String? = null,
+        val subtitle: String? = null,
+        val thumbnailUrl: String? = null,
     )
     private data class Key(val listener: String, val browseId: String)
 
@@ -238,6 +242,9 @@ object PlaylistSnapshotCache {
             updatesFlow.emit(Update(
                 key.listener, key.browseId, newSnapshot.songs, continuation = null,
                 complete = true, owned = newSnapshot.owned,
+                title = newSnapshot.title,
+                subtitle = newSnapshot.subtitle,
+                thumbnailUrl = newSnapshot.thumbnailUrl,
             ))
         } else if (changed == false) {
             Log.d(TAG, "Complete playlist verified; no visible changes")
