@@ -49,6 +49,7 @@ object PlaylistSnapshotCache {
     private const val TAG = "PlaylistSnapshotCache"
     const val REVALIDATE_AFTER_MS = 6L * 60 * 60 * 1000
     private const val METADATA_PROBE_AFTER_MS = 2L * 60 * 1000
+    private const val RETURN_FULL_CHECK_COOLDOWN_MS = 15L * 1000
     private const val RECENT_DAYS = 7L
     private const val MAX_IDLE_MS = 30L * 24 * 60 * 60 * 1000
     private const val MAX_CACHE_BYTES = 96L * 1024 * 1024
@@ -86,6 +87,7 @@ object PlaylistSnapshotCache {
     private val revisions = ConcurrentHashMap<Key, AtomicLong>()
     private val jobs = ConcurrentHashMap<Key, Job>()
     private val lastMetadataProbe = ConcurrentHashMap<Key, Long>()
+    private val lastReturnFullCheck = ConcurrentHashMap<Key, Long>()
     private val updatesFlow = MutableSharedFlow<Update>(
         extraBufferCapacity = 128,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -156,6 +158,19 @@ object PlaylistSnapshotCache {
     ) {
         if (activeListener(context) != key.listener) return
         val cached = read(context, key.listener, key.browseId)
+        // Only throttle the costly app-return full scan. The Library feed,
+        // ordinary metadata probes, manual refresh and six-hour verification
+        // remain independent. Same-playlist active jobs already deduplicate.
+        val now = System.currentTimeMillis()
+        if (checkOnReturn && !force && cached != null &&
+            now - cached.checkedAt in 0 until REVALIDATE_AFTER_MS
+        ) {
+            if (!PlaylistMetadata.shouldRunReturnCheck(
+                    now, lastReturnFullCheck[key], RETURN_FULL_CHECK_COOLDOWN_MS
+                )
+            ) return
+            lastReturnFullCheck[key] = now
+        }
         val startedRevision = revision(key).get()
         var firstPageToScan = firstPage
         // A short header probe can notice additions/removals before the six-hour
@@ -247,6 +262,9 @@ object PlaylistSnapshotCache {
                 }
             }
         }
+        // Use the time of successful verification, not only its start:
+        // long playlists should not trigger another full scan immediately.
+        if (changed != null && checkOnReturn) lastReturnFullCheck[key] = System.currentTimeMillis()
         if (changed == true) {
             Log.d(TAG, "Complete playlist refresh changed visible content")
             updatesFlow.emit(Update(
@@ -290,6 +308,7 @@ object PlaylistSnapshotCache {
         val key = Key(listener, browseId)
         revision(key).incrementAndGet()
         lastMetadataProbe.remove(key)
+        lastReturnFullCheck.remove(key)
         scope.launch {
             synchronized(lock(key)) {
                 memory.remove(key)

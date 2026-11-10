@@ -54,6 +54,16 @@ class PlaylistMetadataTest {
             listOf(song("a"), song("b")), listOf(song("b"), song("a"))))
     }
 
+    @Test fun returnCooldownPreventsRapidDuplicateFullScans() {
+        assertTrue(PlaylistMetadata.shouldRunReturnCheck(100_000L, null, 15_000L))
+        assertFalse(PlaylistMetadata.shouldRunReturnCheck(110_000L, 100_000L, 15_000L))
+        assertTrue(PlaylistMetadata.shouldRunReturnCheck(115_000L, 100_000L, 15_000L))
+    }
+
+    @Test fun returnCooldownRecoversFromClockMovingBackward() {
+        assertTrue(PlaylistMetadata.shouldRunReturnCheck(50_000L, 100_000L, 15_000L))
+    }
+
     @Test fun countChangeTriggersRefresh() {
         assertTrue(PlaylistMetadata.hasChanged(listOf(song("a"), song("b")), "3 songs"))
     }

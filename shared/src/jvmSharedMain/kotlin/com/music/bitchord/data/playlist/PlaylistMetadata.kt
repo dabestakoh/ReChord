@@ -45,6 +45,10 @@ object PlaylistMetadata {
         }
     }
 
+    /** Avoid consecutive full scans after a quick app switch; tolerate clock resets. */
+    fun shouldRunReturnCheck(now: Long, previous: Long?, cooldownMs: Long): Boolean =
+        previous == null || now < previous || now - previous >= cooldownMs
+
     fun hasChanged(songs: List<Song>, headerSubtitle: String?): Boolean {
         val summary = fromHeader(headerSubtitle)
         if (summary.count != null && summary.count != songs.size) return true
