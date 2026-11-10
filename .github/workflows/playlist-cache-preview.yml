@@ -23,6 +23,36 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android NDK with retry for corrupt SDK downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="27.0.12077973"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "::error::Android SDK location is not configured"
+            exit 1
+          fi
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+          fi
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::Android sdkmanager was not found"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "ndk;$NDK_VERSION" &&
+               [ -x "$SDK_ROOT/ndk/$NDK_VERSION/ndk-build" ]; then
+              echo "Verified Android NDK $NDK_VERSION"
+              exit 0
+            fi
+            echo "::warning::NDK installation failed (attempt $attempt/3); cleaning partial installation"
+            rm -rf "$SDK_ROOT/ndk/$NDK_VERSION"
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          echo "::error::Unable to install Android NDK $NDK_VERSION after three attempts"
+          exit 1
       - name: Restore persistent Preview signing key
         shell: bash
         env:
