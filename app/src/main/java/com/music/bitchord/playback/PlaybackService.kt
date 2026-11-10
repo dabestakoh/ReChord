@@ -2290,7 +2290,7 @@ class PlaybackService : MediaLibraryService() {
                     val wasPlaying = activePlayer.playWhenReady
                     activePlayer.replaceMediaItem(currentIndex, targetMediaItem)
                     activePlayer.seekTo(currentIndex, pos)
-                    if (wasPlaying) activePlayer.play()
+                    if (wasPlaying && activePlayer.playWhenReady) activePlayer.play()
                     onSwapCommitted?.invoke()
                     refreshCustomLayouts()
                     swappingMediaId = null
@@ -2354,7 +2354,7 @@ class PlaybackService : MediaLibraryService() {
                 val pos = alignedPosition(activePlayer.currentPosition)
                 activePlayer.replaceMediaItem(currentIndex, targetMediaItem)
                 activePlayer.seekTo(currentIndex, pos)
-                if (wasPlaying) activePlayer.play()
+                if (wasPlaying && activePlayer.playWhenReady) activePlayer.play()
                 onSwapCommitted?.invoke()
                 onTrackBecameCurrent(
                     targetMediaItem,
