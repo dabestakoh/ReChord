@@ -1126,7 +1126,67 @@ object AudioCache {
      *    song. WebM, MP4 and FLAC pass, as [cachedContainerOf] reads them.
      */
     private fun keepsAddonCopy(key: String): Boolean =
-        !key.contains("#hifi") && isComplete(key) && containerOf(key) != null
+        isComplete(key) && containerOf(key) != null &&
+            (!key.contains("#hifi") || cachedFlacSource(key) != null)
+
+    /**
+     * A previously successful upgrade may be reused ONLY when the entire
+     * FLAC file survives on disk and its originating source remains enabled.
+     * No partial upgrade, unknown provenance, or other container is eligible.
+     */
+    private fun cachedFlacSource(key: String): String? {
+        if (!isComplete(key) || containerOf(key)?.first != "flac") return null
+        val id = runCatching {
+            cache.getContentMetadata(key).get(META_REUSABLE_FLAC_SOURCE, null as String?)
+        }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+        val source = SourceRegistry.config(id) ?: return null
+        return id.takeIf {
+            source.enabled && source.isComplete && SourceRegistry.permitsForPlayback(id)
+        }
+    }
+
+    /** Called only after a lossless upgrade was proved and committed. */
+    fun markSuccessfulFlacUpgrade(uri: Uri, sourceId: String?) {
+        if (!::cache.isInitialized || sourceId.isNullOrBlank() ||
+            QualityUpgrade.cacheTag(uri)?.startsWith("hifi") != true) return
+        val key = keyFactory.buildCacheKey(DataSpec(uri))
+        runCatching {
+            cache.applyContentMetadataMutations(
+                key,
+                ContentMetadataMutations().set(META_REUSABLE_FLAC_SOURCE, sourceId),
+            )
+        }.onFailure {
+            TrackLog.d(TAG, "could not tag completed-upgrade candidate: ${it.message}")
+        }
+    }
+
+    private val replayingFlac = ConcurrentHashMap<String, String>()
+
+    /** An actual playback read has selected the verified disk-only FLAC. */
+    fun isReplayingCachedFlac(mediaId: String): Boolean =
+        replayingFlac.containsKey(mediaId)
+
+    private fun reusableFlacKey(uri: Uri): String? {
+        if (!::cache.isInitialized || uri.scheme != "bitchord" ||
+            uri.authority != "watch" || uri.getQueryParameter("q") != null ||
+            uri.getQueryParameter("direct_youtube") == "1" ||
+            uri.getQueryParameter("m") == "1" ||
+            SourceResolver.requestForNow() !is com.music.bitchord.data.sources.StreamRequest.Lossless
+        ) return null
+        val id = uri.getQueryParameter("v") ?: return null
+        if (OriginalVersion.isPinned(id) || id in Downloads.saved.value) return null
+        // Last generation is the latest successful candidate, not a sibling
+        // from an unrelated rendition or a failed audition.
+        return keysOf(id)
+            .filter { it == "$id#hifi" || it.startsWith("$id#hifi-") }
+            .filter { key ->
+                runCatching { cache.getContentMetadata(key).get(META_MEDIA_ID, null as String?) }
+                    .getOrNull() == id && cachedFlacSource(key) != null
+            }
+            .maxByOrNull { key ->
+                key.substringAfter("#hifi-","1").toIntOrNull() ?: 1
+            }
+    }
 
     /** The part of a cache key that names the track, before any `#rendition`; see [keyFactory]. */
     private fun cacheKeyBaseOf(mediaId: String): String =
@@ -1144,6 +1204,7 @@ object AudioCache {
         return if (mb >= 1024) "%.1f GB".format(Locale.ROOT, mb / 1024) else "%.1f MB".format(Locale.ROOT, mb)
     }
 
+    private const val META_REUSABLE_FLAC_SOURCE = "bc_reusable_flac_source"
     private const val META_ORIGIN = "bc_origin"
     private const val META_MEDIA_ID = "bc_media_id"
     private const val META_TITLE = "bc_title"
@@ -1186,16 +1247,43 @@ object AudioCache {
     fun playbackFactory(upstream: DataSource.Factory): DataSource.Factory = DataSource.Factory {
         val cacheDs = cacheFactory(upstream).createDataSource()
         val upstreamDs = upstream.createDataSource()
+        // Deliberately no upstream for a verified complete FLAC: an unexpected
+        // hole must fail closed, never append YouTube bytes to an old FLAC.
+        val diskOnlyDs = CacheDataSource.Factory().setCache(cache)
+            .setCacheKeyFactory(keyFactory).createDataSource()
         object : DataSource {
             private var activeDs: DataSource = cacheDs
 
             override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {
                 cacheDs.addTransferListener(transferListener)
                 upstreamDs.addTransferListener(transferListener)
+                diskOnlyDs.addTransferListener(transferListener)
             }
 
             override fun open(dataSpec: DataSpec): Long {
                 val scheme = dataSpec.uri.scheme
+                val id = dataSpec.uri.getQueryParameter("v")
+                if (id != null) replayingFlac.remove(id)
+                val cachedFlac = if (scheme == "bitchord" && dataSpec.position >= 0L)
+                    reusableFlacKey(dataSpec.uri) else null
+                if (cachedFlac != null) {
+                    // This explicit key routes *only this read* to the complete
+                    // FLAC; the queue/media URI and the other renditions stay
+                    // unchanged. No resolver or network connection is opened.
+                    val localSpec = dataSpec.buildUpon().setKey(cachedFlac).build()
+                    val opened = runCatching {
+                        activeDs = diskOnlyDs
+                        diskOnlyDs.open(localSpec)
+                    }
+                    if (opened.isSuccess) {
+                        if (id != null) replayingFlac[id] = cachedFlac
+                        TrackLog.d(TAG, "replaying verified FLAC from disk", about = id)
+                        return opened.getOrThrow()
+                    }
+                    // A deleted/invalid cache entry is never a playback blocker.
+                    runCatching { diskOnlyDs.close() }
+                    TrackLog.d(TAG, "cached FLAC unavailable; restoring ordinary stream", about = id)
+                }
                 activeDs = if (scheme == "file" || scheme == "content") {
                     upstreamDs
                 } else {

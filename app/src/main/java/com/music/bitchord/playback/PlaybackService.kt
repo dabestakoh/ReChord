@@ -4555,6 +4555,9 @@ class PlaybackService : MediaLibraryService() {
         val item = player.currentMediaItem ?: return
         val mediaId = item.mediaId
         val uri = item.localConfiguration?.uri
+        // The loader selected an entire FLAC from disk. No further
+        // catalogue search or "Upgrading Quality" request is necessary.
+        if (AudioCache.isReplayingCachedFlac(mediaId)) return
         val alreadyPending = QualityUpgrade.isPending(mediaId)
         val shelved = QualityUpgrade.shelvedFor(mediaId)
         if (shelved == null && !alreadyPending && !QualityUpgrade.couldStillUpgrade(mediaId, uri)) return
@@ -5013,6 +5016,9 @@ class PlaybackService : MediaLibraryService() {
             NerdStats.recordSource(mediaId, upgradedSourceName)
             player.seekTo(player.currentMediaItemIndex, now.position)
             player.prepare()
+            if (stream.format.isLossless == true) {
+                AudioCache.markSuccessfulFlacUpgrade(Uri.parse(upgradedUri), stream.sourceConfigId)
+            }
             QualityUpgrade.unshelve(mediaId)
             TrackLog.d("BitChord", "upgraded to ${stream.format.summary} at ${now.position}ms ($upgradedSourceName)")
             watchUpgrade(mediaId, now.uri, now.position, now.duration, previousFormat)
