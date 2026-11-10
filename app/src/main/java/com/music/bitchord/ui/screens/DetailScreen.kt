@@ -776,15 +776,18 @@ fun DetailScreen(
                     itemsIndexed(
                         items = matches,
                         key = { _, entry -> entry.value.setVideoId ?: "${entry.index}_${entry.value.videoId}" },
+                        contentType = { _, _ -> "track" },
                     ) { position, entry ->
                         val song = entry.value
                         val isCurrent = isCurrentRow(song)
+                        // Artwork fallback is identical for every scroll frame;
+                        // don't create another Song object on each recomposition.
+                        val displaySong = remember(song, numbered, page.thumbnailUrl) {
+                            if (numbered || song.thumbnailUrl != null || page.thumbnailUrl == null) song
+                            else song.copy(thumbnailUrl = page.thumbnailUrl)
+                        }
                         SongRow(
-                            song = if (numbered) {
-                                song
-                            } else {
-                                song.copy(thumbnailUrl = song.thumbnailUrl ?: page.thumbnailUrl)
-                            },
+                            song = displaySong,
                             onClick = {
                                 onSongClick(queue, position)
                             },

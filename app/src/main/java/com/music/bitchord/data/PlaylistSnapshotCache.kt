@@ -176,27 +176,26 @@ object PlaylistSnapshotCache {
             thumbnailUrl = first.header?.thumbnailUrl ?: cached?.thumbnailUrl,
             owned = first.owned ?: cached?.owned,
         )
-        val committed = withContext(Dispatchers.IO) {
+        val changed = withContext(Dispatchers.IO) {
             synchronized(lock(key)) {
                 if (startedRevision != revision(key).get() ||
-                    activeListener(context) != key.listener) false
+                    activeListener(context) != key.listener) null
                 else {
-                    // Compare entries, not just the count: additions and removals
-                    // of equal size, metadata changes and reorders all matter.
+                    // Persist the successful check time, but don't ask the UI to
+                    // rebuild the full playlist when nothing visible changed.
                     val previous = readLocked(context, key)
-                    if (previous == null || comparePlaylistSnapshots(previous.songs, dated).changed ||
-                        previous.owned != newSnapshot.owned || previous.title != newSnapshot.title
-                    ) {
-                        writeLocked(context, key, newSnapshot)
-                    } else {
-                        // No track changes: update the successful verification time.
-                        writeLocked(context, key, newSnapshot)
-                    }
-                    true
+                    val visibleChange = previous == null ||
+                        comparePlaylistSnapshots(previous.songs, dated).changed ||
+                        previous.owned != newSnapshot.owned ||
+                        previous.title != newSnapshot.title ||
+                        previous.subtitle != newSnapshot.subtitle ||
+                        previous.thumbnailUrl != newSnapshot.thumbnailUrl
+                    writeLocked(context, key, newSnapshot)
+                    visibleChange
                 }
             }
         }
-        if (committed) updatesFlow.emit(Update(
+        if (changed == true) updatesFlow.emit(Update(
             key.listener, key.browseId, newSnapshot.songs, continuation = null,
             complete = true, owned = newSnapshot.owned,
         ))

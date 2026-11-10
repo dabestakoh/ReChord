@@ -286,7 +286,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
         if (index == 1 && onMoodClick != null) {
             item(key = "find-your-mood") { FindYourMoodShelf(onMoodClick, onMoodsShowAll) }
         }
-        item(key = shelf.title + index) {
+        item(key = shelf.title + index, contentType = shelf.layout) {
             val openItem: (ShelfItem) -> Unit = { item -> onItemClick(item, shelf.title) }
             // Listen again and Quick picks are lists on the web player, as
             // Recents is here: one pager for all three.
@@ -335,6 +335,7 @@ private fun RecentShelf(
                 itemsIndexed(
                     items = recentColumns,
                     key = { index, column -> "recent-$index-${column.firstOrNull()?.videoId ?: column.firstOrNull()?.title.orEmpty()}" },
+                    contentType = { _, _ -> "recent-column" },
                 ) { _, column ->
                     Column(Modifier.width(columnWidth)) {
                         column.forEach { item ->
@@ -748,6 +749,15 @@ internal fun Shelf(
     Column(Modifier.padding(bottom = 26.dp)) {
         SectionHeader(shelf.title, shelf.subtitle)
         val isCurrentItem = remember(shelf.items, currentSong) { shelf.items.playingItemMatcher(currentSong) }
+        // Prefer a stable catalogue identity. Fall back to the original position
+        // only when a shelf actually repeats the same item identifier.
+        val cardKeys = remember(shelf.items) {
+            val ids = shelf.items.map { it.browseId ?: it.videoId ?: it.title }
+            val duplicates = ids.groupingBy { it }.eachCount()
+            ids.mapIndexed { index, id ->
+                if (duplicates[id] == 1) "card-$id" else "card-$id-$index"
+            }
+        }
         ShelfRow(
             contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -755,7 +765,8 @@ internal fun Shelf(
             leadingCard?.let { card -> item(key = "leading") { card() } }
             itemsIndexed(
                 items = shelf.items,
-                key = { index, item -> "card-$index-${item.browseId ?: item.videoId ?: item.title}" },
+                key = { index, _ -> cardKeys[index] },
+                contentType = { _, _ -> shelf.layout },
             ) { _, item ->
                 if (shelf.layout == ShelfLayout.VIDEO) {
                     VideoShelfCard(

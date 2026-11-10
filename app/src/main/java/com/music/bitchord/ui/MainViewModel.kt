@@ -1515,6 +1515,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         val existing = (page.songs as? UiState.Success)?.data.orEmpty()
                         if (!update.complete && existing.size > update.songs.size) page
+                        else if (update.complete && page.continuation == null &&
+                            existing == update.songs) page
                         else page.copy(
                             songs = if (update.songs.isEmpty()) UiState.Error(text(R.string.no_tracks_here))
                                 else UiState.Success(update.songs.withArtwork(page.thumbnailUrl)),
