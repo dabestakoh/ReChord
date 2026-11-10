@@ -163,7 +163,7 @@ object PlaylistSnapshotCache {
         // remain independent. Same-playlist active jobs already deduplicate.
         val now = System.currentTimeMillis()
         if (checkOnReturn && !force && cached != null &&
-            now - cached.checkedAt in 0 until REVALIDATE_AFTER_MS
+            now - cached.checkedAt in 0L until REVALIDATE_AFTER_MS
         ) {
             if (!PlaylistMetadata.shouldRunReturnCheck(
                     now, lastReturnFullCheck[key], RETURN_FULL_CHECK_COOLDOWN_MS
