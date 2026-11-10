@@ -1192,8 +1192,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = {
                     libraryStale = true
                     playlistCacheListener()?.let { listener ->
-                        PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
+                        val mutation = PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
                             rows.filterNot { it.setVideoId == setVideoId }
+                        }
+                        // Only after the local cache edit completes: avoid a
+                        // race where the server scan overwrites the removed row.
+                        // Failure keeps the existing art and complete cache.
+                        viewModelScope.launch {
+                            mutation.join()
+                            PlaylistSnapshotCache.requestSync(
+                                getApplication(), listener, browseId, force = true,
+                            ).join()
                         }
                     }
                     _detailStack.value = _detailStack.value.map { page ->

@@ -257,10 +257,10 @@ object PlaylistSnapshotCache {
         listener: String,
         browseId: String,
         transform: (List<Song>) -> List<Song>,
-    ) {
+    ): Job {
         val key = Key(listener, browseId)
         revision(key).incrementAndGet()
-        scope.launch {
+        return scope.launch {
             if (activeListener(context) != key.listener) return@launch
             val current: Snapshot
             val updated: Snapshot
