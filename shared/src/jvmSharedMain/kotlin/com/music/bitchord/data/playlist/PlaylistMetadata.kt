@@ -11,6 +11,7 @@ object PlaylistMetadata {
     private val countPattern = Regex("""(?i)\b([0-9][0-9,]*)\s+(?:songs?|tracks?)\b""")
     private val hoursPattern = Regex("""(?i)\b(\d+)\s*(?:hours?|hrs?|hr)\b""")
     private val minutesPattern = Regex("""(?i)\b(\d+)\s*(?:minutes?|mins?|min)\b""")
+    private val approximatePattern = Regex("""(?i)(?:\babout\b|\bover\b|\bmore than\b|\d\s*\+)""")
 
     data class Summary(val count: Int?, val durationSeconds: Long?)
 
@@ -19,12 +20,12 @@ object PlaylistMetadata {
         val count = countPattern.find(subtitle)?.groupValues?.get(1)
             ?.replace(",", "")?.toIntOrNull()
         // YouTube sometimes shows approximations like '6+ hours'; ignore those.
-        val approximate = Regex("""(?i)(?:\babout\b|\bover\b|\bmore than\b|\d\s*\+)""")
-            .containsMatchIn(subtitle)
+        val approximate = approximatePattern.containsMatchIn(subtitle)
         val hours = hoursPattern.find(subtitle)?.groupValues?.get(1)?.toLongOrNull()
         val minutes = minutesPattern.find(subtitle)?.groupValues?.get(1)?.toLongOrNull()
-        val duration = if (!approximate && (hours != null || minutes != null) &&
-            (minutes == null || minutes < 60L)) {
+        // An hours-only label is often rounded/truncated (e.g. "2 hours"
+        // can mean nearly 3). Never treat it as an exact duration.
+        val duration = if (!approximate && minutes != null && minutes < 60L) {
             (hours ?: 0L) * 3600L + (minutes ?: 0L) * 60L
         } else null
         return Summary(count, duration)

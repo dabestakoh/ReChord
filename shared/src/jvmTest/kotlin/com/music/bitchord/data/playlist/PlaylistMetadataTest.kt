@@ -19,6 +19,22 @@ class PlaylistMetadataTest {
         assertEquals(null, PlaylistMetadata.fromHeader("100 songs • 6+ hours").durationSeconds)
     }
 
+    @Test fun ignoresHoursOnlyDurationAsCoarseMetadata() {
+        assertEquals(null, PlaylistMetadata.fromHeader("2 songs • 3 hours").durationSeconds)
+        assertFalse(PlaylistMetadata.hasChanged(
+            listOf(song("a", "3:00"), song("b", "4:00")), "2 songs • 3 hours"))
+    }
+
+    @Test fun acceptsHourAndMinuteAbbreviations() {
+        assertEquals(PlaylistMetadata.Summary(2, 5400L),
+            PlaylistMetadata.fromHeader("2 tracks • 1 hr 30 min"))
+    }
+
+    @Test fun countStillDetectsChangesWithCoarseDuration() {
+        assertTrue(PlaylistMetadata.hasChanged(
+            listOf(song("a")), "2 songs • 3 hours"))
+    }
+
     @Test fun countChangeTriggersRefresh() {
         assertTrue(PlaylistMetadata.hasChanged(listOf(song("a"), song("b")), "3 songs"))
     }

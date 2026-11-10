@@ -2,6 +2,7 @@ package com.music.bitchord.data
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.Log
 import com.music.bitchord.auth.AuthStore
 import com.music.bitchord.data.model.ArtistRef
 import com.music.bitchord.data.model.PlaybackSourceType
@@ -45,6 +46,7 @@ import java.util.concurrent.atomic.AtomicLong
  * playlist or starting playback cannot invalidate a completed background scan.
  */
 object PlaylistSnapshotCache {
+    private const val TAG = "PlaylistSnapshotCache"
     const val REVALIDATE_AFTER_MS = 6L * 60 * 60 * 1000
     private const val METADATA_PROBE_AFTER_MS = 2L * 60 * 1000
     private const val RECENT_DAYS = 7L
@@ -151,9 +153,19 @@ object PlaylistSnapshotCache {
             val now = System.currentTimeMillis()
             val last = lastMetadataProbe[key] ?: 0L
             if (now - last < METADATA_PROBE_AFTER_MS) return
-            val probe = YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
-            lastMetadataProbe[key] = System.currentTimeMillis()
-            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)) return
+            // Record the attempt before calling the network. A failed request
+            // must not cause another request on every rapid re-open.
+            lastMetadataProbe[key] = now
+            val probe = YtMusicRepository.browseSongs(key.browseId).getOrNull()
+            if (probe == null) {
+                Log.d(TAG, "Playlist metadata probe failed; keeping complete cached songs")
+                return
+            }
+            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)) {
+                Log.d(TAG, "Playlist metadata unchanged or unavailable; retaining cache")
+                return
+            }
+            Log.d(TAG, "Playlist metadata differs; requesting complete refresh")
             firstPageToScan = probe // Reuse the first page; never fetch it twice.
         }
         val first = firstPageToScan ?: YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
@@ -210,10 +222,15 @@ object PlaylistSnapshotCache {
                 }
             }
         }
-        if (changed == true) updatesFlow.emit(Update(
-            key.listener, key.browseId, newSnapshot.songs, continuation = null,
-            complete = true, owned = newSnapshot.owned,
-        ))
+        if (changed == true) {
+            Log.d(TAG, "Complete playlist refresh changed visible content")
+            updatesFlow.emit(Update(
+                key.listener, key.browseId, newSnapshot.songs, continuation = null,
+                complete = true, owned = newSnapshot.owned,
+            ))
+        } else if (changed == false) {
+            Log.d(TAG, "Complete playlist verified; no visible changes")
+        }
     }
 
     /** Apply a confirmed local edit immediately and force the next full recheck. */
@@ -244,6 +261,7 @@ object PlaylistSnapshotCache {
     fun remove(context: Context, listener: String, browseId: String) {
         val key = Key(listener, browseId)
         revision(key).incrementAndGet()
+        lastMetadataProbe.remove(key)
         scope.launch {
             synchronized(lock(key)) {
                 memory.remove(key)
