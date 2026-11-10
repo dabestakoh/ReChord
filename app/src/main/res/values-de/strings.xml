@@ -344,6 +344,7 @@
     <string name="no_internet_connection">Keine Internetverbindung</string>
     <string name="youtube_request_rejected">YouTube Music hat die Anfrage abgelehnt. Versuche, dich erneut anzumelden.</string>
     <string name="something_went_wrong">Etwas ist schiefgelaufen</string>
+    <string name="playlist_edit_failed">Playlist konnte nicht aktualisiert werden. Bitte erneut versuchen.</string>
     <string name="unknown_artist">Unbekannter Künstler</string>
     <plurals name="downloads_failed_count">
         <item quantity="one">Downloads · %1$d fehlgeschlagen</item>

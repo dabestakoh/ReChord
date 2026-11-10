@@ -339,6 +339,7 @@
     <string name="no_internet_connection">インターネット接続がありません</string>
     <string name="youtube_request_rejected">YouTube Musicがリクエストを拒否しました。もう一度ログインしてみてください。</string>
     <string name="something_went_wrong">問題が発生しました</string>
+    <string name="playlist_edit_failed">プレイリストを更新できませんでした。もう一度お試しください。</string>
     <string name="unknown_artist">不明なアーティスト</string>
     <plurals name="downloads_failed_count">
         <item quantity="other">ダウンロード · %1$d件失敗</item>

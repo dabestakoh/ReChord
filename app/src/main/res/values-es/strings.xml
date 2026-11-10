@@ -357,6 +357,7 @@
     <string name="no_internet_connection">Sin conexión a Internet</string>
     <string name="youtube_request_rejected">YouTube Music rechazó la solicitud. Intenta iniciar sesión de nuevo.</string>
     <string name="something_went_wrong">Algo salió mal</string>
+    <string name="playlist_edit_failed">No se pudo actualizar la lista. Inténtalo de nuevo.</string>
     <string name="unknown_artist">Artista desconocido</string>
     <plurals name="downloads_failed_count">
         <item quantity="one">Descargas · %1$d fallida</item>

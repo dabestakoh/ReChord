@@ -344,6 +344,7 @@
     <string name="no_internet_connection">इंटरनेट कनेक्शन नहीं है</string>
     <string name="youtube_request_rejected">YouTube Music ने अनुरोध अस्वीकार कर दिया। फिर से साइन इन करने की कोशिश करें।</string>
     <string name="something_went_wrong">कुछ गड़बड़ हो गई</string>
+    <string name="playlist_edit_failed">प्लेलिस्ट अपडेट नहीं हो सकी। फिर से कोशिश करें।</string>
     <string name="unknown_artist">अज्ञात कलाकार</string>
     <plurals name="downloads_failed_count">
         <item quantity="one">डाउनलोड · %1$d विफल</item>

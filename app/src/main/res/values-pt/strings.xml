@@ -346,6 +346,7 @@
     <string name="no_internet_connection">Sem conexão com a internet</string>
     <string name="youtube_request_rejected">O YouTube Music rejeitou a solicitação. Tente fazer login novamente.</string>
     <string name="something_went_wrong">Algo deu errado</string>
+    <string name="playlist_edit_failed">Não foi possível atualizar a playlist. Tente novamente.</string>
     <string name="unknown_artist">Artista desconhecido</string>
     <string name="your_playlists">Suas playlists</string>
     <string name="who_can_see_it">Quem pode ver isso</string>

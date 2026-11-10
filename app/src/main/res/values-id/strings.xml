@@ -339,6 +339,7 @@
     <string name="no_internet_connection">Tidak ada koneksi internet</string>
     <string name="youtube_request_rejected">YouTube Music menolak permintaan ini. Coba masuk lagi.</string>
     <string name="something_went_wrong">Terjadi kesalahan</string>
+    <string name="playlist_edit_failed">Gagal memperbarui playlist. Coba lagi.</string>
     <string name="unknown_artist">Artis tidak dikenal</string>
     <plurals name="downloads_failed_count">
         <item quantity="other">Unduhan · %1$d gagal</item>

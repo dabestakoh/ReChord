@@ -354,6 +354,7 @@
     <string name="no_internet_connection">Нет подключения к интернету</string>
     <string name="youtube_request_rejected">YouTube Music отклонил запрос. Попробуйте войти снова.</string>
     <string name="something_went_wrong">Что-то пошло не так</string>
+    <string name="playlist_edit_failed">Не удалось обновить плейлист. Попробуйте ещё раз.</string>
     <string name="unknown_artist">Неизвестный исполнитель</string>
     <plurals name="downloads_failed_count">
         <item quantity="one">Загрузки · %1$d файл не загружен</item>
