@@ -27,7 +27,16 @@ Compatible third-party add-on servers can supply music search and playback strea
 
 ## Screenshots
 
-The Home, Now Playing, and Settings screens are shown in the project's Preview screenshot set. Screenshot image files are being prepared for inclusion in `docs/screenshots/`; the image gallery will appear here when those files are committed.
+<div align="center">
+  <table>
+    <tr><th>Home</th><th>Now Playing</th><th>Settings</th></tr>
+    <tr>
+      <td><img src="docs/screenshots/home.jpg" alt="ReChord Home screen" width="210" /></td>
+      <td><img src="docs/screenshots/now-playing.jpg" alt="ReChord Now Playing screen" width="210" /></td>
+      <td><img src="docs/screenshots/settings.jpg" alt="ReChord audio quality and Settings screen" width="210" /></td>
+    </tr>
+  </table>
+</div>
 
 ## Installation
 
