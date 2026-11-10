@@ -78,6 +78,7 @@ jobs:
             --tests 'com.music.bitchord.AddonPolicyTest' \
             --tests 'com.music.bitchord.DetailScreenQueueTest' \
             --tests 'com.music.bitchord.playback.PlaybackResumePolicyTest' \
+            --tests 'com.music.bitchord.playback.CachedFlacReusePolicyTest' \
             --build-cache --max-workers=3 --stacktrace
       - name: Assemble signed ARM64 Preview
         run: |

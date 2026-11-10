@@ -1136,12 +1136,21 @@ object AudioCache {
      */
     private fun cachedFlacSource(key: String): String? {
         if (!isComplete(key) || containerOf(key)?.first != "flac") return null
-        val id = runCatching {
-            cache.getContentMetadata(key).get(META_REUSABLE_FLAC_SOURCE, null as String?)
-        }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+        val meta = runCatching { cache.getContentMetadata(key) }.getOrNull() ?: return null
+        val id = meta.get(META_REUSABLE_FLAC_SOURCE, null as String?)
+            ?.takeIf(String::isNotBlank) ?: return null
+        // Never silently change between the listener's Stereo and Atmos
+        // preference just because a different rendition was cached earlier.
+        val requestedAtmos = if (DeviceCodecs.atmosWanted) "1" else "0"
+        val cachedAtmos = meta.get(META_REUSABLE_FLAC_ATMOS, null as String?)
         val source = SourceRegistry.config(id) ?: return null
         return id.takeIf {
-            source.enabled && source.isComplete && SourceRegistry.permitsForPlayback(id)
+            CachedFlacReusePolicy.mayReuse(
+                sourceEnabled = source.enabled,
+                sourceComplete = source.isComplete,
+                sourcePermitted = SourceRegistry.permitsForPlayback(id),
+                renditionMatchesPreference = cachedAtmos == requestedAtmos,
+            )
         }
     }
 
@@ -1153,7 +1162,9 @@ object AudioCache {
         runCatching {
             cache.applyContentMetadataMutations(
                 key,
-                ContentMetadataMutations().set(META_REUSABLE_FLAC_SOURCE, sourceId),
+                ContentMetadataMutations()
+                    .set(META_REUSABLE_FLAC_SOURCE, sourceId)
+                    .set(META_REUSABLE_FLAC_ATMOS, if (DeviceCodecs.atmosWanted) "1" else "0"),
             )
         }.onFailure {
             TrackLog.d(TAG, "could not tag completed-upgrade candidate: ${it.message}")
@@ -1205,6 +1216,7 @@ object AudioCache {
     }
 
     private const val META_REUSABLE_FLAC_SOURCE = "bc_reusable_flac_source"
+    private const val META_REUSABLE_FLAC_ATMOS = "bc_reusable_flac_atmos"
     private const val META_ORIGIN = "bc_origin"
     private const val META_MEDIA_ID = "bc_media_id"
     private const val META_TITLE = "bc_title"
