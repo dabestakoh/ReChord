@@ -331,6 +331,7 @@ import com.music.bitchord.ui.player.LocalPlayerDock
 import com.music.bitchord.ui.player.PlayerDock
 import com.music.bitchord.ui.screens.DetailScreen
 import com.music.bitchord.ui.screens.sortedForDetail
+import com.music.bitchord.ui.screens.songSortForBrowseId
 import com.music.bitchord.ui.screens.ExploreScreen
 import com.music.bitchord.ui.screens.LocalFolder
 import com.music.bitchord.ui.screens.LocalFolderState
@@ -965,7 +966,7 @@ private fun BitChordApp(
     // order never imposes itself on another, and every page keeps its own
     // across visits.
     val detailSongSorts by AppSettings.detailSongSorts.collectAsStateWithLifecycle()
-    val songSort = topDetail?.browseId?.let { detailSongSorts[it] } ?: SongSort.DEFAULT
+    val songSort = topDetail?.browseId?.let { songSortForBrowseId(it, detailSongSorts) } ?: SongSort.DEFAULT
     var songSortMenuOpen by remember { mutableStateOf(false) }
     // A device folder's equivalents — its sort and whether it is a grid —
     // kept apart for Downloads and shared by every other folder, as they
@@ -3339,7 +3340,9 @@ private fun BitChordApp(
                                 } else {
                                     null
                                 },
-                                songSort = songSort,
+                                // AnimatedContent keeps the exiting release composed after Back.
+                                // Resolve each page's own preference, not the new top page's.
+                                songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
                                 reorder = if (reordering != null) {

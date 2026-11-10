@@ -9,11 +9,25 @@ import com.music.bitchord.playback.QueueCoordinator.asQueueEntry
 import com.music.bitchord.playback.QueueSource
 import com.music.bitchord.ui.screens.matching
 import com.music.bitchord.ui.screens.sortedForDetail
+import com.music.bitchord.ui.screens.songSortForBrowseId
 import com.music.bitchord.data.settings.SongSort
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DetailScreenQueueTest {
+
+    @Test
+    fun `outgoing playlist retains its own sort when Back changes the top page`() {
+        val sorts = mapOf(
+            "VLfirst" to SongSort.DATE_ADDED_DESC,
+            "VLsecond" to SongSort.TITLE_ASC,
+        )
+        assertEquals(SongSort.DATE_ADDED_DESC, songSortForBrowseId("VLfirst", sorts))
+        assertEquals(SongSort.TITLE_ASC, songSortForBrowseId("VLsecond", sorts))
+        // An exiting page is still drawn by AnimatedContent after it leaves the stack.
+        assertEquals(SongSort.DATE_ADDED_DESC, songSortForBrowseId("VLfirst", sorts))
+        assertEquals(SongSort.DEFAULT, songSortForBrowseId("VLnot-saved", sorts))
+    }
 
     private fun testSong(
         id: String,

@@ -1284,6 +1284,12 @@ private fun DetailSearchField(
  * not expose reliable historical add timestamps; unindexed rows use the remote
  * playlist's current order as the initial baseline (front = newest).
  */
+/** Preserve per-playlist order while its page exits through AnimatedContent. */
+internal fun songSortForBrowseId(
+    browseId: String,
+    preferences: Map<String, SongSort>,
+): SongSort = preferences[browseId] ?: SongSort.DEFAULT
+
 internal fun List<Song>.sortedForDetail(sort: SongSort): List<Song> = when (sort) {
     SongSort.DEFAULT -> this
     SongSort.TITLE_ASC -> sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
