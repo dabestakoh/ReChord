@@ -764,7 +764,7 @@ fun DetailScreen(
                     // already the largest thing on the page — Apple Music
                     // numbers those rows instead, and so does this.
                     val numbered = page.type == BrowseType.ALBUM
-                    val isCurrentRow = playingRowMatcher(matches.map { it.value }, currentSong)
+                    val isCurrentRow = remember(queue, currentSong) { playingRowMatcher(queue, currentSong) }
                     if (matches.isEmpty() && state.data.isNotEmpty()) {
                         item(key = "no-matches") {
                             MessageState(stringResource(R.string.nothing_matches, query))
@@ -772,7 +772,7 @@ fun DetailScreen(
                     }
                     itemsIndexed(
                         items = matches,
-                        key = { _, entry -> "${entry.index}_${entry.value.videoId}" },
+                        key = { _, entry -> entry.value.setVideoId ?: "${entry.index}_${entry.value.videoId}" },
                     ) { position, entry ->
                         val song = entry.value
                         val isCurrent = isCurrentRow(song)
