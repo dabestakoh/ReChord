@@ -126,7 +126,15 @@ object PlaylistSnapshotCache {
             jobs[key]?.takeIf { it.isActive }?.let { return it }
             val appContext = context.applicationContext
             val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                sync(appContext, key, firstPage, force, checkOnReturn)
+                try {
+                    sync(appContext, key, firstPage, force, checkOnReturn)
+                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                    throw cancel // Cancellation is cooperative, never an error to swallow.
+                } catch (error: Exception) {
+                    // Keep the last complete snapshot and avoid an uncaught
+                    // exception from a fire-and-forget synchronization job.
+                    Log.w(TAG, "Playlist sync failed; keeping existing cache", error)
+                }
             }
             jobs[key] = job
             job.invokeOnCompletion { jobs.remove(key, job) }
