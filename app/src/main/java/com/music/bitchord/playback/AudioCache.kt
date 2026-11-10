@@ -1270,7 +1270,13 @@ object AudioCache {
                     // This explicit key routes *only this read* to the complete
                     // FLAC; the queue/media URI and the other renditions stay
                     // unchanged. No resolver or network connection is opened.
-                    val localSpec = dataSpec.buildUpon().setKey(cachedFlac).build()
+                    // Our cache-key factory derives video IDs from the URI
+                    // before considering DataSpec.key. Select the rendition
+                    // with its exact URI marker, not setKey (which would read
+                    // the YouTube/base entry instead).
+                    val rendition = cachedFlac.substringAfter("#", "")
+                    val localUri = Uri.parse(dataSpec.uri.toString() + "&q=" + rendition)
+                    val localSpec = dataSpec.buildUpon().setUri(localUri).build()
                     val opened = runCatching {
                         activeDs = diskOnlyDs
                         diskOnlyDs.open(localSpec)
