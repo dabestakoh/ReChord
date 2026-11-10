@@ -127,17 +127,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          notes="docs/releases/$RECHORD_TAG.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::Missing release notes: $notes"
+            exit 1
+          fi
           if gh release view "$RECHORD_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $RECHORD_TAG already exists; keeping it immutable."
+            # A previously published build is immutable, but its release notes
+            # can be clarified without changing the APKs or tag.
+            gh release edit "$RECHORD_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "ReChord $RECHORD_VERSION" --notes-file "$notes"
+            echo "Updated existing release notes; APK assets unchanged."
             exit 0
           fi
           if git ls-remote --exit-code --tags origin "refs/tags/$RECHORD_TAG" >/dev/null 2>&1; then
             echo "::error::Tag $RECHORD_TAG exists without a release. Manual review required."
-            exit 1
-          fi
-          notes="docs/releases/$RECHORD_TAG.md"
-          if [ ! -f "$notes" ]; then
-            echo "::error::Missing release notes: $notes"
             exit 1
           fi
           gh release create "$RECHORD_TAG" release-assets/* \
