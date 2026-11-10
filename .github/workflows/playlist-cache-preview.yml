@@ -1,8 +1,8 @@
-name: ReChord Preview 1.9.2.2 Playlist Sync
+name: ReChord Preview 1.9.2.3 Safe Optimizations
 
 on:
   push:
-    branches: [feature/playlist-lightweight-sync-preview]
+    branches: [feature/1.9.2.3-safe-optimizations]
   workflow_dispatch:
 
 concurrency:
@@ -76,12 +76,12 @@ jobs:
           fi
           info=$("$TOOLS/aapt" dump badging "${apks[0]}")
           grep -q "package: name='com.rechord.preview' " <<< "$info"
-          grep -q "versionName='1.9.2.2'" <<< "$info"
+          grep -q "versionName='1.9.2.3'" <<< "$info"
           echo "Preview signer, package and version verified"
       - name: Upload Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: ReChord-Preview-1.9.2.2-lightweight-playlist-sync-arm64
+          name: ReChord-Preview-1.9.2.3-safe-optimizations-arm64
           path: app/build/outputs/apk/dev/debug/*arm64-v8a*.apk
           if-no-files-found: error
           compression-level: 0

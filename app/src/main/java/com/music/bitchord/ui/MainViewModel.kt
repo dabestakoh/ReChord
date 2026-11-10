@@ -2980,6 +2980,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Check for external edits after returning to an already open playlist.
+     * A failed check never replaces cached rows or modifies playback.
+     */
+    fun checkPlaylistAfterExternalReturn(browseId: String) {
+        if (!PlaylistSnapshotCache.isPlaylist(browseId)) return
+        val listener = playlistCacheListener() ?: return
+        PlaylistSnapshotCache.requestSync(
+            getApplication(), listener, browseId, checkOnReturn = true,
+        )
+    }
+
     /** Force a fresh server comparison while retaining the current playable rows. */
     fun refreshPlaylist(browseId: String) {
         if (!PlaylistSnapshotCache.isPlaylist(browseId)) return

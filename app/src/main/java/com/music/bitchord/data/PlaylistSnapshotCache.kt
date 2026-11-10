@@ -119,13 +119,14 @@ object PlaylistSnapshotCache {
         browseId: String,
         firstPage: YtMusicRepository.SongPage? = null,
         force: Boolean = false,
+        checkOnReturn: Boolean = false,
     ): Job {
         val key = Key(listener, browseId)
         synchronized(jobs) {
             jobs[key]?.takeIf { it.isActive }?.let { return it }
             val appContext = context.applicationContext
             val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                sync(appContext, key, firstPage, force)
+                sync(appContext, key, firstPage, force, checkOnReturn)
             }
             jobs[key] = job
             job.invokeOnCompletion { jobs.remove(key, job) }
@@ -139,6 +140,7 @@ object PlaylistSnapshotCache {
         key: Key,
         firstPage: YtMusicRepository.SongPage?,
         force: Boolean,
+        checkOnReturn: Boolean,
     ) {
         if (activeListener(context) != key.listener) return
         val cached = read(context, key.listener, key.browseId)
@@ -152,7 +154,7 @@ object PlaylistSnapshotCache {
         ) {
             val now = System.currentTimeMillis()
             val last = lastMetadataProbe[key] ?: 0L
-            if (now - last < METADATA_PROBE_AFTER_MS) return
+            if (!checkOnReturn && now - last < METADATA_PROBE_AFTER_MS) return
             // Record the attempt before calling the network. A failed request
             // must not cause another request on every rapid re-open.
             lastMetadataProbe[key] = now
@@ -161,7 +163,8 @@ object PlaylistSnapshotCache {
                 Log.d(TAG, "Playlist metadata probe failed; keeping complete cached songs")
                 return
             }
-            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)) {
+            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle) &&
+                !(checkOnReturn && PlaylistMetadata.firstPageChanged(cached.songs, probe.songs))) {
                 Log.d(TAG, "Playlist metadata unchanged or unavailable; retaining cache")
                 return
             }
