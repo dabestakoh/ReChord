@@ -175,12 +175,22 @@ object PlaylistSnapshotCache {
                 Log.d(TAG, "Playlist metadata probe failed; keeping complete cached songs")
                 return
             }
-            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle) &&
-                !(checkOnReturn && PlaylistMetadata.firstPageChanged(cached.songs, probe.songs))) {
+            val metadataChanged = PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)
+            val firstPageChanged = checkOnReturn &&
+                PlaylistMetadata.firstPageChanged(cached.songs, probe.songs)
+            if (!checkOnReturn && !metadataChanged) {
                 Log.d(TAG, "Playlist metadata unchanged or unavailable; retaining cache")
                 return
             }
-            Log.d(TAG, "Playlist metadata differs; requesting complete refresh")
+            // On a genuine app return, a removal can be anywhere in a large
+            // playlist, not just in its header or first page. Verify the entire
+            // list instead of assuming no change. The cache remains visible
+            // until all continuations succeed; incomplete scans are discarded.
+            if (checkOnReturn && !metadataChanged && !firstPageChanged) {
+                Log.d(TAG, "External return: verifying complete playlist for deeper edits")
+            } else {
+                Log.d(TAG, "Playlist change detected; requesting complete refresh")
+            }
             firstPageToScan = probe // Reuse the first page; never fetch it twice.
         }
         val first = firstPageToScan ?: YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
