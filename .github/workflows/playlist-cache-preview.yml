@@ -1,8 +1,8 @@
-name: ReChord Preview 1.9.2.1 Playlist Cache
+name: ReChord Preview 1.9.2.2 Playlist Sync
 
 on:
   push:
-    branches: [feature/playlist-cache-1.9.2.1]
+    branches: [feature/playlist-lightweight-sync-preview]
   workflow_dispatch:
 
 concurrency:
@@ -42,6 +42,7 @@ jobs:
           chmod +x gradlew
           ./gradlew :shared:jvmTest --tests 'com.music.bitchord.data.playlist.PlaylistIndexBuilderTest' \
             --tests 'com.music.bitchord.data.playlist.PlaylistChronologyTest' \
+            --tests 'com.music.bitchord.data.playlist.PlaylistMetadataTest' \
             --build-cache --max-workers=3 --stacktrace
           ./gradlew :app:testDevDebugUnitTest --tests 'com.music.bitchord.AddonSourceTest' \
             --tests 'com.music.bitchord.AddonPolicyTest' \
@@ -75,12 +76,12 @@ jobs:
           fi
           info=$("$TOOLS/aapt" dump badging "${apks[0]}")
           grep -q "package: name='com.rechord.preview' " <<< "$info"
-          grep -q "versionName='1.9.2.1'" <<< "$info"
+          grep -q "versionName='1.9.2.2'" <<< "$info"
           echo "Preview signer, package and version verified"
       - name: Upload Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: ReChord-Preview-1.9.2.1-branding-playlist-arm64
+          name: ReChord-Preview-1.9.2.2-lightweight-playlist-sync-arm64
           path: app/build/outputs/apk/dev/debug/*arm64-v8a*.apk
           if-no-files-found: error
           compression-level: 0

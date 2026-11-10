@@ -9,6 +9,7 @@ import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.playlist.PlaylistIndexBuilder
 import com.music.bitchord.data.playlist.preservePlaylistAddedOrder
 import com.music.bitchord.data.playlist.comparePlaylistSnapshots
+import com.music.bitchord.data.playlist.PlaylistMetadata
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -45,6 +46,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object PlaylistSnapshotCache {
     const val REVALIDATE_AFTER_MS = 6L * 60 * 60 * 1000
+    private const val METADATA_PROBE_AFTER_MS = 2L * 60 * 1000
     private const val RECENT_DAYS = 7L
     private const val MAX_IDLE_MS = 30L * 24 * 60 * 60 * 1000
     private const val MAX_CACHE_BYTES = 96L * 1024 * 1024
@@ -77,6 +79,7 @@ object PlaylistSnapshotCache {
     private val locks = ConcurrentHashMap<Key, Any>()
     private val revisions = ConcurrentHashMap<Key, AtomicLong>()
     private val jobs = ConcurrentHashMap<Key, Job>()
+    private val lastMetadataProbe = ConcurrentHashMap<Key, Long>()
     private val updatesFlow = MutableSharedFlow<Update>(
         extraBufferCapacity = 128,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -137,11 +140,23 @@ object PlaylistSnapshotCache {
     ) {
         if (activeListener(context) != key.listener) return
         val cached = read(context, key.listener, key.browseId)
+        val startedRevision = revision(key).get()
+        var firstPageToScan = firstPage
+        // A short header probe can notice additions/removals before the six-hour
+        // full recheck. A matching or unavailable summary is NOT a full
+        // verification; it never advances cached.checkedAt.
         if (!force && firstPage == null && cached != null &&
             System.currentTimeMillis() - cached.checkedAt < REVALIDATE_AFTER_MS
-        ) return
-        val startedRevision = revision(key).get()
-        val first = firstPage ?: YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
+        ) {
+            val now = System.currentTimeMillis()
+            val last = lastMetadataProbe[key] ?: 0L
+            if (now - last < METADATA_PROBE_AFTER_MS) return
+            val probe = YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
+            lastMetadataProbe[key] = System.currentTimeMillis()
+            if (!PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)) return
+            firstPageToScan = probe // Reuse the first page; never fetch it twice.
+        }
+        val first = firstPageToScan ?: YtMusicRepository.browseSongs(key.browseId).getOrNull() ?: return
         val builder = PlaylistIndexBuilder()
         if (!builder.addPage(first.songs, first.continuation)) return
 
