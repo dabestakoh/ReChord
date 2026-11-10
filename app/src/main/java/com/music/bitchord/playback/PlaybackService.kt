@@ -2290,7 +2290,7 @@ class PlaybackService : MediaLibraryService() {
                     val wasPlaying = activePlayer.playWhenReady
                     activePlayer.replaceMediaItem(currentIndex, targetMediaItem)
                     activePlayer.seekTo(currentIndex, pos)
-                    if (wasPlaying && activePlayer.playWhenReady) activePlayer.play()
+                    if (PlaybackResumePolicy.shouldResume(wasPlaying, activePlayer.playWhenReady)) activePlayer.play()
                     onSwapCommitted?.invoke()
                     refreshCustomLayouts()
                     swappingMediaId = null
@@ -2354,7 +2354,7 @@ class PlaybackService : MediaLibraryService() {
                 val pos = alignedPosition(activePlayer.currentPosition)
                 activePlayer.replaceMediaItem(currentIndex, targetMediaItem)
                 activePlayer.seekTo(currentIndex, pos)
-                if (wasPlaying && activePlayer.playWhenReady) activePlayer.play()
+                if (PlaybackResumePolicy.shouldResume(wasPlaying, activePlayer.playWhenReady)) activePlayer.play()
                 onSwapCommitted?.invoke()
                 onTrackBecameCurrent(
                     targetMediaItem,
@@ -2369,7 +2369,7 @@ class PlaybackService : MediaLibraryService() {
             // Sync playback position with exact live position right before starting playback on standby
             standbyPlayer.seekTo(currentIndex, alignedPosition(activePlayer.currentPosition))
 
-            val willPlay = wasPlaying && activePlayer.playWhenReady
+            val willPlay = PlaybackResumePolicy.shouldResume(wasPlaying, activePlayer.playWhenReady)
             if (willPlay) {
                 // Start it right away rather than waiting the seek out first:
                 // the outgoing player keeps running through every one of these
@@ -2663,7 +2663,7 @@ class PlaybackService : MediaLibraryService() {
         swappingMediaId = song.videoId
         activePlayer.replaceMediaItem(index, song.toDirectYouTubeMediaItem())
         activePlayer.seekTo(index, position)
-        if (wasPlaying) activePlayer.play()
+        if (PlaybackResumePolicy.shouldResume(wasPlaying, activePlayer.playWhenReady)) activePlayer.play()
         refreshCustomLayouts()
     }
 
@@ -2699,7 +2699,7 @@ class PlaybackService : MediaLibraryService() {
 
         activePlayer.replaceMediaItem(index, targetSong.toMediaItem())
         activePlayer.seekTo(index, position)
-        if (wasPlaying) activePlayer.play()
+        if (PlaybackResumePolicy.shouldResume(wasPlaying, activePlayer.playWhenReady)) activePlayer.play()
         refreshCustomLayouts()
     }
 

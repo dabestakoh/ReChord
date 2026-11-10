@@ -1,6 +1,7 @@
 package com.music.bitchord.ui
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.music.bitchord.R
@@ -1068,6 +1069,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * track's menu — one request, so it can't half-succeed into an empty
      * playlist the user has to add to again.
      */
+    /** A failed edit keeps local data unchanged and gives a retry hint. */
+    private fun showPlaylistEditFailure() {
+        Toast.makeText(getApplication(), R.string.playlist_edit_failed, Toast.LENGTH_SHORT).show()
+    }
+
     fun createPlaylist(title: String, privacy: PlaylistPrivacy, song: Song? = null) {
         if (!requireSignIn()) return
         val name = title.trim().ifBlank { text(R.string.new_playlist) }
@@ -1113,7 +1119,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         ) + items.filterNot { it.browseId == created.browseId }
                     }
                 },
-                onFailure = {},
+                onFailure = { showPlaylistEditFailure() },
             )
         }
     }
@@ -1218,7 +1224,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 },
-                onFailure = {},
+                onFailure = { showPlaylistEditFailure() },
             )
         }
     }
@@ -1259,7 +1265,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     appendToOpenPlaylist(browseId, song, added[song.videoId])
                 },
-                onFailure = {},
+                onFailure = { showPlaylistEditFailure() },
             )
         }
     }
@@ -1329,7 +1335,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     setPlaylistTitle(playlist, name)
                     libraryStale = true
                 },
-                onFailure = {},
+                onFailure = { showPlaylistEditFailure() },
             )
         }
     }
@@ -1411,7 +1417,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     navigator.onDetailStackShrunk(_detailStack.value.size)
                     libraryStale = true
                 },
-                onFailure = {},
+                onFailure = { showPlaylistEditFailure() },
             )
         }
     }
