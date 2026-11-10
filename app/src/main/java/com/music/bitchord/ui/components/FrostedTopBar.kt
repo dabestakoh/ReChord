@@ -179,6 +179,8 @@ fun FrostedTopBar(
      * Root tabs have no back button there for it to collide with.
      */
     accessory: (@Composable () -> Unit)? = null,
+    /** Home's wordmark shares the same vertically centered bar as the account avatar. */
+    leading: (@Composable () -> Unit)? = null,
     actions: @Composable () -> Unit = {},
 ) {
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
@@ -312,8 +314,15 @@ fun FrostedTopBar(
                     }
                 }
             }
-            // No wordmark at the leading end: the root tabs carry it above
-            // their large heading instead (LargePageTitle in :sharedUi).
+            if (leading != null && onBack == null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = BAR_GUTTER),
+                    contentAlignment = Alignment.Center,
+                ) { leading() }
+            }
+            // The Home wordmark uses this same bar's vertical center as the account avatar.
             // The accessory takes everything from the leading gutter up to the
             // actions, which keep their own width at the trailing end.
             val edge = if (useFloatingChrome) BAR_GUTTER else 4.dp
