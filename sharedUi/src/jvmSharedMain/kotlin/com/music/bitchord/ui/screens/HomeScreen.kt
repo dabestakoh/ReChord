@@ -324,7 +324,8 @@ private fun RecentShelf(
 ) {
     Column(Modifier.padding(bottom = 26.dp)) {
         RecentSectionHeader(title = localizeShelfTitle(shelf.title), subtitle = localizeShelfSubtitle(shelf.subtitle))
-        val isCurrentItem = shelf.items.playingItemMatcher(currentSong)
+        val isCurrentItem = remember(shelf.items, currentSong) { shelf.items.playingItemMatcher(currentSong) }
+        val recentColumns = remember(shelf.items) { shelf.items.chunked(RECENT_TRACKS_PER_COLUMN) }
         BoxWithConstraints {
             val columnWidth = trackColumnWidth(maxWidth)
             ShelfRow(
@@ -332,7 +333,7 @@ private fun RecentShelf(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 itemsIndexed(
-                    items = shelf.items.chunked(RECENT_TRACKS_PER_COLUMN),
+                    items = recentColumns,
                     key = { index, column -> "recent-$index-${column.firstOrNull()?.videoId ?: column.firstOrNull()?.title.orEmpty()}" },
                 ) { _, column ->
                     Column(Modifier.width(columnWidth)) {
@@ -746,7 +747,7 @@ internal fun Shelf(
 ) {
     Column(Modifier.padding(bottom = 26.dp)) {
         SectionHeader(shelf.title, shelf.subtitle)
-        val isCurrentItem = shelf.items.playingItemMatcher(currentSong)
+        val isCurrentItem = remember(shelf.items, currentSong) { shelf.items.playingItemMatcher(currentSong) }
         ShelfRow(
             contentPadding = PaddingValues(horizontal = PAGE_GUTTER),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
