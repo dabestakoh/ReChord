@@ -385,6 +385,7 @@
     <string name="no_internet_connection">Không có kết nối internet</string>
     <string name="youtube_request_rejected">YouTube Music đã từ chối yêu cầu. Hãy thử đăng nhập lại.</string>
     <string name="something_went_wrong">Đã xảy ra lỗi</string>
+    <string name="playlist_edit_failed">Không thể cập nhật danh sách phát. Vui lòng thử lại.</string>
     <string name="unknown_artist">Nghệ sĩ không xác định</string>
     <plurals name="downloads_failed_count">
         <item quantity="other">Tải xuống · %1$d bài thất bại</item>

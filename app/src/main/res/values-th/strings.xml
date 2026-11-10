@@ -365,6 +365,7 @@
     <string name="no_internet_connection">ไม่มีการเชื่อมต่ออินเทอร์เน็ต</string>
     <string name="youtube_request_rejected">YouTube Music ปฏิเสธคำขอ ลองลงชื่อเข้าใช้อีกครั้ง</string>
     <string name="something_went_wrong">เกิดข้อผิดพลาดบางอย่าง</string>
+    <string name="playlist_edit_failed">อัปเดตเพลย์ลิสต์ไม่สำเร็จ โปรดลองอีกครั้ง</string>
     <string name="unknown_artist">ศิลปินที่ไม่ทราบชื่อ</string>
     <plurals name="downloads_failed_count">
         <item quantity="other">การดาวน์โหลด · ล้มเหลว %1$d รายการ</item>

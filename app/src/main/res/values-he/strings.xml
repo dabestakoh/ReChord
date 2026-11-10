@@ -345,6 +345,7 @@
     <string name="no_internet_connection">אין חיבור אינטרנט</string>
     <string name="youtube_request_rejected">YouTube Music דחתה את הבקשה. נסה להתחבר שוב.</string>
     <string name="something_went_wrong">משהו השתבש</string>
+    <string name="playlist_edit_failed">לא ניתן לעדכן את הפלייליסט. יש לנסות שוב.</string>
     <string name="unknown_artist">אמן לא ידוע</string>
     <string name="your_playlists">רשימות ההשמעה שלך</string>
     <string name="who_can_see_it">מי יכול לראות את זה</string>

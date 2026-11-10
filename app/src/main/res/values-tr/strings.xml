@@ -371,6 +371,7 @@
     <string name="no_internet_connection">İnternet bağlantısı yok</string>
     <string name="youtube_request_rejected">YouTube Music isteği reddetti. Tekrar giriş yapmayı deneyin.</string>
     <string name="something_went_wrong">Bir şeyler ters gitti</string>
+    <string name="playlist_edit_failed">Çalma listesi güncellenemedi. Tekrar deneyin.</string>
     <string name="unknown_artist">Bilinmeyen sanatçı</string>
     <plurals name="downloads_failed_count">
         <item quantity="one">İndirmeler · %1$d başarısız</item>

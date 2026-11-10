@@ -339,6 +339,7 @@
     <string name="no_internet_connection">無網路連線</string>
     <string name="youtube_request_rejected">YouTube Music 拒絕了此請求，請嘗試重新登入。</string>
     <string name="something_went_wrong">出了點問題</string>
+    <string name="playlist_edit_failed">無法更新播放清單，請再試一次。</string>
     <string name="unknown_artist">未知藝人</string>
     <plurals name="downloads_failed_count">
         <item quantity="other">下載 · %1$d 個失敗</item>
