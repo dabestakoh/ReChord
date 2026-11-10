@@ -3837,6 +3837,27 @@ private fun BitChordApp(
                         else -> null
                     },
                     modifier = Modifier.align(Alignment.TopCenter),
+                    leading = if (route == null && detail == null &&
+                        selectedMoodGenre == null && selectedTab == TAB_HOME
+                    ) {
+                        {
+                            val logoPainter = androidx.compose.ui.res.painterResource(R.drawable.ic_logo)
+                            if (diwaliFestive) {
+                                com.music.bitchord.ui.festive.GoldenLogo(
+                                    painter = logoPainter,
+                                    modifier = Modifier.size(36.dp),
+                                    onClick = { showDiwali = true },
+                                )
+                            } else {
+                                Icon(
+                                    painter = logoPainter,
+                                    contentDescription = "ReChord",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(36.dp),
+                                )
+                            }
+                        }
+                    } else null,
                     // Only on the Search tab itself, not on anything pushed over it.
                     accessory = if (
                         selectedTab == TAB_SEARCH && route == null && detail == null && selectedMoodGenre == null
