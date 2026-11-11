@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -286,6 +287,7 @@ private class DrawBackdropNode(
 
     private var graphicsLayer: GraphicsLayer? = null
     private var recordedSize: IntSize = IntSize.Zero
+    private var recordedWindowPosition: Offset? = null
     private var thawJob: kotlinx.coroutines.Job? = null
 
     private fun scheduleThawRedraw() {
@@ -350,9 +352,12 @@ private class DrawBackdropNode(
             // Keep the last capture during navigation. A first frame or a
             // size change always records; the UI behind the glass stays live.
             val hold = frozen()
-            if (!hold || recordedSize != recordSize) {
+            val currentPosition = layoutCoordinates?.takeIf { it.isAttached }?.positionInWindow()
+            val geometryChanged = recordedSize != recordSize || recordedWindowPosition != currentPosition
+            if (!hold || geometryChanged) {
                 recordLayer(this@DrawBackdropNode, layer, size = recordSize, block = recordBackdropBlock)
                 recordedSize = recordSize
+                recordedWindowPosition = currentPosition
             } else {
                 // No observable state reads: poll once and redraw after thaw.
                 scheduleThawRedraw()
@@ -466,6 +471,7 @@ private class DrawBackdropNode(
         thawJob?.cancel()
         thawJob = null
         recordedSize = IntSize.Zero
+        recordedWindowPosition = null
         effectScope.reset()
         layoutCoordinates = null
         exportedBackdrop?.layerCoordinates = null
