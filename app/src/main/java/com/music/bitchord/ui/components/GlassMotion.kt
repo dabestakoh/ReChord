@@ -26,8 +26,8 @@ class GlassMotionClock(
 
     fun frozen(): Boolean {
         val stamped = lastMotionAtNs
-        return stamped != Long.MIN_VALUE &&
-            now() - stamped in 0 until freezeWindowNs
+        val elapsed = now() - stamped
+        return stamped != Long.MIN_VALUE && elapsed >= 0L && elapsed < freezeWindowNs
     }
 }
 
