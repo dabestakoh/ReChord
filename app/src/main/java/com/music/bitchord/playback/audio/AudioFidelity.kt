@@ -9,19 +9,14 @@ package com.music.bitchord.playback.audio
 import com.music.bitchord.playback.AudioRouting
 
 /**
- * A single 0–100 number for how much of the source survives the playing path,
- * together with every point it deducted and why.
+ * Diagnostic estimate of modifications between decoded PCM and the DAC.
  *
- * This is a score for *this app's path*, not for the music or the DAC. It
- * starts at 100 and subtracts each stage that demonstrably alters or fails to
- * carry the decoded samples: the platform mixer, a lossy re-encode downstream,
- * an output encoding narrower than the source, a rate change, and each DSP
- * stage that is actually running. Every deduction is returned, so the readout
- * can say "87 because the system mixer is in the path and the EQ is on"
- * instead of showing a number nobody can act on.
+ * Codec, source compression bitrate and original recording quality never
+ * affect this score. Unknown downstream Android behavior is reported as
+ * Unverified, not as known sample damage.
  *
- * Inputs are taken from ReChord's live output and DSP state. Scores are
- * heuristic, not laboratory measurements or proof of device-level bit accuracy.
+ * A 100/100 score means no *known* alteration. Bit-perfect is only claimed
+ * when the active transport provides sufficient positive evidence.
  */
 object AudioFidelity {
 
@@ -36,8 +31,6 @@ object AudioFidelity {
         val dacLimited: Boolean = false,
         val sourceBits: Int? = null,
         val outputBits: Int? = null,
-        /** Null means not enough source metadata to assert end-to-end fidelity. */
-        val sourceLossless: Boolean? = null,
         val directPlaybackActual: Boolean = false,
 
         /** Whether the output encoding carries the decoder's samples intact. */
@@ -72,17 +65,16 @@ object AudioFidelity {
         val deductions: List<Deduction>,
         /** Only true for an exact active transport with verified source format and no processing. */
         val bitPerfectVerified: Boolean,
+        val verification: Verification,
+        val verificationDetail: String,
     )
 
-    private const val MIXED_PATH_POINTS = 12
-    private const val DIRECT_PATH_POINTS = 6
-    private const val PHONE_PATH_POINTS = 32
+    enum class Verification { VERIFIED, UNVERIFIED, MODIFIED }
+
     private const val BLUETOOTH_CODEC_POINTS = 12
     private const val NARROW_ENCODING_POINTS = 12
     private const val RESAMPLE_POINTS = 8
     private const val DSD_CONVERSION_POINTS = 6
-    private const val UNVERIFIED_POINTS = 6
-    private const val LOSSY_SOURCE_POINTS = 10
 
     private const val LOUDNESS_POINTS = 4
     private const val EQUALIZER_POINTS = 8
@@ -96,62 +88,38 @@ object AudioFidelity {
         val verifiedPath = inputs.verifiedTransportActive &&
             inputs.verifiedTransportExact && !inputs.dacLimited
 
-        when {
-            inputs.verifiedTransportActive -> {
-                if (!verifiedPath) {
-                    deductions += Deduction(
-                        if (inputs.dacLimited) "DAC required a format conversion" else "Output stream was not exact",
-                        NARROW_ENCODING_POINTS,
-                    )
-                }
-            }
-            inputs.directPlaybackActual -> deductions +=
-                Deduction("Direct AudioTrack path (device exactness unverified)", DIRECT_PATH_POINTS)
-            else -> deductions += Deduction("System mixer is in the path", MIXED_PATH_POINTS)
-        }
-
-        // Routing from an idle AudioTrack snapshot must never override an active
-        // dedicated driver, particularly when Android no longer owns the USB DAC.
-        if (!inputs.verifiedTransportActive) {
-            if (inputs.routeKind == AudioRouting.Kind.PHONE) {
-                deductions += Deduction("Built-in speaker path", PHONE_PATH_POINTS)
-            }
-            if (inputs.routeKind == AudioRouting.Kind.BLUETOOTH) {
-                deductions += Deduction("Bluetooth re-encodes the stream", BLUETOOTH_CODEC_POINTS)
-            }
-            if (inputs.dspAvailable && !inputs.outputExact) {
-                deductions += Deduction("Output cannot carry decoded PCM exactly", NARROW_ENCODING_POINTS)
-            }
-        }
-
         if (inputs.verifiedTransportActive) {
+            if (!verifiedPath) {
+                deductions += Deduction(
+                    if (inputs.dacLimited) "DAC required format conversion"
+                    else "Transport reports altered PCM samples",
+                    NARROW_ENCODING_POINTS,
+                )
+            }
             val inputBits = inputs.sourceBits?.takeIf { it > 0 }
             val sinkBits = inputs.outputBits?.takeIf { it > 0 }
-            if (inputBits == null || sinkBits == null) {
-                deductions += Deduction("USB/DAC sample precision not reported", UNVERIFIED_POINTS)
-            } else if (sinkBits < inputBits && !inputs.dacLimited) {
-                deductions += Deduction("DAC output precision is narrower than source", NARROW_ENCODING_POINTS)
+            if (inputBits != null && sinkBits != null && sinkBits < inputBits && !inputs.dacLimited) {
+                deductions += Deduction("DAC output precision is narrower than decoded PCM", NARROW_ENCODING_POINTS)
+            }
+        } else {
+            // Do not deduct for an ordinary Android mixer just because its
+            // downstream behavior cannot be observed by the app.
+            if (inputs.dspAvailable && !inputs.outputExact) {
+                deductions += Deduction("Output cannot preserve decoded PCM precision", NARROW_ENCODING_POINTS)
+            }
+            if (inputs.routeKind == AudioRouting.Kind.BLUETOOTH) {
+                deductions += Deduction("Bluetooth re-encodes decoded PCM", BLUETOOTH_CODEC_POINTS)
             }
         }
 
-        when (inputs.sourceLossless) {
-            false -> deductions += Deduction("Lossy source encoding", LOSSY_SOURCE_POINTS)
-            null -> deductions += Deduction("Source losslessness not confirmed", UNVERIFIED_POINTS)
-            true -> Unit
-        }
-
+        // DSD-to-PCM is a processing step and cannot be raw DSD bit-perfect.
         if (inputs.dsd) {
             deductions += Deduction("DSD converted to PCM", DSD_CONVERSION_POINTS)
         } else {
             val source = inputs.sourceRateHz?.takeIf { it > 0 }
             val output = inputs.outputRateHz?.takeIf { it > 0 }
-            if (source == null || output == null) {
-                deductions += Deduction("Source or DAC sample rate not reported", UNVERIFIED_POINTS)
-            } else if (source != output) {
-                deductions += Deduction(
-                    "Resampled ${rateText(source)} -> ${rateText(output)}",
-                    RESAMPLE_POINTS,
-                )
+            if (source != null && output != null && source != output) {
+                deductions += Deduction("Resampled ${rateText(source)} -> ${rateText(output)}", RESAMPLE_POINTS)
             }
         }
 
@@ -182,24 +150,43 @@ object AudioFidelity {
         }
         running.forEach { (label, points) -> deductions += Deduction(label, points) }
 
-        val lost = deductions.sumOf { it.points }
-        // Never label unverified normal AudioTrack as bit-perfect even if its
-        // reported PCM encoding is exact at the app boundary.
-        val exactVerified = verifiedPath && deductions.isEmpty()
-        val score = (100 - lost).coerceIn(0, if (exactVerified) 100 else 99)
+        val score = (100 - deductions.sumOf { it.points }).coerceIn(0, 100)
+        val knownPcmFormat = inputs.sourceRateHz?.let { it > 0 } == true &&
+            inputs.outputRateHz?.let { it > 0 } == true &&
+            inputs.sourceBits?.let { it > 0 } == true &&
+            inputs.outputBits?.let { it > 0 } == true
+        val verified = verifiedPath && knownPcmFormat && deductions.isEmpty() &&
+            (!inputs.dspAvailable || inputs.dspBypassed || running.isEmpty())
+        val verification = when {
+            deductions.isNotEmpty() -> Verification.MODIFIED
+            verified -> Verification.VERIFIED
+            else -> Verification.UNVERIFIED
+        }
+        val detail = when (verification) {
+            Verification.MODIFIED -> "Known PCM alteration in playback path"
+            Verification.VERIFIED -> "Active dedicated output reports exact PCM to DAC"
+            Verification.UNVERIFIED -> when {
+                !inputs.verifiedTransportActive ->
+                    "Android output may modify PCM downstream; no known change detected"
+                !knownPcmFormat -> "DAC format telemetry incomplete"
+                else -> "End-to-end PCM exactness cannot be confirmed"
+            }
+        }
         return Assessment(
             score = score,
-            grade = if (exactVerified) "Bit-perfect" else gradeOf(score),
+            grade = if (verified) "Bit-perfect" else if (score == 100) "No known changes" else gradeOf(score),
             activeEffects = running.map { it.first },
             effectsAvailable = inputs.dspAvailable,
             effectsBypassed = inputs.dspBypassed,
             deductions = deductions,
-            bitPerfectVerified = exactVerified,
+            bitPerfectVerified = verified,
+            verification = verification,
+            verificationDetail = detail,
         )
     }
 
     private fun gradeOf(score: Int): String = when {
-        score >= 98 -> "Reference (unverified)"
+        score >= 98 -> "Reference"
         score >= 90 -> "Reference"
         score >= 72 -> "High fidelity"
         score >= 55 -> "Mixed path"
