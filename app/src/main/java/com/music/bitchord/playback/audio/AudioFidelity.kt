@@ -63,7 +63,7 @@ object AudioFidelity {
         /** True when effects are out of the path by request, not by being off. */
         val effectsBypassed: Boolean,
         val deductions: List<Deduction>,
-        /** Only true for an exact active transport with verified source format and no processing. */
+        /** Only true for an exact active transport with verified decoded PCM output and no processing. */
         val bitPerfectVerified: Boolean,
         val verification: Verification,
         val verificationDetail: String,
@@ -186,7 +186,6 @@ object AudioFidelity {
     }
 
     private fun gradeOf(score: Int): String = when {
-        score >= 98 -> "Reference"
         score >= 90 -> "Reference"
         score >= 72 -> "High fidelity"
         score >= 55 -> "Mixed path"
