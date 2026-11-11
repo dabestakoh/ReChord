@@ -111,6 +111,7 @@ private val PIPELINE_ICON_TINT = Color.White.copy(alpha = 0.6f)
  */
 private fun bitExactVerdict(
     dsd: Boolean,
+    sourceLossless: Boolean?,
     bitPerfect: BitPerfectOutput.Status,
     outputExact: Boolean,
     outputExactDetail: String?,
@@ -127,12 +128,17 @@ private fun bitExactVerdict(
             "${bitPerfect.deviceName}'s max"
     // Every DSP stage is bypassed on the exclusive output, so the only
     // question left is whether the source itself was integer PCM.
-    bitPerfect.active && bitPerfect.exact -> "Yes — bit-perfect to ${bitPerfect.deviceName}"
+    bitPerfect.active && bitPerfect.exact && sourceLossless == false ->
+        "Exact decoded PCM to ${bitPerfect.deviceName} — lossy source"
+    bitPerfect.active && bitPerfect.exact && sourceLossless == null ->
+        "Exact PCM output — source format unverified"
+    bitPerfect.active && bitPerfect.exact ->
+        "Yes — bit-perfect to ${bitPerfect.deviceName}"
     bitPerfect.active -> "No — source isn't lossless PCM"
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
-    outputExact -> "Yes${outputExactDetail?.let { " ($it)" }.orEmpty()}"
+    outputExact -> "Exact at app boundary only — device path unverified"
     else -> "No — ${outputExactDetail ?: "converted downstream"}"
 }
 
@@ -473,6 +479,7 @@ fun AudioPipelineDialog(
                     stringResource(R.string.pipeline_bit_exact),
                     bitExactVerdict(
                         dsd = dsdRateHz != null,
+                        sourceLossless = nerdStats?.isLossless,
                         bitPerfect = bitPerfect,
                         outputExact = outputStatus.outputExact,
                         outputExactDetail = outputStatus.outputExactDetail,
