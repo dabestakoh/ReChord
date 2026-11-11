@@ -1,5 +1,12 @@
 package com.music.bitchord.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Size
+import com.music.bitchord.playback.audio.AudioFidelity
+import kotlin.math.roundToInt
 import android.media.AudioFormat
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
@@ -274,6 +281,26 @@ fun AudioPipelineDialog(
                 null -> "—"
                 else -> "${nerdStats?.channels} (Surround)"
             }
+
+            // Fidelity is a diagnostic score for the active output path, not a
+            // measurement of the source recording's sound quality.
+            val fidelity = AudioFidelity.assess(
+                AudioFidelity.Inputs(
+                    routeKind = outputStatus.routeKind,
+                    exclusiveUsbActive = bitPerfect.active && bitPerfect.exact && !bitPerfect.dacLimited,
+                    directPlaybackActual = outputStatus.directPlaybackActual,
+                    outputExact = outputStatus.outputExact && (!bitPerfect.active || bitPerfect.exact),
+                    dspAvailable = outputStatus.dspAvailable,
+                    dspBypassed = bitPerfect.active && bitPerfect.exact,
+                    loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
+                    equalizerActive = eqEnabled,
+                    spatialActive = spatialAudio,
+                    dsd = dsdRateHz != null,
+                    sourceRateHz = pcmRateHz,
+                    outputRateHz = outputStatus.actualSampleRateHz,
+                ),
+            )
+            FidelitySummary(fidelity)
 
             PipelineRule()
             PipelineSection(
@@ -779,6 +806,188 @@ private fun calculateStageActivation(
 
     return (raw * absorption * flowAlpha).coerceIn(0f, 1f)
 }
+
+// Fidelity card adapted from Auris by OreoMuncher45 (GPL-3.0).
+/** The one number, and the arithmetic behind it. */
+@Composable
+private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
+    val accent = if (assessment.score >= 72) Color.White else Color(0xFFFFB86B)
+    val animatedScore by animateFloatAsState(
+        targetValue = assessment.score.toFloat(),
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "fidelityScore",
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 14.dp, bottom = 2.dp)
+            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(78.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.matchParentSize()) {
+                    val stroke = 5.dp.toPx()
+                    val inset = stroke / 2f
+                    val arcSize = Size(size.width - stroke, size.height - stroke)
+                    val topLeft = Offset(inset, inset)
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.12f),
+                        startAngle = 135f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                    )
+                    val sweep = 270f * (animatedScore / 100f).coerceIn(0f, 1f)
+                    if (sweep > 0f) {
+                        drawArc(
+                            color = accent.copy(alpha = 0.14f),
+                            startAngle = 135f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(width = stroke * 2.4f, cap = StrokeCap.Round),
+                        )
+                        drawArc(
+                            color = accent.copy(alpha = 0.92f),
+                            startAngle = 135f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round),
+                        )
+                    }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = animatedScore.roundToInt().toString(),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.W700,
+                        ),
+                        color = accent,
+                    )
+                    Text(
+                        text = "/ 100",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        color = Color.White.copy(alpha = 0.45f),
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "FIDELITY",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.4.sp,
+                    ),
+                    color = Color.White.copy(alpha = 0.5f),
+                )
+                Text(
+                    text = assessment.grade,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val effects = when {
+                        !assessment.effectsAvailable -> "DSP unavailable"
+                        assessment.effectsBypassed -> "DSP bypassed"
+                        assessment.activeEffects.isEmpty() -> "DSP idle"
+                        else -> "DSP ${assessment.activeEffects.size} active"
+                    }
+                    FidelityChip(effects, highlighted = assessment.activeEffects.isNotEmpty())
+                    FidelityChip(
+                        if (assessment.deductions.isEmpty()) "Exact path" else "${assessment.deductions.size} deductions",
+                    )
+                }
+            }
+        }
+
+        if (assessment.activeEffects.isNotEmpty()) {
+            Text(
+                text = assessment.activeEffects.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                color = Color.White.copy(alpha = 0.58f),
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+        val shown = assessment.deductions.sortedByDescending { it.points }.take(3)
+        if (shown.isEmpty()) {
+            Text(
+                text = "Nothing in the app's path alters the samples.",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = Color.White.copy(alpha = 0.62f),
+            )
+        } else {
+            shown.forEach { deduction ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = deduction.label,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = Color.White.copy(alpha = 0.62f),
+                    )
+                    Text(
+                        text = "−${deduction.points}",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = Color.White.copy(alpha = 0.72f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FidelityChip(label: String, highlighted: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .background(
+                Color.White.copy(alpha = if (highlighted) 0.16f else 0.07f),
+                RoundedCornerShape(50),
+            )
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            color = Color.White.copy(alpha = if (highlighted) 0.95f else 0.65f),
+        )
+    }
+}
+
 
 /** One pipeline stage: an icon, its title, and the label/value rows under it. */
 @Composable
