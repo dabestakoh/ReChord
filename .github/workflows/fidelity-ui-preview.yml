@@ -1,0 +1,80 @@
+name: ReChord Feature Preview APK
+
+on:
+  push:
+    branches:
+      - feature/audio-fidelity-ui-optimization
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rechord-fidelity-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android NDK 27
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION=27.0.12077973
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_ROOT" ]; then echo "Android SDK root missing"; exit 1; fi
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
+          for attempt in 1 2 3; do
+            if "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "ndk;$NDK_VERSION" &&
+               [ -x "$SDK_ROOT/ndk/$NDK_VERSION/ndk-build" ]; then exit 0; fi
+            rm -rf "$SDK_ROOT/ndk/$NDK_VERSION"
+            if [ "$attempt" -lt 3 ]; then sleep 10; fi
+          done
+          exit 1
+
+      - name: Run fidelity and freeze-clock tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDevDebugUnitTest -Pbitchord.bundleWear=false \
+            --build-cache --max-workers=3 --stacktrace
+
+      - name: Assemble installable ReChord Preview APK
+        run: |
+          ./gradlew :app:assembleDevDebug -Pbitchord.bundleWear=false \
+            --build-cache --max-workers=3 --stacktrace
+
+      - name: Verify preview application ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/dev/debug/*.apk)
+          if [ "${#apks[@]}" -eq 0 ]; then echo "No preview APK"; exit 1; fi
+          tools="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n1)"
+          for apk in "${apks[@]}"; do
+            "$tools/apksigner" verify "$apk"
+            "$tools/aapt" dump badging "$apk" | grep -q "package: name='com.rechord.preview' "
+          done
+
+      - name: Upload ReChord Preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReChord-Fidelity-UI-Preview-${{ github.run_number }}
+          path: app/build/outputs/apk/dev/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
