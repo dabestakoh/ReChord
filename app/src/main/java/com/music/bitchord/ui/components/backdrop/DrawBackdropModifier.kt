@@ -33,6 +33,8 @@ import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.LayoutModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ObserverModifierNode
+import androidx.compose.ui.node.invalidateDraw
+import kotlinx.coroutines.launch
 import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.platform.InspectorInfo
@@ -51,6 +53,7 @@ import com.music.bitchord.ui.components.backdrop.shadow.ShadowElement
 
 private val DefaultHighlight = { Highlight.Default }
 private val DefaultShadow = { Shadow.Default }
+private val NeverFrozen: () -> Boolean = { false }
 private val DefaultOnDrawBackdrop: DrawScope.(DrawScope.() -> Unit) -> Unit = { it() }
 
 fun Modifier.drawPlainBackdrop(
@@ -107,7 +110,8 @@ fun Modifier.drawBackdrop(
     // processes far fewer pixels. Pixel-sized effect parameters (blur radius, lens
     // refraction) must be pre-multiplied by the same factor by the caller; the blur
     // hides the upscaling. 1f keeps the original full resolution behavior.
-    backdropScale: Float = 1f
+    backdropScale: Float = 1f,
+    frozen: () -> Boolean = NeverFrozen
 ): Modifier {
     val shapeProvider = ShapeProvider(shape)
     return this
@@ -159,7 +163,8 @@ fun Modifier.drawBackdrop(
                 onDrawBackdrop = onDrawBackdrop,
                 onDrawSurface = onDrawSurface,
                 onDrawFront = onDrawFront,
-                backdropScale = backdropScale.coerceIn(0.05f, 1f)
+                backdropScale = backdropScale.coerceIn(0.05f, 1f),
+                frozen = frozen
             )
         )
 }
@@ -174,7 +179,8 @@ private class DrawBackdropElement(
     val onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     val onDrawSurface: (DrawScope.() -> Unit)?,
     val onDrawFront: (DrawScope.() -> Unit)?,
-    val backdropScale: Float
+    val backdropScale: Float,
+    val frozen: () -> Boolean
 ) : ModifierNodeElement<DrawBackdropNode>() {
 
     override fun create(): DrawBackdropNode {
@@ -188,7 +194,8 @@ private class DrawBackdropElement(
             onDrawBackdrop = onDrawBackdrop,
             onDrawSurface = onDrawSurface,
             onDrawFront = onDrawFront,
-            backdropScale = backdropScale
+            backdropScale = backdropScale,
+            frozen = frozen
         )
     }
 
@@ -206,6 +213,7 @@ private class DrawBackdropElement(
         node.onDrawSurface = onDrawSurface
         node.onDrawFront = onDrawFront
         node.backdropScale = backdropScale
+        node.frozen = frozen
         node.invalidateDrawCache()
     }
 
@@ -265,7 +273,8 @@ private class DrawBackdropNode(
     var onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     var onDrawSurface: (DrawScope.() -> Unit)?,
     var onDrawFront: (DrawScope.() -> Unit)?,
-    var backdropScale: Float
+    var backdropScale: Float,
+    var frozen: () -> Boolean
 ) : LayoutModifierNode, DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
 
     private val effectScope =
@@ -275,6 +284,17 @@ private class DrawBackdropNode(
         }
 
     private var graphicsLayer: GraphicsLayer? = null
+    private var recordedSize: IntSize = IntSize.Zero
+    private var thawJob: kotlinx.coroutines.Job? = null
+
+    private fun scheduleThawRedraw() {
+        if (thawJob?.isActive == true) return
+        thawJob = coroutineScope.launch {
+            while (frozen()) kotlinx.coroutines.delay(48L)
+            if (isAttached) invalidateDraw()
+        }
+    }
+
 
     private val layoutLayerBlock: GraphicsLayerScope.() -> Unit = {
         clip = true
@@ -322,15 +342,20 @@ private class DrawBackdropNode(
             val padding = padding
             val scale = backdropScale
 
-            recordLayer(
-                this@DrawBackdropNode,
-                layer,
-                size = IntSize(
-                    ((size.width * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1),
-                    ((size.height * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1)
-                ),
-                block = recordBackdropBlock
+            val recordSize = IntSize(
+                ((size.width * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1),
+                ((size.height * scale).toInt() + padding.toInt() * 2).coerceAtLeast(1)
             )
+            // Keep the last capture during navigation. A first frame or a
+            // size change always records; the UI behind the glass stays live.
+            val hold = frozen()
+            if (!hold || recordedSize != recordSize) {
+                recordLayer(this@DrawBackdropNode, layer, size = recordSize, block = recordBackdropBlock)
+                recordedSize = recordSize
+            } else {
+                // No observable state reads: poll once and redraw after thaw.
+                scheduleThawRedraw()
+            }
 
             layer.topLeft =
                 if (padding != 0f) IntOffset(-padding.toInt(), -padding.toInt())
@@ -437,6 +462,9 @@ private class DrawBackdropNode(
             graphicsLayer = null
         }
 
+        thawJob?.cancel()
+        thawJob = null
+        recordedSize = IntSize.Zero
         effectScope.reset()
         layoutCoordinates = null
         exportedBackdrop?.layerCoordinates = null
