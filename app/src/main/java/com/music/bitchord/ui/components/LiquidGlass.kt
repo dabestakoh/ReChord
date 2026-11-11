@@ -261,5 +261,6 @@ fun Modifier.liquidGlass(
         },
         exportedBackdrop = exportedBackdrop,
         backdropScale = resolutionScale,
+        frozen = { GlassMotion.nav.frozen() },
     )
 }
