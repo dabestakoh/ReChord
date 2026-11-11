@@ -10,10 +10,10 @@ Branch: `feature/audio-fidelity-ui-optimization`
 
 ## Source-to-DAC fidelity policy
 - The active dedicated ReChord driver is authoritative, including USB_DIRECT and Android's verified USB bit-perfect mixer. Its published source/output precision, source/output sample rates, conversion flag, and exactness verdict override potentially stale ordinary AudioTrack telemetry.
-- 100/100 (Bit-perfect) requires an active exact dedicated transport, known lossless source, known and matching sample rates, known non-narrowed precision, and bypassed/idle DSP. No arbitrary deduction is applied merely because an actual Android bit-perfect mixer was used.
-- Direct AudioTrack and ordinary mixer output cannot be certified bit-perfect by app-layer PCM exactness alone; scores below 100 distinguish that uncertainty from confirmed sample changes.
-- DSD-to-PCM conversion, DAC-limited conversion, resampling, lossy sources, active DSP, and unknown critical format evidence all prevent 100/100.
-- Scores remain software-path assessments, not independent electrical verification of the DAC's analog output. This only changes diagnostics and does not change how audio is routed or processed.
+- The 0–100 path score measures known alteration of **decoded PCM**, independent of original codec, lossy/lossless source, or compressed bitrate. 100/100 means no known PCM changes, not necessarily independently verified bit-perfect output.
+- Separate verification status: VERIFIED requires exact active dedicated transport, matching known sample rates, sufficient PCM precision and no known processing. UNVERIFIED means no known modification but not enough endpoint proof, including ordinary or direct AudioTrack. MODIFIED means known sample alterations and score deductions.
+- DSD-to-PCM conversion, DAC-limited conversion, resampling, active DSP, Bluetooth re-encoding and narrowed PCM precision lower score. Missing metadata blocks VERIFIED but does not automatically lower score.
+- Scores remain software-path assessments, not independent measurement of the USB digital bus or the DAC's analog output. This only changes diagnostics and does not change how audio is routed or processed.
 
 ## Regression matrix
 1. Enable Liquid Glass and switch Home / Library / Search repeatedly, including rapid tab changes.
@@ -34,3 +34,6 @@ adb shell dumpsys gfxinfo com.rechord.preview framestats
 ```
 
 The reported package must match the installed test APK. No claim of measured performance improvement is made until these tests are run.
+
+## Feature branch CI
+The branch-scoped `.github/workflows/fidelity-ui-preview.yml` workflow runs unit tests and builds `:app:assembleDevDebug` on pushes to this branch. Download the `ReChord-Fidelity-UI-Preview-<run>` artifact from that workflow's Actions run. Its package is `com.rechord.preview`; it does not replace production `com.music.rechord`. The build must finish successfully before installing the APK.
