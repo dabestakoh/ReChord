@@ -287,17 +287,27 @@ fun AudioPipelineDialog(
             val fidelity = AudioFidelity.assess(
                 AudioFidelity.Inputs(
                     routeKind = outputStatus.routeKind,
-                    exclusiveUsbActive = bitPerfect.active && bitPerfect.exact && !bitPerfect.dacLimited,
-                    directPlaybackActual = outputStatus.directPlaybackActual,
-                    outputExact = outputStatus.outputExact && (!bitPerfect.active || bitPerfect.exact),
+                    // This driver owns the audio stream when active. Its telemetry,
+                    // not the old AudioTrack snapshot, describes the DAC endpoint.
+                    verifiedTransportActive = bitPerfect.active,
+                    verifiedTransportExact = bitPerfect.active && bitPerfect.exact,
+                    transportDescription = bitPerfect.driver,
+                    dacLimited = bitPerfect.active && bitPerfect.dacLimited,
+                    sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
+                    outputBits = bitPerfect.outputBits.takeIf { bitPerfect.active && it > 0 },
+                    sourceLossless = nerdStats?.isLossless,
+                    directPlaybackActual = !bitPerfect.active && outputStatus.directPlaybackActual,
+                    outputExact = !bitPerfect.active && outputStatus.outputExact,
                     dspAvailable = outputStatus.dspAvailable,
-                    dspBypassed = bitPerfect.active && bitPerfect.exact,
+                    // BitPerfectAudioSink routes decoded PCM around PrecisionAudioSink's
+                    // processing chain, including on a DAC-limited converted stream.
+                    dspBypassed = bitPerfect.active,
                     loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
                     equalizerActive = eqEnabled,
                     spatialActive = spatialAudio,
                     dsd = dsdRateHz != null,
-                    sourceRateHz = pcmRateHz,
-                    outputRateHz = outputStatus.actualSampleRateHz,
+                    sourceRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
+                    outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
                 ),
             )
             FidelitySummary(fidelity)
