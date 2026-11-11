@@ -8,6 +8,13 @@ Branch: `feature/audio-fidelity-ui-optimization`
 - The vendored glass backdrop draw node now reuses an existing capture while frozen. First capture, resize, and surface reposition always re-record. A lightweight coroutine polls for thaw without invalidating each frame.
 - ReChord's existing glass visuals, high-performance mode, animations, snapshot backdrops, playlist features, and bit-perfect playback are unchanged.
 
+## Source-to-DAC fidelity policy
+- The active dedicated ReChord driver is authoritative, including USB_DIRECT and Android's verified USB bit-perfect mixer. Its published source/output precision, source/output sample rates, conversion flag, and exactness verdict override potentially stale ordinary AudioTrack telemetry.
+- 100/100 (Bit-perfect) requires an active exact dedicated transport, known lossless source, known and matching sample rates, known non-narrowed precision, and bypassed/idle DSP. No arbitrary deduction is applied merely because an actual Android bit-perfect mixer was used.
+- Direct AudioTrack and ordinary mixer output cannot be certified bit-perfect by app-layer PCM exactness alone; scores below 100 distinguish that uncertainty from confirmed sample changes.
+- DSD-to-PCM conversion, DAC-limited conversion, resampling, lossy sources, active DSP, and unknown critical format evidence all prevent 100/100.
+- Scores remain software-path assessments, not independent electrical verification of the DAC's analog output. This only changes diagnostics and does not change how audio is routed or processed.
+
 ## Regression matrix
 1. Enable Liquid Glass and switch Home / Library / Search repeatedly, including rapid tab changes.
 2. Open and close albums and playlists; verify glass content refreshes within 500 ms and never remains stale.
