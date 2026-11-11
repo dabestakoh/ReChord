@@ -111,7 +111,6 @@ private val PIPELINE_ICON_TINT = Color.White.copy(alpha = 0.6f)
  */
 private fun bitExactVerdict(
     dsd: Boolean,
-    sourceLossless: Boolean?,
     bitPerfect: BitPerfectOutput.Status,
     outputExact: Boolean,
     outputExactDetail: String?,
@@ -128,13 +127,8 @@ private fun bitExactVerdict(
             "${bitPerfect.deviceName}'s max"
     // Every DSP stage is bypassed on the exclusive output, so the only
     // question left is whether the source itself was integer PCM.
-    bitPerfect.active && bitPerfect.exact && sourceLossless == false ->
-        "Exact decoded PCM to ${bitPerfect.deviceName} — lossy source"
-    bitPerfect.active && bitPerfect.exact && sourceLossless == null ->
-        "Exact PCM output — source format unverified"
-    bitPerfect.active && bitPerfect.exact ->
-        "Yes — bit-perfect to ${bitPerfect.deviceName}"
-    bitPerfect.active -> "No — source isn't lossless PCM"
+    bitPerfect.active && bitPerfect.exact -> "Yes — exact decoded PCM to ${bitPerfect.deviceName}"
+    bitPerfect.active -> "No — transport altered decoded PCM"
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
@@ -301,9 +295,9 @@ fun AudioPipelineDialog(
                     dacLimited = bitPerfect.active && bitPerfect.dacLimited,
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
                     outputBits = bitPerfect.outputBits.takeIf { bitPerfect.active && it > 0 },
-                    sourceLossless = nerdStats?.isLossless,
                     directPlaybackActual = !bitPerfect.active && outputStatus.directPlaybackActual,
-                    outputExact = !bitPerfect.active && outputStatus.outputExact,
+                    outputExact = !bitPerfect.active &&
+                        (outputStatus.actualEncoding == null || outputStatus.outputExact),
                     dspAvailable = outputStatus.dspAvailable,
                     // BitPerfectAudioSink routes decoded PCM around PrecisionAudioSink's
                     // processing chain, including on a DAC-limited converted stream.
@@ -479,7 +473,6 @@ fun AudioPipelineDialog(
                     stringResource(R.string.pipeline_bit_exact),
                     bitExactVerdict(
                         dsd = dsdRateHz != null,
-                        sourceLossless = nerdStats?.isLossless,
                         bitPerfect = bitPerfect,
                         outputExact = outputStatus.outputExact,
                         outputExactDetail = outputStatus.outputExactDetail,
@@ -921,6 +914,17 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     color = Color.White,
                     modifier = Modifier.padding(top = 1.dp),
                 )
+                Text(
+                    text = assessment.verification.name.lowercase()
+                        .replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when (assessment.verification) {
+                        AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
+                        AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
+                        AudioFidelity.Verification.UNVERIFIED -> Color.White.copy(alpha = 0.65f)
+                    },
+                    modifier = Modifier.padding(top = 3.dp),
+                )
                 Row(
                     modifier = Modifier.padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -933,7 +937,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     }
                     FidelityChip(effects, highlighted = assessment.activeEffects.isNotEmpty())
                     FidelityChip(
-                        if (assessment.deductions.isEmpty()) "Exact path" else "${assessment.deductions.size} deductions",
+                        if (assessment.deductions.isEmpty()) "No known changes" else "${assessment.deductions.size} deductions",
                     )
                 }
             }
@@ -948,11 +952,17 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
             )
         }
 
+        Text(
+            text = assessment.verificationDetail,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+            color = Color.White.copy(alpha = 0.58f),
+            modifier = Modifier.padding(top = 8.dp),
+        )
         Spacer(Modifier.height(10.dp))
         val shown = assessment.deductions.sortedByDescending { it.points }.take(3)
         if (shown.isEmpty()) {
             Text(
-                text = "Nothing in the app's path alters the samples.",
+                text = "No known changes to decoded PCM.",
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                 color = Color.White.copy(alpha = 0.62f),
             )
