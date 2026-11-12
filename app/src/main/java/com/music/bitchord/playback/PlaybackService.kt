@@ -5041,14 +5041,18 @@ class PlaybackService : MediaLibraryService() {
             while (true) {
                 val now = SystemClock.elapsedRealtime()
                 if (!valid() || standby.playerError != null || now >= alignmentDeadline) return false
-                val drift = active.currentPosition - standby.currentPosition
+                val activePosition = active.currentPosition
+                val standbyPosition = standby.currentPosition
                 val ready = standby.isPlaying && (!requiresLossless ||
                     NerdStats.isLosslessMime(standby.audioFormat?.sampleMimeType))
-                if (alignment.sample(now, standby.currentPosition, drift, ready)) break
-                if (ready && abs(drift) > 55L && now >= nextCorrectionAt) {
-                    standby.seekTo(index, (standby.currentPosition + drift + 80L).coerceAtLeast(0L))
-                    alignment.reset()
-                    nextCorrectionAt = now + 450L
+                if (alignment.sample(now, standbyPosition, activePosition - standbyPosition, ready)) break
+                if (ready && now >= nextCorrectionAt) {
+                    val target = alignment.correctionTarget(activePosition, standbyPosition)
+                    if (target != null) {
+                        standby.seekTo(index, target)
+                        alignment.reset()
+                        nextCorrectionAt = now + 450L
+                    }
                 }
                 delay(20)
             }

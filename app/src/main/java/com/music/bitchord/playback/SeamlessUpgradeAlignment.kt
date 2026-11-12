@@ -7,7 +7,7 @@ internal class SeamlessUpgradeAlignment {
     private var initialPositionMs = 0L
 
     fun sample(nowMs: Long, positionMs: Long, driftMs: Long, ready: Boolean): Boolean {
-        if (!ready || abs(driftMs) > 55L) {
+        if (!ready || abs(driftMs) > alignmentToleranceMs) {
             reset()
             return false
         }
@@ -19,6 +19,11 @@ internal class SeamlessUpgradeAlignment {
         }
         return nowMs - since >= 350L && positionMs > initialPositionMs
     }
+
+    fun correctionTarget(activePositionMs: Long, standbyPositionMs: Long): Long? =
+        activePositionMs.takeIf { abs(it - standbyPositionMs) > alignmentToleranceMs }
+
+    private val alignmentToleranceMs = 55L
 
     fun reset() {
         alignedSinceMs = null

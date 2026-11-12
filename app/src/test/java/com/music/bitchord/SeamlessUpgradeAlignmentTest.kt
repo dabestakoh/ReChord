@@ -1,11 +1,21 @@
 package com.music.bitchord
 
 import com.music.bitchord.playback.SeamlessUpgradeAlignment
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SeamlessUpgradeAlignmentTest {
+    @Test
+    fun `correction seeks to the active position without recreating the logged lead`() {
+        val alignment = SeamlessUpgradeAlignment()
+        assertEquals(5097L, alignment.correctionTarget(5097, 5177))
+        assertEquals(5097L, alignment.correctionTarget(5097, 4900))
+        assertNull(alignment.correctionTarget(5097, 5152))
+    }
+
     @Test
     fun `clock jump from the upgrade log resets the muted alignment window`() {
         val alignment = SeamlessUpgradeAlignment()
