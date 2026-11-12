@@ -296,8 +296,11 @@ fun AudioPipelineDialog(
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
                     outputBits = bitPerfect.outputBits.takeIf { bitPerfect.active && it > 0 },
                     directPlaybackActual = !bitPerfect.active && outputStatus.directPlaybackActual,
-                    outputExact = !bitPerfect.active &&
-                        (outputStatus.actualEncoding == null || outputStatus.outputExact),
+                    outputExact = !bitPerfect.active && outputStatus.outputExact,
+                    // reset() clears the exactness detail while a new decoder/sink
+                    // is being configured. Unknown is not proof of PCM loss.
+                    outputExactKnown = !bitPerfect.active &&
+                        outputStatus.outputExactDetail != null,
                     dspAvailable = outputStatus.dspAvailable,
                     // BitPerfectAudioSink routes decoded PCM around PrecisionAudioSink's
                     // processing chain, including on a DAC-limited converted stream.

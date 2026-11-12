@@ -972,7 +972,7 @@ class CrossfadeController(
         }
         // Bit-perfect output carries one stream to the DAC, unchanged. A blend
         // needs two, with gain on both, so the queue plays gapless instead.
-        if (BitPerfectOutput.status.value.active) {
+        if (BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active) {
             AppSettings.smartTransitionWindow.value = null
             return
         }
@@ -1415,6 +1415,9 @@ class CrossfadeController(
         renderStyle: Render = Render(),
         plan: TransitionPlan? = null,
     ): Boolean {
+        // Avoid arming a second renderer while an exclusive DAC is available.
+        // The ordinary queue advances on its existing player instead.
+        if (BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active) return false
         val out = active()
         val into = standby()
         if (out === into) return false
@@ -1659,6 +1662,9 @@ class CrossfadeController(
      * one that was still plainly playing.
      */
     private fun startFade() {
+        // The DAC can become available while the standby buffers. Never start
+        // two simultaneous outputs when exclusive playback takes priority.
+        if (BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active) return bail()
         val out = outgoing ?: return bail()
         val into = incoming ?: return bail()
 

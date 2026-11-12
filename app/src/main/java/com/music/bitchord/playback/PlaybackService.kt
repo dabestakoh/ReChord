@@ -2282,7 +2282,12 @@ class PlaybackService : MediaLibraryService() {
                 // Crossfade is unconditional: the setting that used to gate it
                 // is gone, so the only thing that can decline the fade is having
                 // no standby player to fade with.
-                val canCrossfade = standbyPlayer != null &&
+                // The exclusive DAC can carry only one stream. A version swap
+                // must not start a second player while bit-perfect is available;
+                // use the existing single-player replacement path instead.
+                val exclusiveOutputReady =
+                    BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active
+                val canCrossfade = standbyPlayer != null && !exclusiveOutputReady &&
                     (activePlayer.isPlaying || activePlayer.playbackState == Player.STATE_READY)
 
                 if (!canCrossfade || standbyPlayer == null) {

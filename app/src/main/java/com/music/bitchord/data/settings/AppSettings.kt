@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import androidx.media3.common.Player
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.auth.AuthStore
@@ -283,15 +284,25 @@ object AppSettings {
     val outputPcmMode = MutableStateFlow(OutputPcmMode.PCM_16)
 
     /** Prefer an attached USB audio output over the system's normal route. */
-    val preferUsbDac = MutableStateFlow(false)
+    val preferUsbDac = MutableStateFlow(true)
+
+    /** Android 14+ mixer support is required for USB_ANDROID, not for USB_DIRECT. */
+    private fun defaultBitPerfectMode(): BitPerfectMode =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) BitPerfectMode.USB_ANDROID
+        else BitPerfectMode.OFF
+
+    private fun compatibleBitPerfectMode(mode: BitPerfectMode): BitPerfectMode =
+        if (mode == BitPerfectMode.USB_ANDROID &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) BitPerfectMode.OFF else mode
 
     /** Unprocessed output to a DAC; see [BitPerfectMode]. */
-    val bitPerfectMode = MutableStateFlow(BitPerfectMode.OFF)
+    val bitPerfectMode = MutableStateFlow(defaultBitPerfectMode())
 
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
-     * full scale, with the DAC's own knob (if any) the only volume. Off unless
-     * the listener accepts a second warning.
+     * full scale, with the DAC's own knob (if any) the only volume. Off by
+     * default; enable explicitly only when the listener accepts the risk.
      */
     val usbAllowFixedVolume = MutableStateFlow(false)
 
@@ -303,26 +314,11 @@ object AppSettings {
     val convertForLimitedDac = MutableStateFlow(false)
 
     /**
-     * Level every track to the same loudness, using YouTube's own
-     * normalization figure for it — see
-     * [com.music.bitchord.playback.PlaybackService.setupLoudnessEnhancer].
-     *
-     * On by default, which is the one genuinely contentious thing about it.
-     * The case for it: a queue drawn from several sources is a queue of
-     * several mastering eras, and the gap between a 1980s CD transfer and a
-     * modern master is routinely fifteen decibels — loud enough that the
-     * listener's own volume control is the wrong tool, because the setting
-     * that suits one track hurts at the next. Every streaming service
-     * normalizes by default for the same reason.
-     *
-     * The case against it is that a constant gain is still a multiplication,
-     * so this is the first thing in BitChord that is *on* out of the box and
-     * alters samples. Rather than hide that, the Audio Pipeline readout names
-     * it: its Bit-exact row reports the first stage in the chain that is
-     * altering samples, and switching this off is the first thing a listener
-     * chasing an untouched signal would do.
+     * YouTube's normalization gain, when available. Off by default to preserve
+     * decoded PCM for listeners preferring bit-perfect playback. The user can
+     * enable normalization explicitly; exclusive output bypasses DSP regardless.
      */
-    val loudnessNormalization = MutableStateFlow(true)
+    val loudnessNormalization = MutableStateFlow(false)
 
     /** Skip loudness normalization while the active output is the phone's own speaker. */
     val loudnessOffOnSpeaker = MutableStateFlow(true)
@@ -986,13 +982,13 @@ object AppSettings {
                     ?: OutputPcmMode.PCM_16.name,
             )
         }.getOrDefault(OutputPcmMode.PCM_16)
-        preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, false)
-        bitPerfectMode.value = runCatching {
-            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: BitPerfectMode.OFF.name)
-        }.getOrDefault(BitPerfectMode.OFF)
+        preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, true)
+        bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
+            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
+        }.getOrDefault(defaultBitPerfectMode()))
         usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
-        loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, true)
+        loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
@@ -1803,8 +1799,9 @@ object AppSettings {
     }
 
     fun setBitPerfectMode(value: BitPerfectMode) {
-        bitPerfectMode.value = value
-        prefs.edit().putString(KEY_BIT_PERFECT_MODE, value.name).apply()
+        val compatible = compatibleBitPerfectMode(value)
+        bitPerfectMode.value = compatible
+        prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
     }
 
     fun setUsbAllowFixedVolume(value: Boolean) {

@@ -69,6 +69,24 @@ class AudioFidelityTest {
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
     }
 
+    @Test fun missingTransitionExactnessDoesNotInventPrecisionLoss() {
+        val a = AudioFidelity.assess(
+            input(direct = true, exact = false).copy(outputExactKnown = false)
+        )
+        assertEquals(100, a.score)
+        assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
+        assertTrue(a.deductions.isEmpty())
+    }
+
+    @Test fun confirmedNormalSinkPrecisionLossStillDeductsTwelve() {
+        val a = AudioFidelity.assess(
+            input(direct = true, exact = false).copy(outputExactKnown = true)
+        )
+        assertEquals(88, a.score)
+        assertEquals(AudioFidelity.Verification.MODIFIED, a.verification)
+        assertTrue(a.deductions.any { it.label.contains("precision") })
+    }
+
     @Test fun stalePhoneRouteDoesNotPenalizeVerifiedUsbDriver() {
         val a = AudioFidelity.assess(input(route = AudioRouting.Kind.PHONE, verified = true, bypass = true))
         assertEquals(100, a.score)
