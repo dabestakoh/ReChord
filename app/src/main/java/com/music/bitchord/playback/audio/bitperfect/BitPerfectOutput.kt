@@ -176,7 +176,6 @@ internal object BitPerfectOutput {
         }
     }
 
-    /** The DAC's Feature Unit volume while direct USB output is open; null otherwise. */
     /** Fixed-volume approval belongs to a DAC, never to a global setting. */
     data class FixedVolumeDevice(val key: String, val label: String, val approved: Boolean)
     private const val FIXED_VOLUME_PREFS = "rechord_usb_fixed_volume_approvals"
@@ -255,6 +254,7 @@ internal object BitPerfectOutput {
         UsbDirectDevices.onChanged?.invoke()
     }
 
+    /** The DAC's Feature Unit volume while direct USB output is open; null otherwise. */
     private val _hardwareVolume = MutableStateFlow<UsbVolume.Snapshot?>(null)
     val hardwareVolume: StateFlow<UsbVolume.Snapshot?> = _hardwareVolume.asStateFlow()
     private val pendingVolume = AtomicReference<Double?>(null)
@@ -364,14 +364,14 @@ internal object BitPerfectOutput {
                 val approved = isFixedVolumeApproved(context, device)
                 val opened = try {
                     UsbDirectTransport.open(
-                    manager = usb,
-                    device = device,
-                    rate = sampleRate,
-                    channels = channels,
-                    sourceBits = sourceBits,
-                    convert = convert,
-                    allowFixedVolume = approved,
-                    rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
+                        manager = usb,
+                        device = device,
+                        rate = sampleRate,
+                        channels = channels,
+                        sourceBits = sourceBits,
+                        convert = convert,
+                        allowFixedVolume = approved,
+                        rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
                     )
                 } catch (error: BitPerfectTransportException) {
                     if (error.message == "volume_unavailable" && !approved) {
