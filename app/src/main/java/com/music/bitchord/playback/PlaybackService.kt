@@ -1983,7 +1983,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
             },
-            versionSwapActive = { versionSwapJob?.isActive == true },
+            versionSwapActive = { versionSwapJob?.isActive == true || qualityUpgradeFadeActive },
             // Direct Source Stream fetches the next track only in the last
             // seconds before the blend, so the marker waits for its audio:
             // a window shown over a track that may still fall back to YouTube
@@ -2194,6 +2194,8 @@ class PlaybackService : MediaLibraryService() {
 
     private var versionSwapJob: Job? = null
     private var versionSwapGeneration = 0
+    /** Prevents the normal track-transition engine from claiming our standby decoder. */
+    private var qualityUpgradeFadeActive = false
 
     /**
      * Seamlessly transitions between two versions/sources of the same track
@@ -4852,6 +4854,169 @@ class PlaybackService : MediaLibraryService() {
      * playback URI differs, so an item rebuilt identically would be accepted
      * and quietly keep playing the old stream.
      */
+
+    /**
+     * Optional mid-track handoff. The original decoder continues producing audio
+     * until the replacement has *played*, remained buffered and tracked the
+     * original clock. A failed preparation leaves the original untouched.
+     *
+     * This only runs on normal mixer output. Exclusive DACs are deliberately
+     * left on the existing one-decoder path, never a mixed PCM transition.
+     * No album mastering assumption is made: near-equal durations and live
+     * position stability are necessary but are not proof of identical masters.
+     */
+    private suspend fun trySeamlessQualityUpgrade(
+        mediaId: String,
+        replacement: MediaItem,
+    ): Boolean {
+        val active = player ?: return false
+        val standby = spare ?: return false
+        val index = active.currentMediaItemIndex
+        if (!AppSettings.seamlessQualityUpgrade.value ||
+            qualityUpgradeFadeActive || versionSwapJob?.isActive == true ||
+            crossfade?.isTransitioning() == true ||
+            ListenTogether.state.value.inParty ||
+            castPlayback.active || CastController.state.value.casting ||
+            BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active ||
+            !active.isPlaying || active.playbackState != Player.STATE_READY ||
+            active.currentMediaItem?.mediaId != mediaId ||
+            index !in 0 until active.mediaItemCount
+        ) return false
+
+        val originalDuration = active.duration
+        val originalPosition = active.currentPosition
+        if (originalDuration <= 0 || originalDuration - originalPosition < UPGRADE_MIN_REMAINING_MS) return false
+        qualityUpgradeFadeActive = true
+        var adopted = false
+        try {
+            val items = List(active.mediaItemCount) { i ->
+                if (i == index) replacement else active.getMediaItemAt(i)
+            }
+            standby.stop()
+            standby.clearMediaItems()
+            standby.playWhenReady = false
+            standby.volume = 0f
+            standby.skipSilenceEnabled = active.skipSilenceEnabled
+            standby.repeatMode = active.repeatMode
+            standby.shuffleModeEnabled = active.shuffleModeEnabled
+            standby.setPlaybackSpeed(AppSettings.playbackSpeed.value)
+            standby.setMediaItems(items, index, originalPosition)
+            spareLoudness().track(mediaId, nextMediaIdOf(standby))
+            standby.prepare()
+
+            fun valid(): Boolean = player === active &&
+                active.currentMediaItemIndex == index &&
+                active.currentMediaItem?.mediaId == mediaId &&
+                active.isPlaying &&
+                AppSettings.seamlessQualityUpgrade.value &&
+                !ListenTogether.state.value.inParty &&
+                !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
+                crossfade?.isTransitioning() != true
+
+            val prepareDeadline = SystemClock.elapsedRealtime() + 10_000L
+            while (valid() && standby.playbackState != Player.STATE_READY &&
+                standby.playerError == null && SystemClock.elapsedRealtime() < prepareDeadline
+            ) delay(25)
+            if (!valid() || standby.playbackState != Player.STATE_READY || standby.playerError != null) return false
+
+            // Different cuts or long introductions are inappropriate for a blind
+            // clock-based blend; preserve the playing stream instead.
+            if (standby.duration <= 0 || abs(standby.duration - originalDuration) > 700L) return false
+
+            // Buffer *ahead* of the live playhead, not the point where prepare
+            // began. The outgoing audio keeps playing throughout preparation.
+            val liveTarget = active.currentPosition
+            standby.seekTo(index, liveTarget)
+            val bufferDeadline = SystemClock.elapsedRealtime() + 6_000L
+            while (valid() && standby.playerError == null &&
+                (standby.playbackState != Player.STATE_READY ||
+                    standby.bufferedPosition < active.currentPosition + 3_000L) &&
+                SystemClock.elapsedRealtime() < bufferDeadline
+            ) delay(25)
+            if (!valid() || standby.playerError != null ||
+                standby.playbackState != Player.STATE_READY ||
+                standby.bufferedPosition < active.currentPosition + 3_000L
+            ) return false
+
+            // A READY decoder is not necessarily delivering audio. Start muted
+            // and verify the playback clock actually advances before touching
+            // the original player's gain.
+            standby.play()
+            val startDeadline = SystemClock.elapsedRealtime() + 1_800L
+            while (valid() && !standby.isPlaying && standby.playerError == null &&
+                SystemClock.elapsedRealtime() < startDeadline
+            ) delay(15)
+            if (!valid() || !standby.isPlaying || standby.playerError != null) return false
+
+            // A seek takes time to resume; each correction is performed while
+            // the standby is still muted and never once the blend has started.
+            var aligned = false
+            repeat(3) {
+                if (!valid() || standby.playerError != null) return false
+                val drift = active.currentPosition - standby.currentPosition
+                if (abs(drift) <= 45L && standby.isPlaying) {
+                    aligned = true
+                    return@repeat
+                }
+                if (!aligned) {
+                    standby.seekTo(index, active.currentPosition + 80L)
+                    val seekDeadline = SystemClock.elapsedRealtime() + 900L
+                    while (valid() && standby.playbackState != Player.STATE_READY &&
+                        SystemClock.elapsedRealtime() < seekDeadline
+                    ) delay(15)
+                }
+            }
+            if (!aligned || !valid()) return false
+            val checkedPosition = standby.currentPosition
+            delay(180L)
+            if (!valid() || !standby.isPlaying ||
+                standby.currentPosition <= checkedPosition ||
+                abs(active.currentPosition - standby.currentPosition) > 55L
+            ) return false
+
+            // Equal-power blend: both players must continue advancing. Do not
+            // seek within the audible overlap; failed alignment simply abandons
+            // this optional upgrade and keeps the original stream.
+            val started = SystemClock.elapsedRealtime()
+            while (true) {
+                if (!valid() || !standby.isPlaying ||
+                    standby.playbackState != Player.STATE_READY ||
+                    standby.playerError != null ||
+                    abs(active.currentPosition - standby.currentPosition) > 85L
+                ) return false
+                val fraction = ((SystemClock.elapsedRealtime() - started).toFloat() /
+                    seamlessUpgradeFadeMs).coerceIn(0f, 1f)
+                val gainIn = sin(fraction * (PI / 2.0)).toFloat()
+                val gainOut = cos(fraction * (PI / 2.0)).toFloat()
+                standby.volume = gainIn
+                active.volume = gainOut
+                val trim = 1f / sqrt((gainIn + gainOut).coerceAtLeast(1f))
+                loudnessA.setBlendTrim(trim)
+                loudnessB.setBlendTrim(trim)
+                if (fraction >= 1f) break
+                delay(16)
+            }
+            adoptPlayerForVersionSwap(active, standby)
+            adopted = true
+            return true
+        } finally {
+            qualityUpgradeFadeActive = false
+            loudnessA.setBlendTrim(1f)
+            loudnessB.setBlendTrim(1f)
+            if (!adopted) {
+                // A failed or cancelled fade must never leave the audible
+                // stream attenuated or the standby consuming battery.
+                active.volume = 1f
+                standby.stop()
+                standby.clearMediaItems()
+                standby.playWhenReady = false
+                standby.volume = 1f
+            }
+        }
+    }
+
+    private val seamlessUpgradeFadeMs = 1_000L
+
     private suspend fun swapIn(mediaId: String, stream: SourceStream) {
         // A search or a shelved proof can outlive the ceiling it was made
         // under — see [onCeilingLowered]. Asked again here, where it decides
@@ -5015,33 +5180,46 @@ class PlaybackService : MediaLibraryService() {
             // NerdStats cleanup for why the pre-upgrade claim has to be
             // captured here rather than looked up again on revert.
             val previousFormat = NerdStats.declaredFormat(mediaId)
-            swappingMediaId = mediaId
-            swapCutAt = SystemClock.elapsedRealtime()
             val upgradedMetadata = now.item.mediaMetadata.buildUpon()
                 .setExtras(Bundle(now.item.mediaMetadata.extras ?: Bundle()).apply {
                     putBoolean(EXTRA_QUALITY_UPGRADED, true)
                 })
                 .build()
-            player.replaceMediaItem(
-                player.currentMediaItemIndex,
-                now.item.buildUpon()
-                    .setUri(upgradedUri)
-                    .setMediaMetadata(upgradedMetadata)
-                    .withResolvedStreamType(stream.url)
-                    .build(),
-            )
+            val upgradedItem = now.item.buildUpon()
+                .setUri(upgradedUri)
+                .setMediaMetadata(upgradedMetadata)
+                .withResolvedStreamType(stream.url)
+                .build()
+            val seamlessRequested = AppSettings.seamlessQualityUpgrade.value &&
+                !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
+                !ListenTogether.state.value.inParty && !castPlayback.active &&
+                !CastController.state.value.casting
+            val seamlessApplied = if (seamlessRequested) {
+                trySeamlessQualityUpgrade(mediaId, upgradedItem)
+            } else false
+            if (seamlessRequested && !seamlessApplied) {
+                // In opt-in mode, never substitute a cut that can interrupt
+                // currently audible standard output. Keep the proof for later.
+                QualityUpgrade.shelve(mediaId, stream)
+                return@withContext
+            }
+            if (!seamlessApplied) {
+                swappingMediaId = mediaId
+                swapCutAt = SystemClock.elapsedRealtime()
+                player.replaceMediaItem(player.currentMediaItemIndex, upgradedItem)
+                player.seekTo(player.currentMediaItemIndex, now.position)
+                player.prepare()
+            }
             val upgradedSourceName = stream.sourceConfigId?.let { SourceRegistry.config(it)?.displayName }
                 ?: "Upgrade"
             NerdStats.onSourceStream(mediaId, stream.format, upgradedSourceName)
             NerdStats.recordSource(mediaId, upgradedSourceName)
-            player.seekTo(player.currentMediaItemIndex, now.position)
-            player.prepare()
             if (stream.format.isLossless == true) {
                 AudioCache.markSuccessfulFlacUpgrade(Uri.parse(upgradedUri), stream.sourceConfigId)
             }
             QualityUpgrade.unshelve(mediaId)
             TrackLog.d("BitChord", "upgraded to ${stream.format.summary} at ${now.position}ms ($upgradedSourceName)")
-            watchUpgrade(mediaId, now.uri, now.position, now.duration, previousFormat)
+            watchUpgrade(mediaId, now.uri, player.currentPosition, now.duration, previousFormat)
             if (QualityUpgrade.continueAfterLossySwap(mediaId)) {
                 // The immediate JioSaavn improvement stays audible while a
                 // slower lossless source is checked against its higher-quality
