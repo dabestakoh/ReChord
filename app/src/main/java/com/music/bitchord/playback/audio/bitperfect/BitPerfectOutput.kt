@@ -114,6 +114,7 @@ internal object BitPerfectOutput {
     }
 
     fun refreshReady(context: Context) {
+        appContextForApprovals = context.applicationContext
         val audio = context.getSystemService(AudioManager::class.java)
         val attached = when (AppSettings.bitPerfectMode.value) {
             BitPerfectMode.OFF -> false
@@ -130,9 +131,16 @@ internal object BitPerfectOutput {
                 } == true
         }
         this.attached = attached
+        refreshFixedVolumeDevice(
+            context,
+            if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT)
+                UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice)
+            else null,
+        )
         recomputeReady()
     }
 
+    @Volatile private var appContextForApprovals: Context? = null
     @Volatile private var attached = false
 
     /**
@@ -169,6 +177,84 @@ internal object BitPerfectOutput {
     }
 
     /** The DAC's Feature Unit volume while direct USB output is open; null otherwise. */
+    /** Fixed-volume approval belongs to a DAC, never to a global setting. */
+    data class FixedVolumeDevice(val key: String, val label: String, val approved: Boolean)
+    private const val FIXED_VOLUME_PREFS = "rechord_usb_fixed_volume_approvals"
+    private val _fixedVolumeDevice = MutableStateFlow<FixedVolumeDevice?>(null)
+    val fixedVolumeDevice: StateFlow<FixedVolumeDevice?> = _fixedVolumeDevice.asStateFlow()
+    private val _fixedVolumeApprovalRequest = MutableStateFlow<FixedVolumeDevice?>(null)
+    val fixedVolumeApprovalRequest: StateFlow<FixedVolumeDevice?> = _fixedVolumeApprovalRequest.asStateFlow()
+    private var declinedDuringAttachment: String? = null
+
+    private fun deviceKey(device: android.hardware.usb.UsbDevice): String {
+        // A serial distinguishes two identical models when Android exposes it.
+        // Otherwise permission is remembered per USB model, not transient deviceId.
+        val serial = runCatching { device.serialNumber }.getOrNull().orEmpty()
+        return "${device.vendorId}:${device.productId}:${device.manufacturerName.orEmpty()}:" +
+            "${device.productName.orEmpty()}:$serial"
+    }
+
+    private fun isFixedVolumeApproved(context: Context, device: android.hardware.usb.UsbDevice): Boolean =
+        context.getSharedPreferences(FIXED_VOLUME_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(deviceKey(device), false)
+
+    private fun refreshFixedVolumeDevice(context: Context, device: android.hardware.usb.UsbDevice?) {
+        if (device == null) {
+            _fixedVolumeDevice.value = null
+            _fixedVolumeApprovalRequest.value = null
+            declinedDuringAttachment = null
+            return
+        }
+        val key = deviceKey(device)
+        val approved = isFixedVolumeApproved(context, device)
+        val info = FixedVolumeDevice(key, device.productName?.takeIf(String::isNotBlank) ?: "USB DAC", approved)
+        _fixedVolumeDevice.value = info
+        if (approved || _fixedVolumeApprovalRequest.value?.key != key) {
+            _fixedVolumeApprovalRequest.value = null
+        }
+    }
+
+    private fun requestFixedVolumeApproval(context: Context, device: android.hardware.usb.UsbDevice) {
+        refreshFixedVolumeDevice(context, device)
+        val info = _fixedVolumeDevice.value ?: return
+        if (!info.approved && declinedDuringAttachment != info.key) {
+            _fixedVolumeApprovalRequest.value = info
+        }
+    }
+
+    /** Explicit approval, once per connected DAC, after a warning dialog. */
+    fun approveFixedVolume(context: Context) {
+        val device = UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice) ?: return
+        val request = _fixedVolumeApprovalRequest.value ?: return
+        if (request.key != deviceKey(device)) return
+        context.getSharedPreferences(FIXED_VOLUME_PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(request.key, true).apply()
+        declinedDuringAttachment = null
+        refreshFixedVolumeDevice(context, device)
+        UsbDirectDevices.onChanged?.invoke()
+    }
+
+    /** Called by a settings toggle to request approval for the current DAC. */
+    fun requestCurrentFixedVolumeApproval() {
+        _fixedVolumeDevice.value?.takeIf { !it.approved }?.let {
+            declinedDuringAttachment = null
+            _fixedVolumeApprovalRequest.value = it
+        }
+    }
+
+    fun dismissFixedVolumeApproval() {
+        declinedDuringAttachment = _fixedVolumeApprovalRequest.value?.key
+        _fixedVolumeApprovalRequest.value = null
+    }
+
+    fun revokeFixedVolume(context: Context) {
+        val device = UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice) ?: return
+        context.getSharedPreferences(FIXED_VOLUME_PREFS, Context.MODE_PRIVATE).edit()
+            .remove(deviceKey(device)).apply()
+        refreshFixedVolumeDevice(context, device)
+        UsbDirectDevices.onChanged?.invoke()
+    }
+
     private val _hardwareVolume = MutableStateFlow<UsbVolume.Snapshot?>(null)
     val hardwareVolume: StateFlow<UsbVolume.Snapshot?> = _hardwareVolume.asStateFlow()
     private val pendingVolume = AtomicReference<Double?>(null)
@@ -275,16 +361,25 @@ internal object BitPerfectOutput {
                 val usb = UsbDirectDevices.manager(context) ?: throw BitPerfectTransportException("no_usb")
                 val device = UsbDirectDevices.audioDevice(usb) ?: throw BitPerfectTransportException("no_usb")
                 if (!usb.hasPermission(device)) throw BitPerfectTransportException("permission_denied")
-                UsbDirectTransport.open(
+                val approved = isFixedVolumeApproved(context, device)
+                val opened = try {
+                    UsbDirectTransport.open(
                     manager = usb,
                     device = device,
                     rate = sampleRate,
                     channels = channels,
                     sourceBits = sourceBits,
                     convert = convert,
-                    allowFixedVolume = AppSettings.usbAllowFixedVolume.value,
+                    allowFixedVolume = approved,
                     rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
-                )
+                    )
+                } catch (error: BitPerfectTransportException) {
+                    if (error.message == "volume_unavailable" && !approved) {
+                        requestFixedVolumeApproval(context, device)
+                    }
+                    throw error
+                }
+                opened
             }
         }
         owner = requester
@@ -359,7 +454,12 @@ internal object BitPerfectOutput {
 
     private fun currentFailures(mode: BitPerfectMode, deviceId: Int): MutableSet<String> {
         // Fixed-volume permission changes USB_DIRECT eligibility: retry past failures.
-        val scope = "$mode/$deviceId/${AppSettings.convertForLimitedDac.value}/${if (mode == BitPerfectMode.USB_DIRECT) AppSettings.usbAllowFixedVolume.value else false}"
+        val approved = if (mode == BitPerfectMode.USB_DIRECT) {
+            val app = appContextForApprovals
+            val device = app?.let(UsbDirectDevices::manager)?.let(UsbDirectDevices::audioDevice)
+            app != null && device != null && isFixedVolumeApproved(app, device)
+        } else false
+        val scope = "$mode/$deviceId/${AppSettings.convertForLimitedDac.value}/$approved"
         if (failedFor != scope) {
             failed.clear()
             failedFor = scope
