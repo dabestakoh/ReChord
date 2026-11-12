@@ -4951,6 +4951,23 @@ class PlaybackService : MediaLibraryService() {
         traceUpgrade("upgrade begin", active, standby)
         var adopted = false
         var focusTransferred = false
+        // Separate listener for the muted/standby player. The session listener
+        // intentionally follows only the active player and cannot see this.
+        val standbyTrace = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                traceUpgrade("standby isPlaying=${isPlaying}", active, standby)
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                traceUpgrade("standby playWhenReady=${playWhenReady} reason=${reason}", active, standby)
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                traceUpgrade("standby playbackState=${state}", active, standby)
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                traceUpgrade("standby errorCode=${error.errorCode}", active, standby)
+            }
+        }
+        standby.addListener(standbyTrace)
         try {
             val items = List(active.mediaItemCount) { i ->
                 if (i == index) replacement else active.getMediaItemAt(i)
@@ -5097,6 +5114,8 @@ class PlaybackService : MediaLibraryService() {
             traceUpgrade("adoption completed")
             return true
         } finally {
+            standby.removeListener(standbyTrace)
+            traceUpgrade("seamless finished adopted=${adopted}", active, standby)
             qualityUpgradeFadeActive = false
             loudnessA.setBlendTrim(1f)
             loudnessB.setBlendTrim(1f)
@@ -5324,15 +5343,18 @@ class PlaybackService : MediaLibraryService() {
                 // In opt-in mode, never substitute a cut that can interrupt
                 // currently audible standard output. Keep the proof for later.
                 QualityUpgrade.shelve(mediaId, stream)
+                traceUpgrade("upgrade deferred: seamless attempt did not complete", player, spare)
                 return@withContext
             }
             if (!seamlessApplied) {
+                traceUpgrade("legacy upgrade replaceMediaItem/seek/prepare", player, spare)
                 swappingMediaId = mediaId
                 swapCutAt = SystemClock.elapsedRealtime()
                 player.replaceMediaItem(player.currentMediaItemIndex, upgradedItem)
                 player.seekTo(player.currentMediaItemIndex, now.position)
                 player.prepare()
             }
+            traceUpgrade("upgrade swap finished seamlessApplied=${seamlessApplied}", player, spare)
             val upgradedSourceName = stream.sourceConfigId?.let { SourceRegistry.config(it)?.displayName }
                 ?: "Upgrade"
             NerdStats.onSourceStream(mediaId, stream.format, upgradedSourceName)
