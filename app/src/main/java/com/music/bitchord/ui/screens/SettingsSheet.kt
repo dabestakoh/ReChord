@@ -234,6 +234,7 @@ fun SettingsScreen(
     val skipSilence by AppSettings.skipSilence.collectAsStateWithLifecycle()
     val dolbyAtmos by AppSettings.dolbyAtmos.collectAsStateWithLifecycle()
     val directSourceStream by AppSettings.directSourceStream.collectAsStateWithLifecycle()
+    val seamlessQualityUpgrade by AppSettings.seamlessQualityUpgrade.collectAsStateWithLifecycle()
     // A property of the hardware, so it is read once rather than remembered
     // against a key that can never change — see [DeviceCodecs.playsDolbyAtmos],
     // which caches the codec-list walk for the life of the process.
@@ -529,6 +530,14 @@ fun SettingsScreen(
                         onCheckedChange = AppSettings::setDirectSourceStream,
                         subtitle = stringResource(R.string.direct_source_stream_in_party).takeIf { party.inParty },
                         enabled = !party.inParty,
+                    )
+                }
+                row("Seamless Quality Upgrade", "quality", "upgrade", "crossfade", "gapless", divided = false) {
+                    SettingsSubRow(
+                        title = "Seamless Quality Upgrade",
+                        checked = seamlessQualityUpgrade,
+                        onCheckedChange = AppSettings::setSeamlessQualityUpgrade,
+                        subtitle = "Keep music playing while a better addon stream is prepared. Exclusive DAC output stays bit-perfect.",
                     )
                 }
                 val onWifiTitle = stringResource(R.string.on_wifi)
