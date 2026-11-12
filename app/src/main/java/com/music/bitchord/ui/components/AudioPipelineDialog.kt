@@ -456,14 +456,22 @@ fun AudioPipelineDialog(
                 stageActivationProvider = stageActivation,
                 onStageIconPositioned = onStageIconPositioned,
             ) {
-                PipelineRow(stringResource(R.string.pipeline_pcm_format), pcmFormat)
-                PipelineRow(stringResource(R.string.pipeline_sample_rate), dspRateText)
-                PipelineRow(stringResource(R.string.pipeline_loudness_gain), loudnessGainText)
-                PipelineRow(stringResource(R.string.pipeline_loudness_measured), loudnessMeasuredText)
-                PipelineRow(stringResource(R.string.pipeline_eq_preset), eqPresetText)
-                PipelineRow(stringResource(R.string.pipeline_stereo_expand), stereoExpandText)
-                PipelineRow(stringResource(R.string.pipeline_buffers), buffersText)
-                PipelineRow(stringResource(R.string.pipeline_output_api), outputStatus.sink.ifBlank { "AAudio" })
+                PipelineRow(stringResource(R.string.pipeline_pcm_format), if (bitPerfect.active) "Bypassed" else pcmFormat)
+                PipelineRow(stringResource(R.string.pipeline_sample_rate), if (bitPerfect.active) rateText(bitPerfect.sampleRateHz) else dspRateText)
+                if (bitPerfect.active) {
+                    PipelineRow("Processing", "Bypassed (bit-perfect)")
+                } else {
+                    PipelineRow(stringResource(R.string.pipeline_loudness_gain), loudnessGainText)
+                    PipelineRow(stringResource(R.string.pipeline_loudness_measured), loudnessMeasuredText)
+                    PipelineRow(stringResource(R.string.pipeline_eq_preset), eqPresetText)
+                    PipelineRow(stringResource(R.string.pipeline_stereo_expand), stereoExpandText)
+                    PipelineRow(stringResource(R.string.pipeline_buffers), buffersText)
+                }
+                PipelineRow(
+                    stringResource(R.string.pipeline_output_api),
+                    if (bitPerfect.active) bitPerfect.driver ?: "Dedicated output"
+                    else outputStatus.sink.ifBlank { "AAudio" },
+                )
                 // The verdict, rather than the settings. Names whichever
                 // stage is altering samples — or, when none is, whether
                 // the route can carry the decoder's own encoding —
@@ -925,21 +933,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     },
                     modifier = Modifier.padding(top = 3.dp),
                 )
-                Row(
-                    modifier = Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    val effects = when {
-                        !assessment.effectsAvailable -> "DSP unavailable"
-                        assessment.effectsBypassed -> "DSP bypassed"
-                        assessment.activeEffects.isEmpty() -> "DSP idle"
-                        else -> "DSP ${assessment.activeEffects.size} active"
-                    }
-                    FidelityChip(effects, highlighted = assessment.activeEffects.isNotEmpty())
-                    FidelityChip(
-                        if (assessment.deductions.isEmpty()) "No known changes" else "${assessment.deductions.size} deductions",
-                    )
-                }
+
             }
         }
 
@@ -953,20 +947,18 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         }
 
         Text(
-            text = assessment.verificationDetail,
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-            color = Color.White.copy(alpha = 0.58f),
+            text = when (assessment.verification) {
+                AudioFidelity.Verification.VERIFIED -> "Audio preserved to DAC"
+                AudioFidelity.Verification.UNVERIFIED -> "Output accuracy not confirmed"
+                AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
+            },
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+            color = Color.White.copy(alpha = 0.68f),
             modifier = Modifier.padding(top = 8.dp),
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(if (assessment.deductions.isEmpty()) 0.dp else 10.dp))
         val shown = assessment.deductions.sortedByDescending { it.points }.take(3)
-        if (shown.isEmpty()) {
-            Text(
-                text = "No known changes to decoded PCM.",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                color = Color.White.copy(alpha = 0.62f),
-            )
-        } else {
+        if (shown.isNotEmpty()) {
             shown.forEach { deduction ->
                 Row(
                     modifier = Modifier
@@ -993,28 +985,6 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         }
     }
 }
-
-@Composable
-private fun FidelityChip(label: String, highlighted: Boolean = false) {
-    Box(
-        modifier = Modifier
-            .background(
-                Color.White.copy(alpha = if (highlighted) 0.16f else 0.07f),
-                RoundedCornerShape(50),
-            )
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-            ),
-            color = Color.White.copy(alpha = if (highlighted) 0.95f else 0.65f),
-        )
-    }
-}
-
 
 /** One pipeline stage: an icon, its title, and the label/value rows under it. */
 @Composable
