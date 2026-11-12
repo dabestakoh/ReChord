@@ -3678,7 +3678,6 @@ class PlaybackService : MediaLibraryService() {
         alreadyAudible: Boolean = false,
     ) {
         val exoPlayer = player ?: return
-        failedSeamlessUpgrade = null
         syncBoundedContextCursor(exoPlayer, mediaItem)
         if (boundedContextWindow != null && !ListenTogether.state.value.inParty) {
             saveBoundedContextSnapshot(exoPlayer)
@@ -4601,7 +4600,6 @@ class PlaybackService : MediaLibraryService() {
         // catalogue search or "Upgrading Quality" request is necessary.
         if (AudioCache.isReplayingCachedFlac(mediaId)) return
         val alreadyPending = QualityUpgrade.isPending(mediaId)
-        if (failedSeamlessUpgrade == mediaId && AppSettings.seamlessQualityUpgrade.value) return
         val shelved = QualityUpgrade.shelvedFor(mediaId)
         if (shelved == null && !alreadyPending && !QualityUpgrade.couldStillUpgrade(mediaId, uri)) return
         if (upgradeJob?.isActive == true) {
@@ -5211,8 +5209,6 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private var failedSeamlessUpgrade: String? = null
-
     private val seamlessUpgradeFadeMs = 1_000L
 
     private suspend fun swapIn(mediaId: String, stream: SourceStream) {
@@ -5388,6 +5384,7 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaMetadata(upgradedMetadata)
                 .withResolvedStreamType(stream.url)
                 .build()
+            val originalIndex = player.currentMediaItemIndex
             val seamlessRequested = AppSettings.seamlessQualityUpgrade.value &&
                 AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
@@ -5397,22 +5394,30 @@ class PlaybackService : MediaLibraryService() {
             val seamlessApplied = if (seamlessRequested) {
                 trySeamlessQualityUpgrade(mediaId, upgradedItem, stream.format.isLossless == true)
             } else false
-            if (seamlessRequested && !seamlessApplied) {
-                // In opt-in mode, never substitute a cut that can interrupt
-                // currently audible standard output. Keep the proof for later.
-                if (player.currentMediaItem?.mediaId == mediaId && player.isPlaying) {
-                    failedSeamlessUpgrade = mediaId
-                }
-                QualityUpgrade.shelve(mediaId, stream)
-                traceUpgrade("upgrade deferred: seamless attempt did not complete", player, spare)
-                return@withContext
-            }
             if (!seamlessApplied) {
-                traceUpgrade("legacy upgrade replaceMediaItem/seek/prepare", player, spare)
+                // The fade is optional. The proved stream can still replace
+                // the same queue item using the active output and play intent.
+                val latest = swapPointFor(mediaId)
+                if (this@PlaybackService.player !== player ||
+                    player.currentMediaItemIndex != originalIndex ||
+                    latest == null || latest.uri != now.uri ||
+                    crossfade?.isTransitioning() == true || versionSwapJob?.isActive == true ||
+                    castPlayback.active || CastController.state.value.casting ||
+                    ListenTogether.state.value.inParty
+                ) {
+                    QualityUpgrade.shelve(mediaId, stream)
+                    traceUpgrade("upgrade deferred: playback context changed", player, spare)
+                    return@withContext
+                }
+                if (!SourceRegistry.permitsForPlayback(stream.sourceConfigId) ||
+                    QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
+                ) return@withContext
+
+                traceUpgrade("verified upgrade replacing active item seamlessRequested=$seamlessRequested", player, spare)
                 swappingMediaId = mediaId
                 swapCutAt = SystemClock.elapsedRealtime()
-                player.replaceMediaItem(player.currentMediaItemIndex, upgradedItem)
-                player.seekTo(player.currentMediaItemIndex, now.position)
+                player.replaceMediaItem(originalIndex, upgradedItem)
+                player.seekTo(originalIndex, latest.position)
                 player.prepare()
             }
             traceUpgrade("upgrade swap finished seamlessApplied=${seamlessApplied}", player, spare)
