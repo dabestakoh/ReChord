@@ -283,17 +283,17 @@ object AppSettings {
     val outputPcmMode = MutableStateFlow(OutputPcmMode.PCM_16)
 
     /** Prefer an attached USB audio output over the system's normal route. */
-    val preferUsbDac = MutableStateFlow(false)
+    val preferUsbDac = MutableStateFlow(true)
 
     /** Unprocessed output to a DAC; see [BitPerfectMode]. */
-    val bitPerfectMode = MutableStateFlow(BitPerfectMode.OFF)
+    val bitPerfectMode = MutableStateFlow(BitPerfectMode.USB_ANDROID)
 
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
-     * full scale, with the DAC's own knob (if any) the only volume. Off unless
-     * the listener accepts a second warning.
+     * full scale, with the DAC's own knob (if any) the only volume. On for new
+     * installs; the listener must set the physical DAC/amplifier volume safely.
      */
-    val usbAllowFixedVolume = MutableStateFlow(false)
+    val usbAllowFixedVolume = MutableStateFlow(true)
 
     /**
      * Lets the exclusive output convert a track its DAC can't take as it is, to
@@ -303,26 +303,11 @@ object AppSettings {
     val convertForLimitedDac = MutableStateFlow(false)
 
     /**
-     * Level every track to the same loudness, using YouTube's own
-     * normalization figure for it — see
-     * [com.music.bitchord.playback.PlaybackService.setupLoudnessEnhancer].
-     *
-     * On by default, which is the one genuinely contentious thing about it.
-     * The case for it: a queue drawn from several sources is a queue of
-     * several mastering eras, and the gap between a 1980s CD transfer and a
-     * modern master is routinely fifteen decibels — loud enough that the
-     * listener's own volume control is the wrong tool, because the setting
-     * that suits one track hurts at the next. Every streaming service
-     * normalizes by default for the same reason.
-     *
-     * The case against it is that a constant gain is still a multiplication,
-     * so this is the first thing in BitChord that is *on* out of the box and
-     * alters samples. Rather than hide that, the Audio Pipeline readout names
-     * it: its Bit-exact row reports the first stage in the chain that is
-     * altering samples, and switching this off is the first thing a listener
-     * chasing an untouched signal would do.
+     * YouTube's normalization gain, when available. Off by default to preserve
+     * decoded PCM for listeners preferring bit-perfect playback. The user can
+     * enable normalization explicitly; exclusive output bypasses DSP regardless.
      */
-    val loudnessNormalization = MutableStateFlow(true)
+    val loudnessNormalization = MutableStateFlow(false)
 
     /** Skip loudness normalization while the active output is the phone's own speaker. */
     val loudnessOffOnSpeaker = MutableStateFlow(true)
@@ -986,13 +971,13 @@ object AppSettings {
                     ?: OutputPcmMode.PCM_16.name,
             )
         }.getOrDefault(OutputPcmMode.PCM_16)
-        preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, false)
+        preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, true)
         bitPerfectMode.value = runCatching {
-            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: BitPerfectMode.OFF.name)
-        }.getOrDefault(BitPerfectMode.OFF)
-        usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
+            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: BitPerfectMode.USB_ANDROID.name)
+        }.getOrDefault(BitPerfectMode.USB_ANDROID)
+        usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, true)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
-        loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, true)
+        loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
