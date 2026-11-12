@@ -98,24 +98,17 @@ jobs:
       - name: Restore the existing Preview signing certificate
         shell: bash
         env:
-          CI_DEBUG_KEYSTORE_BASE64: ${{ secrets.CI_DEBUG_KEYSTORE_BASE64 }}
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
-          PREVIEW_KEYSTORE_BASE64: ${{ secrets.PREVIEW_KEYSTORE_BASE64 }}
-          DEV_KEYSTORE_BASE64: ${{ secrets.DEV_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          # Do not create a new debug key: it would prevent upgrades over the
-          # existing installed com.rechord.preview package.
-          encoded="${CI_DEBUG_KEYSTORE_BASE64:-}"
-          if [ -z "$encoded" ]; then encoded="${DEBUG_KEYSTORE_BASE64:-}"; fi
-          if [ -z "$encoded" ]; then encoded="${PREVIEW_KEYSTORE_BASE64:-}"; fi
-          if [ -z "$encoded" ]; then encoded="${DEV_KEYSTORE_BASE64:-}"; fi
-          if [ -z "$encoded" ]; then
-            echo "::error::Existing Preview keystore secret not configured (CI_DEBUG_KEYSTORE_BASE64 / DEBUG_KEYSTORE_BASE64 / PREVIEW_KEYSTORE_BASE64 / DEV_KEYSTORE_BASE64)."
+          # Exactly the same secret, filename, alias and passwords as
+          # fidelity-ui-preview.yml (the develop Preview build).
+          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::error::Missing develop Preview signing secret DEBUG_KEYSTORE_BASE64."
             exit 1
           fi
           umask 077
-          printf '%s' "$encoded" | base64 --decode > ci-debug.keystore
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ci-debug.keystore
           test -s ci-debug.keystore
           keytool -list -keystore ci-debug.keystore -storepass android -alias androiddebugkey >/dev/null
 
@@ -138,6 +131,15 @@ jobs:
           apk="${apks[0]}"
           tools="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n1)"
           "$tools/apksigner" verify --verbose "$apk"
+          actual="$("$tools/apksigner" verify --print-certs "$apk" |
+            sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]:]+)[[:space:]]*$/\\1/p' |
+            head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          expected="$(keytool -exportcert -keystore ci-debug.keystore -storepass android \
+            -alias androiddebugkey 2>/dev/null | sha256sum | awk '{print $1}')"
+          if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::APK signer differs from develop Preview signing key"
+            exit 1
+          fi
           "$tools/aapt" dump badging "$apk" | grep -q "package: name='com.rechord.preview' "
           "$tools/aapt" dump badging "$apk" | grep -q "native-code: 'arm64-v8a'"
           mkdir -p preview-test-apk
