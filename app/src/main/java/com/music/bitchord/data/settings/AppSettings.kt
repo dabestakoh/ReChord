@@ -358,6 +358,9 @@ object AppSettings {
      */
     val directSourceStream = MutableStateFlow(false)
 
+    /** Opt-in seamless mid-track rendition handoff; disabled for existing installs. */
+    val seamlessQualityUpgrade = MutableStateFlow(false)
+
     /**
      * Widens stereo output via [com.music.bitchord.playback.SpatialAudioProcessor],
      * a stereo widening + cross-feed effect running inside ExoPlayer's own
@@ -992,6 +995,7 @@ object AppSettings {
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
+        seamlessQualityUpgrade.value = prefs.getBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
         spatialAudio.value = prefs.getBoolean(KEY_SPATIAL_AUDIO, false)
         equalizerEnabled.value = prefs.getBoolean(KEY_EQ_ENABLED, false)
         equalizerMode.value = runCatching {
@@ -1311,6 +1315,11 @@ object AppSettings {
     fun setDirectSourceStream(value: Boolean) {
         directSourceStream.value = value
         prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value).apply()
+    }
+
+    fun setSeamlessQualityUpgrade(value: Boolean) {
+        seamlessQualityUpgrade.value = value
+        prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, value).apply()
     }
 
     fun setSpatialAudio(value: Boolean) {
@@ -2265,6 +2274,7 @@ object AppSettings {
     private const val KEY_LOUDNESS_OFF_ON_SPEAKER = "loudness_off_on_speaker"
     private const val KEY_DOLBY_ATMOS = "dolby_atmos"
     private const val KEY_DIRECT_SOURCE_STREAM = "direct_source_stream"
+    private const val KEY_SEAMLESS_QUALITY_UPGRADE = "seamless_quality_upgrade"
     private const val KEY_SPATIAL_AUDIO = "spatial_audio"
     private const val KEY_EQ_ENABLED = "equalizer_enabled"
     private const val KEY_EQ_MODE = "equalizer_mode"
