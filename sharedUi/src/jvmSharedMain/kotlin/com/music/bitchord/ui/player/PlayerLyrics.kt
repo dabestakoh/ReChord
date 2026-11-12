@@ -534,13 +534,13 @@ internal fun LyricsStatusWithChange(
 ) {
     val haptics = rememberHaptics()
     Row(
-        modifier = modifier.additiveChrome(LocalPlayerChrome.current),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = status,
             style = MaterialTheme.typography.titleMedium,
-            color = chromeWhite(0.55f),
+            color = LocalPlayerAccent.current.copy(alpha = 0.55f),
             textDecoration = if (onStatusClick != null) TextDecoration.Underline else null,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -800,8 +800,9 @@ private fun SweptLyricLine(
     laneLocked: Boolean = false,
     translationProgress: State<Float>? = null,
     /** What the words are set in — see [PanelVoice] for which lines differ. */
-    color: Color = Color.White,
+    color: Color = Color.Unspecified,
 ) {
+    val lyricInk = if (color == Color.Unspecified) LocalPlayerAccent.current else color
     var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
 
     // Filled in and read back a letter at a time inside the draw lambdas, and
@@ -910,7 +911,7 @@ private fun SweptLyricLine(
         Text(
             text = line.text,
             style = style,
-            color = color.copy(alpha = dimAlpha),
+            color = lyricInk.copy(alpha = dimAlpha),
             maxLines = maxLines,
             overflow = overflow,
             onTextLayout = { layout = it },
@@ -920,7 +921,7 @@ private fun SweptLyricLine(
             Text(
                 text = line.text,
                 style = style,
-                color = color,
+                color = lyricInk,
                 maxLines = maxLines,
                 overflow = overflow,
                 modifier = Modifier
@@ -952,7 +953,7 @@ private fun SweptLyricLine(
         Text(
             text = line.text,
             style = style,
-            color = color,
+            color = lyricInk,
             maxLines = maxLines,
             overflow = overflow,
             // The feather erases into this layer, so the layer has to exist —
@@ -1465,10 +1466,11 @@ internal fun TranslationToggleButton(
 ) {
     val active = showingTranslation || state is LyricsTranslationUiState.Loading
     val chrome = LocalPlayerChrome.current
+    val accent = LocalPlayerAccent.current
     val tint = when {
-        !enabled || state is LyricsTranslationUiState.SameLanguage -> chromeWhite(0.42f)
-        active -> Color.White.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
-        else -> chromeWhite(0.78f)
+        !enabled || state is LyricsTranslationUiState.SameLanguage -> accent.copy(alpha = 0.42f)
+        active -> accent.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
+        else -> accent.copy(alpha = 0.78f)
     }
     val discAlpha by animateFloatAsState(
         targetValue = if (active) 0.34f else 0.18f,
@@ -1518,10 +1520,11 @@ internal fun RomanizationToggleButton(
 ) {
     val active = showingRomanization || state is LyricsTranslationUiState.Loading
     val chrome = LocalPlayerChrome.current
+    val accent = LocalPlayerAccent.current
     val tint = when {
-        !enabled || state is LyricsTranslationUiState.SameLanguage -> chromeWhite(0.42f)
-        active -> Color.White.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
-        else -> chromeWhite(0.78f)
+        !enabled || state is LyricsTranslationUiState.SameLanguage -> accent.copy(alpha = 0.42f)
+        active -> accent.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
+        else -> accent.copy(alpha = 0.78f)
     }
     val discAlpha by animateFloatAsState(
         targetValue = if (active) 0.34f else 0.18f,
@@ -1799,6 +1802,7 @@ internal fun LyricsPanel(
     centerFocus: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val lyricAccent = LocalPlayerAccent.current
     val panelPlaying = isPlaying && active
     val clock = rememberLyricClock(trackKey, playhead, panelPlaying)
     val subReveal = rememberSubLyricsReveal(subLines, trackKey)
@@ -2034,7 +2038,7 @@ internal fun LyricsPanel(
                 Text(
                     text = stringResource(Res.string.no_lyrics_for_track),
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = LocalPlayerAccent.current.copy(alpha = 0.6f),
                 )
             }
         }
@@ -2092,7 +2096,7 @@ internal fun LyricsPanel(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.5.sp,
                             ),
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = LocalPlayerAccent.current.copy(alpha = 0.9f),
                         )
                     }
                 }
@@ -2212,7 +2216,7 @@ internal fun LyricsPanel(
                                 // fills across it, so they light left to right.
                                 val lit = (through * GAP_DOTS - dot).coerceIn(0f, 1f)
                                 drawCircle(
-                                    color = Color.White.copy(
+                                    color = lyricAccent.copy(
                                         alpha = GAP_DOT_REST + (1f - GAP_DOT_REST) * lit,
                                     ),
                                     radius = radius,
@@ -2607,7 +2611,7 @@ private fun PanelVoice(
             alignEnd = alignEnd,
             laneLocked = laneLocked,
             translationProgress = translationProgress,
-            color = Color.White,
+            color = LocalPlayerAccent.current,
         )
     } else if (line.isWordSynced) {
         // Browsing: keep the sweep so sung lines stay fully lit and unsung
@@ -2630,7 +2634,7 @@ private fun PanelVoice(
             alignEnd = alignEnd,
             laneLocked = laneLocked,
             translationProgress = translationProgress,
-            color = Color.White,
+            color = LocalPlayerAccent.current,
         )
     } else {
         // No word timings, so there is no sweep to light the words as they are
@@ -2650,7 +2654,7 @@ private fun PanelVoice(
         Text(
             text = line.text,
             style = lyricStyle,
-            color = Color.White.copy(alpha = lit),
+            color = LocalPlayerAccent.current.copy(alpha = lit),
             onTextLayout = { layout = it },
             modifier = modifier.lyricParticles(layout, translationProgress, room).padding(room),
         )
@@ -2819,14 +2823,14 @@ private fun CurrentLyricLine(
             Icon(
                 imageVector = BitChordIcons.Instrumental,
                 contentDescription = null,
-                tint = Color.White,
+                tint = LocalPlayerAccent.current,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(6.dp))
             Text(
                 text = stringResource(Res.string.open_lyrics),
                 style = stripStyle,
-                color = Color.White,
+                color = LocalPlayerAccent.current,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -2835,7 +2839,7 @@ private fun CurrentLyricLine(
             Icon(
                 imageVector = BitChordIcons.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
+                tint = LocalPlayerAccent.current.copy(alpha = 0.5f),
                 modifier = Modifier.size(14.dp),
             )
         }
@@ -2892,7 +2896,7 @@ private fun CurrentLyricLine(
             Icon(
                 imageVector = BitChordIcons.Instrumental,
                 contentDescription = null,
-                tint = Color.White,
+                tint = LocalPlayerAccent.current,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -2945,6 +2949,7 @@ private fun CurrentLyricLine(
                     clock = clock,
                     style = voiceStyle(stripStyle, text, alignEnd = false, laneLocked = false),
                     dimAlpha = UNSUNG_ALPHA_STRIP,
+                    color = LocalPlayerAccent.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     rise = false,
@@ -2956,7 +2961,7 @@ private fun CurrentLyricLine(
                     text = lineText,
                     style = voiceStyle(
                         stripStyle.copy(
-                            color = if (itemInstrumental) Color.White.copy(alpha = 0.5f) else Color.White
+                            color = LocalPlayerAccent.current.copy(alpha = if (itemInstrumental) 0.5f else 1f)
                         ),
                         lineText,
                         alignEnd = false,
@@ -2974,7 +2979,7 @@ private fun CurrentLyricLine(
             Icon(
                 imageVector = BitChordIcons.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
+                tint = LocalPlayerAccent.current.copy(alpha = 0.5f),
                 modifier = Modifier.size(14.dp),
             )
         } else {
@@ -2982,7 +2987,7 @@ private fun CurrentLyricLine(
             Icon(
                 imageVector = BitChordIcons.ChevronRight,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
+                tint = LocalPlayerAccent.current.copy(alpha = 0.5f),
                 modifier = Modifier
                     .size(14.dp)
                     .graphicsLayer { scaleX = -1f },
@@ -3011,7 +3016,7 @@ private fun LyricsUnavailableLine(trackKey: Any, modifier: Modifier = Modifier) 
     Text(
         text = stringResource(Res.string.lyrics_not_available),
         style = MaterialTheme.typography.titleMedium,
-        color = Color.White,
+        color = LocalPlayerAccent.current,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
@@ -3026,7 +3031,7 @@ private fun LyricsLoadingLine(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
-        color = Color.White.copy(alpha = 0.55f),
+        color = LocalPlayerAccent.current.copy(alpha = 0.55f),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier.padding(vertical = 4.dp),
