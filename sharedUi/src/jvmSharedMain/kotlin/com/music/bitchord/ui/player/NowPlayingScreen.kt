@@ -119,6 +119,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -3761,6 +3762,7 @@ fun NowPlayingScreen(
                                             text = song.title,
                                             style = MaterialTheme.typography.titleLarge.copy(
                                                 fontSize = 20.sp,
+                                                shadow = Shadow(Color.Black.copy(alpha = 0.35f), Offset(0f, 1f), 4f),
                                             ),
                                             color = LocalPlayerAccent.current,
                                             enabled = scrolling,
@@ -3784,6 +3786,7 @@ fun NowPlayingScreen(
                                             style = MaterialTheme.typography.titleLarge.copy(
                                                 fontWeight = FontWeight.W500,
                                                 fontSize = 20.sp,
+                                                shadow = Shadow(Color.Black.copy(alpha = 0.35f), Offset(0f, 1f), 4f),
                                             ),
                                             color = artistColor,
                                             enabled = scrolling,
