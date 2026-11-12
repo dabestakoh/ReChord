@@ -142,18 +142,28 @@ fun rememberArtworkPalette(
     )
 }
 
+/** Player control tint and status-bar contrast from one decoded artwork seed. */
+@Immutable
+data class ArtworkPlayerAnalysis(
+    val accent: Color,
+    val topBandLuminance: Float,
+)
+
 /**
- * Returns only the actual decoded artwork accent, or null while it is loading.
- * Unlike [rememberArtworkPalette], this never supplies theme.primary as a
- * transient fallback; now-playing holds its previous accent until the new
- * sleeve has a real color to interpolate to.
- *
- * Reuses the same image seed/cache as the artwork background, so there is no
- * second bitmap or color quantization pass.
+ * A nullable result avoids supplying theme.primary during track changes,
+ * which previously held the last song's tint until another color loaded.
+ * Keep both measurements in one composition call to avoid duplicate decodes.
  */
 @Composable
-fun rememberArtworkAccent(imageUrl: String?, artPx: Int = CARD_ART_PX): Color? =
-    rememberArtworkSeed(imageUrl, artPx)?.toPalette(dark = true)?.accent
+fun rememberArtworkPlayerAnalysis(
+    imageUrl: String?,
+    artPx: Int = CARD_ART_PX,
+): ArtworkPlayerAnalysis? = rememberArtworkSeed(imageUrl, artPx)?.let { seed ->
+    ArtworkPlayerAnalysis(
+        accent = seed.toPalette(dark = true).accent,
+        topBandLuminance = seed.topBandLuminance,
+    )
+}
 
 /**
  * Reads top-band relative luminance from the cached palette decode.
@@ -182,7 +192,13 @@ private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? {
         // track's accent. Retry a few short, cancellable times without blocking
         // playback or triggering another image quantization on successful load.
         repeat(3) { attempt ->
-            val result = runCatching { SingletonImageLoader.get(context).execute(request) }.getOrNull()
+            val result = try {
+                SingletonImageLoader.get(context).execute(request)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
             val bitmap = (result as? SuccessResult)?.image?.toImageBitmap()
             val found = bitmap?.let { withContext(Dispatchers.Default) { seedOf(it) } }
             if (found != null) {
