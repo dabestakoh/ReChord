@@ -142,26 +142,28 @@ fun rememberArtworkPalette(
     )
 }
 
-/** Player control tint and status-bar contrast from one decoded artwork seed. */
+/** Artwork-dependent controls distinguish loading from a final missing cover. */
 @Immutable
 data class ArtworkPlayerAnalysis(
-    val accent: Color,
-    val topBandLuminance: Float,
+    val accent: Color?,
+    val topBandLuminance: Float?,
+    val unavailable: Boolean,
 )
 
 /**
- * A nullable result avoids supplying theme.primary during track changes,
- * which previously held the last song's tint until another color loaded.
- * Keep both measurements in one composition call to avoid duplicate decodes.
+ * Loading a new cover must keep the current control tint. Only a permanently
+ * missing/failed cover switches to white, with the same color interpolation.
  */
 @Composable
 fun rememberArtworkPlayerAnalysis(
     imageUrl: String?,
     artPx: Int = CARD_ART_PX,
-): ArtworkPlayerAnalysis? = rememberArtworkSeed(imageUrl, artPx)?.let { seed ->
-    ArtworkPlayerAnalysis(
-        accent = seed.toPalette(dark = true).accent,
-        topBandLuminance = seed.topBandLuminance,
+): ArtworkPlayerAnalysis {
+    val resolution = rememberArtworkSeedResolution(imageUrl, artPx)
+    return ArtworkPlayerAnalysis(
+        accent = resolution.seed?.toPalette(dark = true)?.accent,
+        topBandLuminance = resolution.seed?.topBandLuminance,
+        unavailable = resolution.finished && resolution.seed == null,
     )
 }
 
@@ -175,22 +177,34 @@ fun rememberArtworkTopBandLuminance(
     artPx: Int = CARD_ART_PX,
 ): Float? = rememberArtworkSeed(imageUrl, artPx)?.topBandLuminance
 
+private data class SeedResolution(val seed: Seed?, val finished: Boolean)
+
 @Composable
-private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? {
+private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? =
+    rememberArtworkSeedResolution(imageUrl, artPx).seed
+
+@Composable
+private fun rememberArtworkSeedResolution(imageUrl: String?, artPx: Int): SeedResolution {
     val context = LocalPlatformContext.current
-    var seed by remember(imageUrl) { mutableStateOf(imageUrl?.let(seedCache::get)) }
+    var resolution by remember(imageUrl, artPx) {
+        mutableStateOf(
+            SeedResolution(
+                seed = imageUrl?.let(seedCache::get),
+                finished = imageUrl == null || (imageUrl != null && seedCache.containsKey(imageUrl)),
+            ),
+        )
+    }
 
     LaunchedEffect(imageUrl, artPx) {
-        if (imageUrl == null || seed != null) return@LaunchedEffect
+        if (imageUrl == null || resolution.seed != null) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
             .data(imageUrl.artworkAt(artPx))
             .size(PALETTE_PX)
             .forPixelAccess()
             .build()
-        // Artwork may still be loading while the queue advances. A transient
-        // miss must not permanently strand the next track on the previous
-        // track's accent. Retry a few short, cancellable times without blocking
-        // playback or triggering another image quantization on successful load.
+        // A transient miss is not failure. Keep the previous player's accent
+        // while we retry. Once retries are exhausted, report a final miss so
+        // only then do the controls smoothly interpolate to white.
         repeat(3) { attempt ->
             val result = try {
                 SingletonImageLoader.get(context).execute(request)
@@ -203,13 +217,14 @@ private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? {
             val found = bitmap?.let { withContext(Dispatchers.Default) { seedOf(it) } }
             if (found != null) {
                 seedCache[imageUrl] = found
-                seed = found
+                resolution = SeedResolution(seed = found, finished = true)
                 return@LaunchedEffect
             }
             if (attempt < 2) kotlinx.coroutines.delay(350L * (attempt + 1))
         }
+        resolution = SeedResolution(seed = null, finished = true)
     }
-    return seed
+    return resolution
 }
 
 /**
