@@ -1,6 +1,7 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.runtime.CompositionLocalProvider
+import com.music.bitchord.ui.theme.rememberArtworkPalette
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.offset
@@ -876,6 +877,10 @@ fun NowPlayingScreen(
     // every surface below reads the same value rather than each triggering
     // its own extraction.
     val remoteArt = rememberRemoteArtworkUrl(song)
+    // The artwork palette is already decoded and cached for the backdrop. Use
+    // its contrast-adjusted accent for transport, titles and sliders instead
+    // of fixed white. This updates on every track without another art decode.
+    val trackAccent = rememberArtworkPalette(remoteArt, dark = true, artPx = ART_PX).accent
     // This is produced by the palette's existing 128 px decode and cache. It
     // samples the upper band rather than the whole sleeve because that is what
     // lies beneath the status bar when the player expands to full bleed.
@@ -1958,6 +1963,7 @@ fun NowPlayingScreen(
     DisposableEffect(Unit) { onDispose { reportLiveCanvas(false) } }
     val frostOff by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val frost = if (frostOff) null else PlayerPlatform.host.rememberPlayerFrost()
+    CompositionLocalProvider(LocalPlayerAccent provides trackAccent) {
     FrostedPlayerFrame(
         modifier = modifier,
         // Off where a music video is the backdrop: it can go bright under the
@@ -3735,7 +3741,7 @@ fun NowPlayingScreen(
                                             style = MaterialTheme.typography.titleLarge.copy(
                                                 fontSize = 20.sp,
                                             ),
-                                            color = Color.White,
+                                            color = LocalPlayerAccent.current,
                                             enabled = scrolling,
                                             // Before the title, in the artist line's
                                             // colour.
@@ -4176,6 +4182,7 @@ fun NowPlayingScreen(
                 }
             }
         }
+    }
     }
 }
 
