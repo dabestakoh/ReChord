@@ -18,6 +18,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.AnimatedVisibility
@@ -4781,7 +4782,47 @@ private fun BitChordApp(
                 DacVolumeKeys()
                 DisposableEffect(sheetWindow, reducePlayerMotion) {
                     if (!reducePlayerMotion) playerSheetMotion.attachWindow(sheetWindow)
-                    onDispose { }
+                    // ModalBottomSheet owns a separate dialog Window: the
+                    // Activity's enableEdgeToEdge() does not configure it.
+                    // Let the player's existing full-bleed artwork mesh paint
+                    // directly behind the navigation gesture indicator.
+                    // The controls keep their navigationBarsPadding() above it.
+                    @Suppress("DEPRECATION")
+                    val previousNavColor = sheetWindow?.navigationBarColor
+                    val previousNavContrast = if (Build.VERSION.SDK_INT >= 29) {
+                        sheetWindow?.isNavigationBarContrastEnforced
+                    } else null
+                    val controller = sheetWindow?.let {
+                        WindowCompat.getInsetsController(it, it.decorView)
+                    }
+                    val previousLightNav = controller?.isAppearanceLightNavigationBars
+                    sheetWindow?.let { window ->
+                        WindowCompat.setDecorFitsSystemWindows(window, false)
+                        @Suppress("DEPRECATION")
+                        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            window.isNavigationBarContrastEnforced = false
+                        }
+                        // The artwork behind the indicator is dark; keep the
+                        // system gesture pill / three-button icons readable.
+                        controller?.isAppearanceLightNavigationBars = false
+                    }
+                    onDispose {
+                        // Never change the Activity or other sheets: restore
+                        // this dialog's original system-bar appearance.
+                        sheetWindow?.let { window ->
+                            if (previousNavColor != null) {
+                                @Suppress("DEPRECATION")
+                                window.navigationBarColor = previousNavColor
+                            }
+                            if (Build.VERSION.SDK_INT >= 29 && previousNavContrast != null) {
+                                window.isNavigationBarContrastEnforced = previousNavContrast
+                            }
+                            if (previousLightNav != null) {
+                                controller?.isAppearanceLightNavigationBars = previousLightNav
+                            }
+                        }
+                    }
                 }
                 Box(
                     Modifier
