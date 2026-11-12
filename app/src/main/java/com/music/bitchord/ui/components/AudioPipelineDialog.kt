@@ -949,31 +949,48 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
             )
         }
 
-        Text(
-            text = when (assessment.verification) {
-                AudioFidelity.Verification.VERIFIED -> "Audio preserved to DAC"
-                AudioFidelity.Verification.UNVERIFIED -> "Output accuracy not confirmed"
-                AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
-            },
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-            color = Color.White.copy(alpha = 0.68f),
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Spacer(Modifier.height(if (assessment.deductions.isEmpty()) 0.dp else 10.dp))
         val shown = assessment.deductions.sortedByDescending { it.points }.take(3)
-        if (shown.isNotEmpty()) {
+        if (shown.isEmpty()) {
+            Text(
+                text = when (assessment.verification) {
+                    AudioFidelity.Verification.VERIFIED -> "Audio preserved to DAC"
+                    AudioFidelity.Verification.UNVERIFIED -> "Output accuracy not confirmed"
+                    AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
+                },
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                color = Color.White.copy(alpha = 0.68f),
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            // The deduction already explains the modification; avoid repeating it.
+            Spacer(Modifier.height(14.dp))
+            Spacer(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color.White.copy(alpha = 0.10f)),
+            )
+            Spacer(Modifier.height(8.dp))
             shown.forEach { deduction ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 1.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
                 ) {
                     Text(
-                        text = deduction.label,
+                        text = when (deduction.label) {
+                            "Output cannot preserve decoded PCM precision" ->
+                                "PCM precision reduced during playback"
+                            else -> deduction.label
+                        },
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                        color = Color.White.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.68f),
                     )
                     Text(
                         text = "−${deduction.points}",
@@ -981,7 +998,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                         ),
-                        color = Color.White.copy(alpha = 0.72f),
+                        color = Color(0xFFFFB86B),
                     )
                 }
             }
