@@ -5119,8 +5119,10 @@ class PlaybackService : MediaLibraryService() {
             setSessionOwner(standby, owns = true)
             focusTransferred = true
             val probePosition = standby.currentPosition
-            val focusProbeAt = SystemClock.elapsedRealtime()
-            while (SystemClock.elapsedRealtime() - focusProbeAt < 160L) {
+            // Media3 can report the same position across multiple polls even
+            // when the renderer is playing. Commit on observed progress.
+            val focusDeadline = SystemClock.elapsedRealtime() + 1_000L
+            while (true) {
                 if (!valid() || !standby.isPlaying ||
                     standby.playbackState != Player.STATE_READY ||
                     standby.playerError != null
@@ -5128,11 +5130,12 @@ class PlaybackService : MediaLibraryService() {
                     traceUpgrade("focus verification failed; restoring old source", active, standby)
                     return false
                 }
+                if (standby.currentPosition > probePosition) break
+                if (SystemClock.elapsedRealtime() >= focusDeadline) {
+                    traceUpgrade("focus verification stalled; restoring old source", active, standby)
+                    return false
+                }
                 delay(20)
-            }
-            if (standby.currentPosition <= probePosition + 55L) {
-                traceUpgrade("focus verification stalled; restoring old source", active, standby)
-                return false
             }
             traceUpgrade("focus verified; committing media session", active, standby)
             active.volume = 0f
