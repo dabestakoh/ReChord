@@ -1094,6 +1094,14 @@ class PlaybackService : MediaLibraryService() {
         override fun onRepeatModeChanged(repeatMode: Int) {
             val previous = lastRepeatMode
             lastRepeatMode = repeatMode
+            // Repeat can also be changed through the media session (headsets, widgets,
+            // other controllers). Persist those changes, not just taps in Now Playing.
+            // A listening party can impose its own mode; don't replace the local choice.
+            if (!ListenTogether.state.value.inParty &&
+                AppSettings.repeatMode.value != repeatMode
+            ) {
+                AppSettings.setRepeatMode(repeatMode)
+            }
             speakers.onLocalRepeatChanged(repeatMode)
             player?.let { WearBridge.republish(this@PlaybackService, it) }
             // Repeat-one makes the "next" track this one again.
@@ -2828,6 +2836,11 @@ class PlaybackService : MediaLibraryService() {
         val selectedIndex = registered.songs.indexOfFirst { it.contextEntryKey() == selectedKey }
             .takeIf { it >= 0 } ?: 0
         val shuffle = request.shuffle
+        // Bounded queues use QueueWindow rather than QueueShuffle to physically order
+        // the timeline. Keep the shared state (Now Playing/notification) and the
+        // persisted preference in sync with the order we are about to install.
+        QueueShuffle.setEnabled(shuffle)
+        AppSettings.setShuffleEnabled(shuffle)
         // A fresh seed per start: the default one is fixed, which gave the
         // same album the same "shuffled" order every time it was played.
         val window = QueueWindow(registered.songs.size, shuffleSeed = Random.nextLong())
@@ -3097,7 +3110,6 @@ class PlaybackService : MediaLibraryService() {
     private fun toggleAutoplayFromNotification() {
         val party = ListenTogether.state.value
         val enabled = if (party.inParty) !party.playback.autoplayEnabled else !AppSettings.autoplay.value
-        AppSettings.setAutoplay(enabled)
         if (party.inParty) {
             // The party owns this setting while connected. The state frame
             // wakes whichever connected member currently won the supplier
@@ -3106,6 +3118,9 @@ class PlaybackService : MediaLibraryService() {
             refreshCustomLayouts()
             return
         }
+        // Party AutoPlay is shared state; changing it must not overwrite the
+        // listener's separate local AutoPlay preference for when they leave.
+        AppSettings.setAutoplay(enabled)
         if (enabled) {
             autoplayLoadJob?.cancel()
             autoplayLoadJob = null
@@ -6255,6 +6270,10 @@ class PlaybackService : MediaLibraryService() {
         )
         boundedEditState = BoundedQueueEdits.invalidateContext(boundedEditState)
         persistedQueueStart = 0
+        // The restored physical queue is authoritative: keep the button and
+        // persisted preference aligned instead of showing a stale Shuffle state.
+        QueueShuffle.setEnabled(restoredWindow.isShuffleEnabled)
+        AppSettings.setShuffleEnabled(restoredWindow.isShuffleEnabled)
         exoPlayer.setMediaItems(items, projected.currentIndex, projected.positionMs)
         startBoundedContinuationLoading(contextToken)
         return true
