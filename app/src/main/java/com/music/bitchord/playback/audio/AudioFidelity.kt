@@ -35,6 +35,8 @@ object AudioFidelity {
 
         /** Whether the output encoding carries the decoder's samples intact. */
         val outputExact: Boolean = false,
+        /** Whether the sink has actually reported a result for the current PCM conversion. */
+        val outputExactKnown: Boolean = true,
         /** False when the stream is a compressed bitstream the DSP never sees. */
         val dspAvailable: Boolean = true,
         /** True when the listener deliberately took every DSP stage out. */
@@ -104,7 +106,7 @@ object AudioFidelity {
         } else {
             // Do not deduct for an ordinary Android mixer just because its
             // downstream behavior cannot be observed by the app.
-            if (inputs.dspAvailable && !inputs.outputExact) {
+            if (inputs.dspAvailable && inputs.outputExactKnown && !inputs.outputExact) {
                 deductions += Deduction("Output cannot preserve decoded PCM precision", NARROW_ENCODING_POINTS)
             }
             if (inputs.routeKind == AudioRouting.Kind.BLUETOOTH) {
