@@ -4856,16 +4856,6 @@ class PlaybackService : MediaLibraryService() {
      */
 
     /**
-     * Optional mid-track handoff. The original decoder continues producing audio
-     * until the replacement has *played*, remained buffered and tracked the
-     * original clock. A failed preparation leaves the original untouched.
-     *
-     * This only runs on normal mixer output. Exclusive DACs are deliberately
-     * left on the existing one-decoder path, never a mixed PCM transition.
-     * No album mastering assumption is made: near-equal durations and live
-     * position stability are necessary but are not proof of identical masters.
-     */
-    /**
      * Quality improvement is NOT a new song. Transfer the audio-session owner
      * without restarting history, scrobbling, next-track state or upgrade jobs.
      */
@@ -4897,6 +4887,11 @@ class PlaybackService : MediaLibraryService() {
         publishWidgetState()
     }
 
+    /**
+     * Optional mid-track upgrade: never lower the old source's gain until the
+     * standby decoder is advancing, buffered and aligned. Mixer output only;
+     * a bit-perfect DAC retains the original single-stream replacement.
+     */
     private suspend fun trySeamlessQualityUpgrade(
         mediaId: String,
         replacement: MediaItem,
@@ -5038,13 +5033,28 @@ class PlaybackService : MediaLibraryService() {
             loudnessA.setBlendTrim(1f)
             loudnessB.setBlendTrim(1f)
             if (!adopted) {
-                // A failed or cancelled fade must never leave the audible
-                // stream attenuated or the standby consuming battery.
-                active.volume = 1f
+                // Cut the failed incoming audio first; restore the original
+                // softly so a failure halfway through the fade does not click.
+                standby.volume = 0f
                 standby.stop()
                 standby.clearMediaItems()
                 standby.playWhenReady = false
                 standby.volume = 1f
+                val originalGain = active.volume
+                if (player === active && active.isPlaying && originalGain < 1f) {
+                    withContext(NonCancellable) {
+                        val started = SystemClock.elapsedRealtime()
+                        while (SystemClock.elapsedRealtime() - started < 150L &&
+                            player === active && active.isPlaying
+                        ) {
+                            val fraction = ((SystemClock.elapsedRealtime() - started) / 150f)
+                                .coerceIn(0f, 1f)
+                            active.volume = originalGain + (1f - originalGain) * fraction
+                            delay(12)
+                        }
+                    }
+                }
+                active.volume = 1f
             }
         }
     }
