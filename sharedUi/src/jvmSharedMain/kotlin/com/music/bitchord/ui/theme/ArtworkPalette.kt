@@ -177,11 +177,21 @@ private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? {
             .size(PALETTE_PX)
             .forPixelAccess()
             .build()
-        val result = SingletonImageLoader.get(context).execute(request)
-        val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@LaunchedEffect
-        val found = withContext(Dispatchers.Default) { seedOf(bitmap) } ?: return@LaunchedEffect
-        seedCache[imageUrl] = found
-        seed = found
+        // Artwork may still be loading while the queue advances. A transient
+        // miss must not permanently strand the next track on the previous
+        // track's accent. Retry a few short, cancellable times without blocking
+        // playback or triggering another image quantization on successful load.
+        repeat(3) { attempt ->
+            val result = runCatching { SingletonImageLoader.get(context).execute(request) }.getOrNull()
+            val bitmap = (result as? SuccessResult)?.image?.toImageBitmap()
+            val found = bitmap?.let { withContext(Dispatchers.Default) { seedOf(it) } }
+            if (found != null) {
+                seedCache[imageUrl] = found
+                seed = found
+                return@LaunchedEffect
+            }
+            if (attempt < 2) kotlinx.coroutines.delay(350L * (attempt + 1))
+        }
     }
     return seed
 }
