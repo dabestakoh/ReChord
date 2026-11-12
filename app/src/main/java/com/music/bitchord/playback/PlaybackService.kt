@@ -4865,6 +4865,38 @@ class PlaybackService : MediaLibraryService() {
      * No album mastering assumption is made: near-equal durations and live
      * position stability are necessary but are not proof of identical masters.
      */
+    /**
+     * Quality improvement is NOT a new song. Transfer the audio-session owner
+     * without restarting history, scrobbling, next-track state or upgrade jobs.
+     */
+    private fun adoptPlayerForQualityUpgrade(outgoing: ExoPlayer, incoming: ExoPlayer) {
+        setSessionOwner(outgoing, owns = false)
+        setSessionOwner(incoming, owns = true)
+        outgoing.removeListener(playbackListener)
+        outgoing.removeAnalyticsListener(formatListener)
+        player = incoming
+        spare = outgoing
+        val previousFilter = activeFilter
+        activeFilter = spareFilter
+        spareFilter = previousFilter
+        incoming.addListener(playbackListener)
+        incoming.addAnalyticsListener(formatListener)
+        adoptFormatOf(incoming)
+        mediaSession?.player = newSessionPlayer(incoming, requireNotNull(crossfade))
+        currentAudioInputFormat = incoming.audioFormat ?: currentAudioInputFormat
+        activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(incoming.audioFormat?.sampleMimeType)
+        publishNerdStats()
+        incoming.volume = 1f
+        outgoing.stop()
+        outgoing.clearMediaItems()
+        outgoing.volume = 1f
+        swappingMediaId = null
+        swapCutAt = null
+        savePlaybackState(incoming)
+        refreshCustomLayouts()
+        publishWidgetState()
+    }
+
     private suspend fun trySeamlessQualityUpgrade(
         mediaId: String,
         replacement: MediaItem,
@@ -4998,7 +5030,7 @@ class PlaybackService : MediaLibraryService() {
                 if (fraction >= 1f) break
                 delay(16)
             }
-            adoptPlayerForVersionSwap(active, standby)
+            adoptPlayerForQualityUpgrade(active, standby)
             adopted = true
             return true
         } finally {
