@@ -6,12 +6,6 @@ on:
       - 'feature/**'
       - 'fix/**'
   workflow_dispatch:
-    inputs:
-      build_test_apk:
-        description: 'Build signed arm64 ReChord Preview test APK (fix/feature branches only)'
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
@@ -65,7 +59,6 @@ jobs:
     name: Manual signed ARM64 Preview test APK
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      inputs.build_test_apk == true &&
       (startsWith(github.ref, 'refs/heads/fix/') ||
        startsWith(github.ref, 'refs/heads/feature/'))
     runs-on: ubuntu-latest
