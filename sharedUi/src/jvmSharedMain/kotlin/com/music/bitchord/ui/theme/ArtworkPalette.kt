@@ -143,6 +143,19 @@ fun rememberArtworkPalette(
 }
 
 /**
+ * Returns only the actual decoded artwork accent, or null while it is loading.
+ * Unlike [rememberArtworkPalette], this never supplies theme.primary as a
+ * transient fallback; now-playing holds its previous accent until the new
+ * sleeve has a real color to interpolate to.
+ *
+ * Reuses the same image seed/cache as the artwork background, so there is no
+ * second bitmap or color quantization pass.
+ */
+@Composable
+fun rememberArtworkAccent(imageUrl: String?, artPx: Int = CARD_ART_PX): Color? =
+    rememberArtworkSeed(imageUrl, artPx)?.toPalette(dark = true)?.accent
+
+/**
  * Reads top-band relative luminance from the cached palette decode.
  * Returns raw artwork luminance without applying top scrim calculations.
  */
