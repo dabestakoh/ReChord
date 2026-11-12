@@ -53,28 +53,49 @@ jobs:
           ./gradlew :app:testDevDebugUnitTest -Pbitchord.bundleWear=false \
             --build-cache --max-workers=3 --stacktrace
 
-      - name: Assemble installable ReChord Preview APK
+      - name: Prepare preview debug signing key
+        shell: bash
+        env:
+          PREVIEW_DEBUG_KEYSTORE_BASE64: ${{ secrets.PREVIEW_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # The arm64-only Gradle setting points debug signing at this keystore.
+          if [ -n "$PREVIEW_DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$PREVIEW_DEBUG_KEYSTORE_BASE64" | base64 --decode > ci-debug.keystore
+          else
+            keytool -genkeypair -noprompt -keystore ci-debug.keystore \
+              -storepass android -keypass android -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=ReChord Preview, OU=Android, O=ReChord, C=PH"
+            echo "::warning::Temporary preview signing key; set PREVIEW_DEBUG_KEYSTORE_BASE64 to retain install-over-install compatibility."
+          fi
+
+      - name: Assemble ARM64-only ReChord Preview APK
         run: |
           ./gradlew :app:assembleDevDebug -Pbitchord.bundleWear=false \
-            --build-cache --max-workers=3 --stacktrace
+            -PbitchordArm64Only=true --build-cache --max-workers=3 --stacktrace
 
       - name: Verify preview application ID
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
-          apks=(app/build/outputs/apk/dev/debug/*.apk)
-          if [ "${#apks[@]}" -eq 0 ]; then echo "No preview APK"; exit 1; fi
+          apks=(app/build/outputs/apk/dev/debug/*arm64-v8a*.apk)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one arm64-v8a Preview APK; found ${#apks[@]}"
+            exit 1
+          fi
           tools="$ANDROID_HOME/build-tools/$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n1)"
-          for apk in "${apks[@]}"; do
-            "$tools/apksigner" verify "$apk"
-            "$tools/aapt" dump badging "$apk" | grep -q "package: name='com.rechord.preview' "
-          done
+          apk="${apks[0]}"
+          "$tools/apksigner" verify "$apk"
+          "$tools/aapt" dump badging "$apk" | grep -q "package: name='com.rechord.preview' "
+          mkdir -p preview-assets
+          cp "$apk" preview-assets/ReChord-Preview-arm64-v8a.apk
 
       - name: Upload ReChord Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: ReChord-Fidelity-UI-Preview-${{ github.run_number }}
-          path: app/build/outputs/apk/dev/debug/*.apk
+          name: ReChord-Fidelity-UI-Preview-arm64-v8a-${{ github.run_number }}
+          path: preview-assets/ReChord-Preview-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
