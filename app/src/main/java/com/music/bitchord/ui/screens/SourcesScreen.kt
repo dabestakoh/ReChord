@@ -1142,7 +1142,7 @@ internal fun BulkSourceImportDialog(onDismiss: () -> Unit) {
     var summary by remember { mutableStateOf("") }
     var failures by remember { mutableStateOf<List<String>>(emptyList()) }
     val scope = rememberCoroutineScope()
-    val entries = urls.lineSequence().map(String::trim)
+    val entries = urls.lineSequence().map { it.trim() }
         .filter { it.isNotBlank() && !it.startsWith("#") }.toList()
 
     AlertDialog(
