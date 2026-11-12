@@ -1,7 +1,7 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.runtime.CompositionLocalProvider
-import com.music.bitchord.ui.theme.rememberArtworkAccent
+import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.offset
@@ -882,7 +882,8 @@ fun NowPlayingScreen(
     // animate toward theme.primary or white during that gap: keep the last
     // RESOLVED artwork ink, then interpolate directly old -> new once ready.
     // The shared cache is reused, and reopening the player retains its ink.
-    val resolvedAccent = rememberArtworkAccent(remoteArt, artPx = ART_PX)
+    val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = ART_PX)
+    val resolvedAccent = artworkAnalysis?.accent
     val accentTarget = resolvedAccent ?: PlayerAccentMemory.lastResolved
     val trackAccent by animateColorAsState(
         targetValue = accentTarget,
@@ -895,7 +896,7 @@ fun NowPlayingScreen(
     // This is produced by the palette's existing 128 px decode and cache. It
     // samples the upper band rather than the whole sleeve because that is what
     // lies beneath the status bar when the player expands to full bleed.
-    val artTopLuminance = rememberArtworkTopBandLuminance(remoteArt, ART_PX)
+    val artTopLuminance = artworkAnalysis?.topBandLuminance
     val artworkStatusScrimAlpha = topBandScrimAlpha(artTopLuminance)
 
     // Media-player convention: the player always owns light status icons. The
