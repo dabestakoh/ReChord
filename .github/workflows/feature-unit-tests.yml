@@ -1,0 +1,56 @@
+name: ReChord Feature Unit Tests
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'fix/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only the newest commit on each feature branch needs to finish CI.
+concurrency:
+  group: rechord-feature-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Kotlin compile + unit tests (no APK)
+    # Manual dispatch should not build main or develop.
+    if: startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/fix/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle build cache
+        uses: gradle/actions/setup-gradle@v4
+
+      # testDevDebugUnitTest depends on the DevDebug Kotlin compilation tasks.
+      # This catches Kotlin/Compose compiler failures as well as failing tests,
+      # without assembling, signing or uploading an Android APK.
+      - name: Compile and run unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDevDebugUnitTest -Pbitchord.bundleWear=false \
+            --build-cache --max-workers=3 --console=plain
+
+      - name: Upload unit-test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-unit-test-report-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 5
