@@ -856,6 +856,21 @@ class PlaybackService : MediaLibraryService() {
      * — and this has to move with it. It is attached to exactly one player at a
      * time: the one [player] names.
      */
+
+    // Keep this trace limited to the actual handoff and a brief tail afterwards.
+    // It is deliberately independent of the optional TrackLog viewer so it can
+    // be collected with: adb logcat -s ReChordUpgrade:D
+    private var upgradeTraceUntilMs = 0L
+    private fun traceUpgrade(event: String, active: ExoPlayer? = player, other: ExoPlayer? = spare) {
+        if (SystemClock.elapsedRealtime() > upgradeTraceUntilMs) return
+        fun describe(p: ExoPlayer?): String = if (p == null) "null" else
+            "id=${p.currentMediaItem?.mediaId} play=${p.isPlaying} intent=${p.playWhenReady} " +
+            "state=${p.playbackState} pos=${p.currentPosition} buf=${p.bufferedPosition} " +
+            "session=${p.audioSessionId} vol=${p.volume}"
+        Log.d("ReChordUpgrade", "t=${SystemClock.elapsedRealtime()} ${event} " +
+            "active{${describe(active)}} standby{${describe(other)}}")
+    }
+
     private val playbackListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             val activePlayer = this@PlaybackService.player ?: return
@@ -863,6 +878,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            traceUpgrade("session isPlayingChanged=${isPlaying}")
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
             val exoPlayer = player ?: return
@@ -948,6 +964,7 @@ class PlaybackService : MediaLibraryService() {
          * on the audio, which is what the media notification shows too.
          */
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            traceUpgrade("session playWhenReady=${playWhenReady} reason=${reason}")
             // Something started the phone's own player while a receiver is the
             // speaker — an internal path, since the session player's door
             // already sends a listener's play to the receiver. The phone goes
@@ -1059,6 +1076,7 @@ class PlaybackService : MediaLibraryService() {
         // Nothing follows the last track, so there is no transition to
         // pause on — the queue simply runs out and the timer is spent.
         override fun onPlaybackStateChanged(state: Int) {
+            traceUpgrade("session playbackState=${state}")
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
             val exoPlayer = player ?: return
@@ -4860,8 +4878,9 @@ class PlaybackService : MediaLibraryService() {
      * without restarting history, scrobbling, next-track state or upgrade jobs.
      */
     private fun adoptPlayerForQualityUpgrade(outgoing: ExoPlayer, incoming: ExoPlayer) {
-        setSessionOwner(outgoing, owns = false)
-        setSessionOwner(incoming, owns = true)
+        // Audio-focus ownership was transferred and verified *before* calling
+        // this. Do not reconfigure an already playing AudioTrack during adoption.
+        traceUpgrade("adopt begin", outgoing, incoming)
         outgoing.removeListener(playbackListener)
         outgoing.removeAnalyticsListener(formatListener)
         player = incoming
@@ -4873,13 +4892,16 @@ class PlaybackService : MediaLibraryService() {
         incoming.addAnalyticsListener(formatListener)
         adoptFormatOf(incoming)
         mediaSession?.player = newSessionPlayer(incoming, requireNotNull(crossfade))
+        traceUpgrade("media session rebound", incoming, outgoing)
         currentAudioInputFormat = incoming.audioFormat ?: currentAudioInputFormat
         activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(incoming.audioFormat?.sampleMimeType)
         publishNerdStats()
         incoming.volume = 1f
+        traceUpgrade("old player cleanup begins", incoming, outgoing)
         outgoing.stop()
         outgoing.clearMediaItems()
         outgoing.volume = 1f
+        traceUpgrade("old player cleanup finished", incoming, outgoing)
         swappingMediaId = null
         swapCutAt = null
         savePlaybackState(incoming)
@@ -4915,7 +4937,10 @@ class PlaybackService : MediaLibraryService() {
         val originalPosition = active.currentPosition
         if (originalDuration <= 0 || originalDuration - originalPosition < UPGRADE_MIN_REMAINING_MS) return false
         qualityUpgradeFadeActive = true
+        upgradeTraceUntilMs = SystemClock.elapsedRealtime() + 45_000L
+        traceUpgrade("upgrade begin", active, standby)
         var adopted = false
+        var focusTransferred = false
         try {
             val items = List(active.mediaItemCount) { i ->
                 if (i == index) replacement else active.getMediaItemAt(i)
@@ -5003,6 +5028,7 @@ class PlaybackService : MediaLibraryService() {
                 abs(active.currentPosition - standby.currentPosition) > 55L
             ) return false
 
+            traceUpgrade("standby warmed aligned; fade starting", active, standby)
             // Equal-power blend: both players must continue advancing. Do not
             // seek within the audible overlap; failed alignment simply abandons
             // this optional upgrade and keeps the original stream.
@@ -5025,14 +5051,48 @@ class PlaybackService : MediaLibraryService() {
                 if (fraction >= 1f) break
                 delay(16)
             }
+            // IMPORTANT: focus ownership transfer may reconfigure or briefly
+            // suspend a renderer. Do it while the old decoder is still alive,
+            // and test the new one *after* the change before committing the
+            // MediaSession and stopping the original. That prevents a tiny
+            // audio-focus glitch becoming an irreversible pause.
+            traceUpgrade("fade done; transferring focus", active, standby)
+            setSessionOwner(active, owns = false)
+            setSessionOwner(standby, owns = true)
+            focusTransferred = true
+            val probePosition = standby.currentPosition
+            val focusProbeAt = SystemClock.elapsedRealtime()
+            while (SystemClock.elapsedRealtime() - focusProbeAt < 160L) {
+                if (!valid() || !standby.isPlaying ||
+                    standby.playbackState != Player.STATE_READY ||
+                    standby.playerError != null
+                ) {
+                    traceUpgrade("focus verification failed; restoring old source", active, standby)
+                    return false
+                }
+                delay(20)
+            }
+            if (standby.currentPosition <= probePosition + 55L) {
+                traceUpgrade("focus verification stalled; restoring old source", active, standby)
+                return false
+            }
+            traceUpgrade("focus verified; committing media session", active, standby)
             adoptPlayerForQualityUpgrade(active, standby)
             adopted = true
+            traceUpgrade("adoption completed")
             return true
         } finally {
             qualityUpgradeFadeActive = false
             loudnessA.setBlendTrim(1f)
             loudnessB.setBlendTrim(1f)
             if (!adopted) {
+                traceUpgrade("aborted upgrade; reversing handoff", active, standby)
+                if (focusTransferred && player === active) {
+                    // Restore focus responsibility while the outgoing source
+                    // can still play; never leave the stopped standby owning it.
+                    setSessionOwner(standby, owns = false)
+                    setSessionOwner(active, owns = true)
+                }
                 // Cut the failed incoming audio first; restore the original
                 // softly so a failure halfway through the fade does not click.
                 standby.volume = 0f
@@ -5055,6 +5115,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
                 active.volume = 1f
+                traceUpgrade("original restored", active, standby)
             }
         }
     }
