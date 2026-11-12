@@ -632,7 +632,6 @@ internal fun PlayerActionRow(
                     // opening either closes the other; lit to say which is up.
                     onClick = onToggleLyrics,
                     highlighted = lyricsOpen,
-                    vibrant = true,
                 )
             }
             AnimatedContent(
@@ -712,7 +711,6 @@ internal fun PlayerActionRow(
                     onClick = onToggleQueue,
                     highlighted = queueOpen,
                     haptic = if (queueOpen) Haptic.Tap else Haptic.Expand,
-                    vibrant = true,
                 )
             }
         }
@@ -971,7 +969,6 @@ private fun OutputPartyPill(
             iconSize = output.size * (BOTTOM_ICON_SIZE / PILL_OUTPUT_SIZE),
             contentDescription = stringResource(Res.string.audio_output),
             onClick = onOutput,
-            vibrant = true,
         )
         return
     }
@@ -981,7 +978,6 @@ private fun OutputPartyPill(
             iconSize = output.size,
             contentDescription = stringResource(Res.string.audio_output),
             onClick = onOutput,
-            vibrant = true,
         )
         PillDivider()
         PillSegment(
@@ -1081,7 +1077,7 @@ private fun PillSegment(
             .width(width)
             .height(BOTTOM_ACTION_SIZE)
             // Round the highlight and both fades, not inside them — see [CircleGlyph].
-            .additiveChrome(chrome && !vibrant)
+            // Keep glyph color independent of the background blend.
             .background(if (highlighted) Color.White.copy(alpha = 0.14f) else Color.Transparent)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -1109,7 +1105,7 @@ private fun PillSegment(
         }
         Crossfade(
             targetState = loading,
-            modifier = Modifier.vibrantChrome(chrome && vibrant),
+            modifier = Modifier,
             animationSpec = tween(durationMillis = 200),
             label = "pillSegmentLoading",
         ) { isLoading ->
@@ -1188,7 +1184,6 @@ internal fun OutputCaption(
         ?: stringResource(Res.string.listen_together_jam_unnamed)
     val captionModifier = Modifier
         .fillMaxWidth(0.65f)
-        .additiveChrome(LocalPlayerChrome.current)
         .clickable { if (badge.inParty) onOpenMembers() else onOpenOutput() }
     if (!badge.inParty && (outputFormat.bitPerfect || outputFormat.dacLimited)) {
         ShimmerText(
@@ -1349,7 +1344,9 @@ private fun BottomGlyph(
         } else {
             LocalPlayerAccent.current.copy(alpha = if (highlighted) 1f else 0.75f)
         }
-        val glyphChrome = if (vibrant) Modifier.vibrantChrome(chrome) else Modifier.additiveChrome(chrome)
+        // The same animated artwork ink as transport; no blend that turns
+        // bright background regions into white glyphs.
+        val glyphChrome = Modifier
         if (icon != null) {
             Icon(
                 imageVector = icon,

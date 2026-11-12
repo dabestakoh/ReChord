@@ -114,6 +114,8 @@ private fun bitExactVerdict(
     bitPerfect: BitPerfectOutput.Status,
     outputExact: Boolean,
     outputExactDetail: String?,
+    decodedRateHz: Int?,
+    outputRateHz: Int?,
     loudnessActive: Boolean,
     eqActive: Boolean,
     spatialActive: Boolean,
@@ -125,6 +127,10 @@ private fun bitExactVerdict(
     bitPerfect.active && bitPerfect.dacLimited ->
         "No — ${bitPerfect.sourceBits}-bit / ${rateText(bitPerfect.sourceRateHz)} converted to " +
             "${bitPerfect.deviceName}'s max"
+    // Sample-rate conversion must be reported even when sample precision
+    // otherwise survives; bit-exact here means both format dimensions.
+    decodedRateHz != null && outputRateHz != null && decodedRateHz != outputRateHz ->
+        "No — sample rate converted ${rateText(decodedRateHz)} → ${rateText(outputRateHz)}"
     // Every DSP stage is bypassed on the exclusive output, so the only
     // question left is whether the source itself was integer PCM.
     bitPerfect.active && bitPerfect.exact -> "Yes — exact decoded PCM to ${bitPerfect.deviceName}"
@@ -132,7 +138,10 @@ private fun bitExactVerdict(
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
-    outputExact -> "Exact at app boundary only — device path unverified"
+    // Match BitChord: reports decoded PCM precision at AudioTrack.
+    // The negotiated sample rate is also checked above; hardware-level
+    // sample capture remains outside the scope of this readout.
+    outputExact -> "Yes${outputExactDetail?.let { " ($it)" }.orEmpty()}"
     else -> "No — ${outputExactDetail ?: "converted downstream"}"
 }
 
@@ -487,6 +496,8 @@ fun AudioPipelineDialog(
                         bitPerfect = bitPerfect,
                         outputExact = outputStatus.outputExact,
                         outputExactDetail = outputStatus.outputExactDetail,
+                        decodedRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
+                        outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
                         loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
                         eqActive = eqEnabled,
                         spatialActive = spatialAudio,
@@ -926,8 +937,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     modifier = Modifier.padding(top = 1.dp),
                 )
                 Text(
-                    text = assessment.verification.name.lowercase()
-                        .replaceFirstChar { it.uppercase() },
+                    text = assessment.outputLabel,
                     style = MaterialTheme.typography.labelMedium,
                     color = when (assessment.verification) {
                         AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
@@ -953,8 +963,10 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         if (shown.isEmpty()) {
             Text(
                 text = when (assessment.verification) {
-                    AudioFidelity.Verification.VERIFIED -> "Audio preserved to DAC"
-                    AudioFidelity.Verification.UNVERIFIED -> "Output accuracy not confirmed"
+                    AudioFidelity.Verification.VERIFIED -> "No PCM conversion detected"
+                    AudioFidelity.Verification.UNVERIFIED ->
+                        if (assessment.grade == "PCM Preserved") "No PCM conversion detected"
+                        else "Awaiting PCM output details"
                     AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
                 },
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),

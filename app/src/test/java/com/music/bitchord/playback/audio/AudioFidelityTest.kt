@@ -42,7 +42,8 @@ class AudioFidelityTest {
         val a = AudioFidelity.assess(input(verified = true, bypass = true))
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
-        assertEquals("Bit-perfect", a.grade)
+        assertEquals("PCM Preserved", a.grade)
+        assertEquals("Bit-perfect", a.outputLabel)
         assertTrue(a.bitPerfectVerified)
     }
 
@@ -57,15 +58,18 @@ class AudioFidelityTest {
     @Test fun ordinaryMixerCanBe100ButUnverified() {
         val a = AudioFidelity.assess(input(route = AudioRouting.Kind.USB))
         assertEquals(100, a.score)
-        assertEquals("No known changes", a.grade)
+        assertEquals("PCM Preserved", a.grade)
+        assertEquals("Standard Output", a.outputLabel)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
         assertFalse(a.bitPerfectVerified)
         assertTrue(a.deductions.isEmpty())
     }
 
-    @Test fun directAudioTrackCanBe100ButUnverified() {
+    @Test fun directAudioTrackShowsPreservedPcmAndDirectOutput() {
         val a = AudioFidelity.assess(input(direct = true))
         assertEquals(100, a.score)
+        assertEquals("PCM Preserved", a.grade)
+        assertEquals("Direct Output", a.outputLabel)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
     }
 
@@ -76,6 +80,8 @@ class AudioFidelityTest {
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
         assertTrue(a.deductions.isEmpty())
+        assertEquals("PCM Status Pending", a.grade)
+        assertEquals("Direct Output", a.outputLabel)
     }
 
     @Test fun confirmedNormalSinkPrecisionLossStillDeductsTwelve() {
@@ -84,6 +90,7 @@ class AudioFidelityTest {
         )
         assertEquals(88, a.score)
         assertEquals(AudioFidelity.Verification.MODIFIED, a.verification)
+        assertEquals("Modified", a.outputLabel)
         assertTrue(a.deductions.any { it.label.contains("precision") })
     }
 
