@@ -3,7 +3,7 @@ name: ReChord Feature Preview APK
 on:
   push:
     branches:
-      - feature/audio-fidelity-ui-optimization
+      - develop
   workflow_dispatch:
 
 permissions:
