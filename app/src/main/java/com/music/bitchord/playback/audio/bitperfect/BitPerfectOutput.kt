@@ -358,7 +358,8 @@ internal object BitPerfectOutput {
     }
 
     private fun currentFailures(mode: BitPerfectMode, deviceId: Int): MutableSet<String> {
-        val scope = "$mode/$deviceId/${AppSettings.convertForLimitedDac.value}"
+        // Fixed-volume permission changes USB_DIRECT eligibility: retry past failures.
+        val scope = "$mode/$deviceId/${AppSettings.convertForLimitedDac.value}/${if (mode == BitPerfectMode.USB_DIRECT) AppSettings.usbAllowFixedVolume.value else false}"
         if (failedFor != scope) {
             failed.clear()
             failedFor = scope
