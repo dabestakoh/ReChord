@@ -40,6 +40,10 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import com.music.bitchord.ui.components.IosSwitch
 import androidx.compose.material3.Text
@@ -111,6 +115,8 @@ fun SourcesScreen(
      * and the mini player.
      */
     onEditSource: (SourceConfig) -> Unit,
+    /** Opens the bulk addon importer above the haze-backed page. */
+    onImportSources: () -> Unit,
     /** Asks the activity to open an addon's quality list — raised for the same reason as [onEditSource]. */
     onChooseSourceQuality: (SourceConfig) -> Unit,
     /**
@@ -296,6 +302,14 @@ fun SourcesScreen(
             RowDivider()
             AddSourceRow(
                 onClick = { onEditSource(SourceConfig(kind = SourceKind.ADDON)) },
+                title = stringResource(R.string.add_addon),
+                detail = stringResource(R.string.add_addon_detail),
+            )
+            RowDivider()
+            AddSourceRow(
+                onClick = onImportSources,
+                title = "Import addons in bulk",
+                detail = "Paste multiple addon URLs, one per line",
             )
         }
 
@@ -645,7 +659,7 @@ private const val SWAP_THRESHOLD = 0.6f
  * put another one in here".
  */
 @Composable
-private fun AddSourceRow(onClick: () -> Unit) {
+private fun AddSourceRow(onClick: () -> Unit, title: String, detail: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -666,12 +680,12 @@ private fun AddSourceRow(onClick: () -> Unit) {
         Spacer(Modifier.width(ICON_GAP))
         Column(Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.add_addon),
+                text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                text = stringResource(R.string.add_addon_detail),
+                text = detail,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -1110,5 +1124,133 @@ internal fun SourceEditorAlert(
         onSave = { run(thenSave = true) },
         onRemove = if (isNew) null else onDelete,
         onDismiss = onDismiss,
+    )
+}
+
+
+/**
+ * Batch counterpart to [SourceEditorAlert]. Each URL follows the same identify
+ * and duplicate checks as adding a single addon; failures never block the next
+ * entry. The dialog stays open with a per-line report so nothing is silently
+ * ignored. Run from the activity root, outside the page's haze source.
+ */
+@Composable
+internal fun BulkSourceImportDialog(onDismiss: () -> Unit) {
+    var urls by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf("") }
+    var summary by remember { mutableStateOf("") }
+    var failures by remember { mutableStateOf<List<String>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    val entries = urls.lineSequence().map(String::trim)
+        .filter { it.isNotBlank() && !it.startsWith("#") }.toList()
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Import addons in bulk") },
+        text = {
+            Column {
+                Text(
+                    "Paste one addon URL per line. Each source is checked before it is added. " +
+                        "Existing addons are skipped and the order you paste is preserved.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = urls,
+                    onValueChange = {
+                        urls = it
+                        summary = ""
+                        failures = emptyList()
+                    },
+                    label = { Text("Addon URLs") },
+                    placeholder = { Text("https://addon-one.example.com\nhttps://addon-two.example.com") },
+                    minLines = 5,
+                    maxLines = 8,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${entries.size} URLs · Maximum 50 per import",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (busy) {
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(progress, style = MaterialTheme.typography.bodySmall)
+                }
+                if (summary.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(summary, style = MaterialTheme.typography.bodyMedium)
+                    failures.take(8).forEach { failure ->
+                        Text(
+                            failure,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                        )
+                    }
+                    if (failures.size > 8) {
+                        Text(
+                            "…and ${failures.size - 8} more",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && entries.isNotEmpty(),
+                onClick = {
+                    if (entries.size > 50) {
+                        summary = "Please import no more than 50 URLs at a time."
+                        failures = emptyList()
+                    } else {
+                        val batch = entries.toList()
+                        busy = true
+                        summary = ""
+                        failures = emptyList()
+                        scope.launch {
+                            var added = 0
+                            var skipped = 0
+                            val errors = mutableListOf<String>()
+                            val seen = mutableSetOf<String>()
+                            batch.forEachIndexed { index, url ->
+                                progress = "Checking ${index + 1} of ${batch.size}"
+                                // Avoid a duplicate network request for identical pasted lines.
+                                if (!seen.add(url)) {
+                                    skipped++
+                                    return@forEachIndexed
+                                }
+                                val found = withContext(Dispatchers.IO) {
+                                    runCatching { SourceRegistry.identify(url) }
+                                        .getOrElse { Result.failure(it) }
+                                }
+                                val config = found.getOrNull()
+                                if (config == null) {
+                                    errors += "Line ${index + 1}: ${found.exceptionOrNull()?.message ?: "Unrecognized source"}"
+                                } else if (SourceRegistry.duplicateOf(config.baseUrl) != null) {
+                                    skipped++
+                                } else {
+                                    SourceRegistry.add(config)
+                                    added++
+                                }
+                            }
+                            summary = "Added $added · Skipped $skipped duplicates · ${errors.size} failed"
+                            failures = errors
+                            busy = false
+                        }
+                    }
+                },
+            ) { Text("Import") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) {
+                Text(if (summary.isBlank()) "Cancel" else "Done")
+            }
+        },
     )
 }
