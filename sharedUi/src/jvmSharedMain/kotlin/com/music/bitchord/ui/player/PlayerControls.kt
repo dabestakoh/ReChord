@@ -632,7 +632,6 @@ internal fun PlayerActionRow(
                     // opening either closes the other; lit to say which is up.
                     onClick = onToggleLyrics,
                     highlighted = lyricsOpen,
-                    vibrant = true,
                 )
             }
             AnimatedContent(
@@ -712,7 +711,6 @@ internal fun PlayerActionRow(
                     onClick = onToggleQueue,
                     highlighted = queueOpen,
                     haptic = if (queueOpen) Haptic.Tap else Haptic.Expand,
-                    vibrant = true,
                 )
             }
         }
@@ -971,7 +969,6 @@ private fun OutputPartyPill(
             iconSize = output.size * (BOTTOM_ICON_SIZE / PILL_OUTPUT_SIZE),
             contentDescription = stringResource(Res.string.audio_output),
             onClick = onOutput,
-            vibrant = true,
         )
         return
     }
@@ -981,7 +978,6 @@ private fun OutputPartyPill(
             iconSize = output.size,
             contentDescription = stringResource(Res.string.audio_output),
             onClick = onOutput,
-            vibrant = true,
         )
         PillDivider()
         PillSegment(
@@ -1188,7 +1184,6 @@ internal fun OutputCaption(
         ?: stringResource(Res.string.listen_together_jam_unnamed)
     val captionModifier = Modifier
         .fillMaxWidth(0.65f)
-        .additiveChrome(LocalPlayerChrome.current)
         .clickable { if (badge.inParty) onOpenMembers() else onOpenOutput() }
     if (!badge.inParty && (outputFormat.bitPerfect || outputFormat.dacLimited)) {
         ShimmerText(
