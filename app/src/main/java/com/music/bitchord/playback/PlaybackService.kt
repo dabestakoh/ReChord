@@ -5057,6 +5057,10 @@ class PlaybackService : MediaLibraryService() {
             // MediaSession and stopping the original. That prevents a tiny
             // audio-focus glitch becoming an irreversible pause.
             traceUpgrade("fade done; transferring focus", active, standby)
+            // Keep a quiet copy of the outgoing audio underneath the focus
+            // transition. If Android suspends the incoming AudioTrack for a
+            // fraction of a second, this is preferable to digital silence.
+            active.volume = 0.20f
             setSessionOwner(active, owns = false)
             setSessionOwner(standby, owns = true)
             focusTransferred = true
@@ -5077,6 +5081,7 @@ class PlaybackService : MediaLibraryService() {
                 return false
             }
             traceUpgrade("focus verified; committing media session", active, standby)
+            active.volume = 0f
             adoptPlayerForQualityUpgrade(active, standby)
             adopted = true
             traceUpgrade("adoption completed")
@@ -5093,13 +5098,9 @@ class PlaybackService : MediaLibraryService() {
                     setSessionOwner(standby, owns = false)
                     setSessionOwner(active, owns = true)
                 }
-                // Cut the failed incoming audio first; restore the original
-                // softly so a failure halfway through the fade does not click.
-                standby.volume = 0f
-                standby.stop()
-                standby.clearMediaItems()
-                standby.playWhenReady = false
-                standby.volume = 1f
+                // Keep the incoming output alive until the outgoing source
+                // has recovered its volume. Stopping the standby first caused
+                // exactly the gap this feature is supposed to eliminate.
                 val originalGain = active.volume
                 if (player === active && active.isPlaying && originalGain < 1f) {
                     withContext(NonCancellable) {
@@ -5115,6 +5116,11 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
                 active.volume = 1f
+                standby.volume = 0f
+                standby.stop()
+                standby.clearMediaItems()
+                standby.playWhenReady = false
+                standby.volume = 1f
                 traceUpgrade("original restored", active, standby)
             }
         }
