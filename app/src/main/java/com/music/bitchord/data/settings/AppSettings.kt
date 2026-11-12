@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import androidx.media3.common.Player
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.auth.AuthStore
@@ -285,8 +286,18 @@ object AppSettings {
     /** Prefer an attached USB audio output over the system's normal route. */
     val preferUsbDac = MutableStateFlow(true)
 
+    /** Android 14+ mixer support is required for USB_ANDROID, not for USB_DIRECT. */
+    private fun defaultBitPerfectMode(): BitPerfectMode =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) BitPerfectMode.USB_ANDROID
+        else BitPerfectMode.OFF
+
+    private fun compatibleBitPerfectMode(mode: BitPerfectMode): BitPerfectMode =
+        if (mode == BitPerfectMode.USB_ANDROID &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) BitPerfectMode.OFF else mode
+
     /** Unprocessed output to a DAC; see [BitPerfectMode]. */
-    val bitPerfectMode = MutableStateFlow(BitPerfectMode.USB_ANDROID)
+    val bitPerfectMode = MutableStateFlow(defaultBitPerfectMode())
 
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
@@ -972,9 +983,9 @@ object AppSettings {
             )
         }.getOrDefault(OutputPcmMode.PCM_16)
         preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, true)
-        bitPerfectMode.value = runCatching {
-            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: BitPerfectMode.USB_ANDROID.name)
-        }.getOrDefault(BitPerfectMode.USB_ANDROID)
+        bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
+            BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
+        }.getOrDefault(defaultBitPerfectMode()))
         usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, true)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
         loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
@@ -1788,8 +1799,9 @@ object AppSettings {
     }
 
     fun setBitPerfectMode(value: BitPerfectMode) {
-        bitPerfectMode.value = value
-        prefs.edit().putString(KEY_BIT_PERFECT_MODE, value.name).apply()
+        val compatible = compatibleBitPerfectMode(value)
+        bitPerfectMode.value = compatible
+        prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
     }
 
     fun setUsbAllowFixedVolume(value: Boolean) {
