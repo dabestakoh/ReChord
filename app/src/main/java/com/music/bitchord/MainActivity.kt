@@ -161,6 +161,7 @@ import com.music.bitchord.ui.AddonBlockedAlert
 import com.music.bitchord.data.settings.LibrarySort
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.ui.components.AccountProfileSelector
+import com.music.bitchord.playback.audio.bitperfect.BitPerfectOutput
 import com.music.bitchord.ui.components.DacVolumeHud
 import com.music.bitchord.ui.components.DacVolumeKeys
 import com.music.bitchord.ui.components.LocalPlayingBarsMotion
@@ -652,6 +653,7 @@ private fun BitChordApp(
     var confirmJioSaavn by remember { mutableStateOf(false) }
     var confirmBitPerfect by remember { mutableStateOf<BitPerfectMode?>(null) }
     var confirmFixedVolume by remember { mutableStateOf(false) }
+    val pendingFixedVolumeApproval by BitPerfectOutput.fixedVolumeApprovalRequest.collectAsStateWithLifecycle()
     /** An addon search row tapped while the quality setting skips its addon; see [AddonBlockedAlert]. */
     var blockedAddonSong by remember { mutableStateOf<com.music.bitchord.data.model.Song?>(null) }
     /** An addon a download just went ahead without, and why; see [SourceRegistry.addonsLeftOutOfDownloads]. */
@@ -5946,17 +5948,24 @@ private fun BitChordApp(
             )
         }
 
-        if (confirmFixedVolume) {
+        if (confirmFixedVolume || pendingFixedVolumeApproval != null) {
             ConfirmationAlert(
                 hazeState = hazeState,
                 title = stringResource(R.string.usb_allow_fixed_volume_confirm_title),
-                description = stringResource(R.string.usb_allow_fixed_volume_confirm_message),
+                description = buildString {
+                    pendingFixedVolumeApproval?.label?.let { append("$it: ") }
+                    append(stringResource(R.string.usb_allow_fixed_volume_confirm_message))
+                    append(" This approval is saved only for the connected DAC.")
+                },
                 confirmLabel = stringResource(R.string.enable),
                 onConfirm = {
-                    AppSettings.setUsbAllowFixedVolume(true)
+                    BitPerfectOutput.approveFixedVolume(this@MainActivity)
                     confirmFixedVolume = false
                 },
-                onDismiss = { confirmFixedVolume = false },
+                onDismiss = {
+                    BitPerfectOutput.dismissFixedVolumeApproval()
+                    confirmFixedVolume = false
+                },
             )
         }
 

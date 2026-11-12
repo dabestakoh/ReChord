@@ -95,11 +95,16 @@ fun ThinSlider(
     transitionWindow: ClosedFloatingPointRange<Float>? = null,
     idleHeight: Dp = 7.dp,
     activeHeight: Dp = 12.dp,
-    activeColor: Color = Color.White.copy(alpha = 0.92f),
-    inactiveColor: Color = Color.White.copy(alpha = 0.26f),
+    activeColor: Color? = null,
+    inactiveColor: Color? = null,
     /** Halfway between the two track colours: visible against unplayed, invisible under played. */
-    markerColor: Color = Color.White.copy(alpha = 0.5f),
+    markerColor: Color? = null,
 ) {
+    // In the player the defaults follow the current sleeve; outside it the
+    // composition local is white, preserving the original generic slider.
+    val activeTint = activeColor ?: LocalPlayerAccent.current.copy(alpha = 0.92f)
+    val inactiveTint = inactiveColor ?: LocalPlayerAccent.current.copy(alpha = 0.26f)
+    val markerTint = markerColor ?: LocalPlayerAccent.current.copy(alpha = 0.5f)
     var dragging by remember { mutableStateOf(false) }
     val height by animateDpAsState(
         targetValue = if (dragging) activeHeight else idleHeight,
@@ -187,7 +192,7 @@ fun ThinSlider(
                 .height(height),
         ) {
             val radius = CornerRadius(size.height / 2f)
-            drawRoundRect(color = inactiveColor, cornerRadius = radius)
+            drawRoundRect(color = inactiveTint, cornerRadius = radius)
             // Between the two track colours, and drawn *under* the played fill:
             // once the playhead reaches the window the transition is no longer
             // upcoming, and the ordinary progress colour taking it over is what
@@ -206,13 +211,13 @@ fun ThinSlider(
                         .coerceIn(WINDOW_FEATHER_MIN.toPx(), WINDOW_FEATHER_MAX.toPx())
                         .coerceAtMost(span / 2f)
                     val f = feather / span
-                    val full = markerColor.alpha * windowAlpha
+                    val full = markerTint.alpha * windowAlpha
                     // Smoothstep down each feather: no slope break where the
                     // ramp meets the flat middle, so there is no line for the
                     // eye to catch at either end.
                     val ramp = (0..WINDOW_FEATHER_STEPS).map { step ->
                         val t = step / WINDOW_FEATHER_STEPS.toFloat()
-                        t to markerColor.copy(alpha = full * t * t * (3f - 2f * t))
+                        t to markerTint.copy(alpha = full * t * t * (3f - 2f * t))
                     }
                     val stops = ramp.map { (t, c) -> f * t to c } +
                         ramp.reversed().map { (t, c) -> 1f - f * t to c }
@@ -242,9 +247,9 @@ fun ThinSlider(
             // dot under the sheen.
             val filled = size.width * fraction * fillFactor
             if (filled > 0f) {
-                val alpha = if (dragging) activeColor.alpha else mixPulse?.alpha(activeColor.alpha) ?: activeColor.alpha
+                val alpha = if (dragging) activeTint.alpha else mixPulse?.alpha(activeTint.alpha) ?: activeTint.alpha
                 drawRoundRect(
-                    color = activeColor.copy(alpha = alpha),
+                    color = activeTint.copy(alpha = alpha),
                     size = Size(
                         filled.coerceAtLeast(size.height * fillFactor).coerceAtMost(size.width),
                         size.height,
@@ -270,7 +275,7 @@ fun ThinSlider(
                 ),
             exit = fadeOut(tween(durationMillis = MORPH_MS, easing = FastOutSlowInEasing)),
         ) {
-            MixSheen(height = height, color = activeColor)
+            MixSheen(height = height, color = activeTint)
         }
     }
 }

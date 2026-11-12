@@ -268,7 +268,7 @@ fun SettingsScreen(
     val bitPerfectStatus by BitPerfectOutput.status.collectAsStateWithLifecycle()
     val bitPerfectReady by BitPerfectOutput.ready.collectAsStateWithLifecycle()
     val dacVolume by BitPerfectOutput.hardwareVolume.collectAsStateWithLifecycle()
-    val usbAllowFixedVolume by AppSettings.usbAllowFixedVolume.collectAsStateWithLifecycle()
+    val fixedVolumeDevice by BitPerfectOutput.fixedVolumeDevice.collectAsStateWithLifecycle()
     val convertForLimitedDac by AppSettings.convertForLimitedDac.collectAsStateWithLifecycle()
     val loudnessNormalization by AppSettings.loudnessNormalization.collectAsStateWithLifecycle()
     val loudnessOffOnSpeaker by AppSettings.loudnessOffOnSpeaker.collectAsStateWithLifecycle()
@@ -729,15 +729,25 @@ fun SettingsScreen(
                     )
                 }
             }
-            if (bitPerfectMode == BitPerfectMode.USB_DIRECT) {
+            if (bitPerfectMode == BitPerfectMode.USB_DIRECT && fixedVolumeDevice != null) {
+                // This permission is remembered for the connected DAC only.
+                // A new DAC cannot inherit a global full-scale playback opt-in.
+                val device = fixedVolumeDevice!!
                 val fixedVolumeTitle = stringResource(R.string.usb_allow_fixed_volume)
                 row(fixedVolumeTitle, "volume", "usb", "dac", divided = false) {
                     SettingsSubRow(
                         title = fixedVolumeTitle,
-                        subtitle = stringResource(R.string.usb_allow_fixed_volume_subtitle),
-                        checked = usbAllowFixedVolume,
+                        subtitle = "${device.label} · " +
+                            if (device.approved) "Approved for fixed-volume output"
+                            else "Off unless this DAC is explicitly approved",
+                        checked = device.approved,
                         onCheckedChange = { on ->
-                            if (on) onConfirmFixedVolume() else AppSettings.setUsbAllowFixedVolume(false)
+                            if (on) {
+                                BitPerfectOutput.requestCurrentFixedVolumeApproval()
+                                onConfirmFixedVolume()
+                            } else {
+                                BitPerfectOutput.revokeFixedVolume(context)
+                            }
                         },
                     )
                 }

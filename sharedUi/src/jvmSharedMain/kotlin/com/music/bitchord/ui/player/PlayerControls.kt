@@ -180,7 +180,7 @@ internal fun PlaybackOriginCaption(
                 blurRadius = 4f,
             ),
         ),
-        color = Color.White.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f),
+        color = LocalPlayerAccent.current.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         textAlign = textAlign,
@@ -242,7 +242,7 @@ internal fun PlayerScrubber(
                 .offset(y = -SCRUBBER_LABEL_LIFT),
         ) {
             // Drawn like the artist line: the same white, added the same way.
-            val timeColor = chromeWhite(0.55f)
+            val timeColor = LocalPlayerAccent.current.copy(alpha = 0.65f)
             Row(
                 modifier = Modifier.fillMaxWidth().additiveChrome(LocalPlayerChrome.current),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -305,7 +305,7 @@ private fun MixingLabel(pulse: MixPulse, modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Medium,
             fontSize = (MaterialTheme.typography.labelMedium.fontSize.value + BADGE_SIZE_BUMP).sp,
         ),
-        color = chromeWhite(0.85f),
+        color = LocalPlayerAccent.current.copy(alpha = 0.85f),
         maxLines = 1,
     )
 }
@@ -498,7 +498,7 @@ internal fun TransportRow(
             // would shunt everything below it on every load.
             Box(Modifier.size(playTouch), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
-                    color = Color.White,
+                    color = LocalPlayerAccent.current,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(if (compact) 30.dp else 38.dp),
                 )
@@ -548,7 +548,7 @@ internal fun VolumeRow(
         Icon(
             Icons.AutoMirrored.Rounded.VolumeDown,
             contentDescription = null,
-            tint = if (chrome) VibrantChromeInk else chromeWhite(0.5f),
+            tint = LocalPlayerAccent.current.copy(alpha = 0.65f),
             modifier = Modifier.size(20.dp).vibrantChrome(chrome),
         )
         Spacer(Modifier.width(10.dp))
@@ -564,7 +564,7 @@ internal fun VolumeRow(
         Icon(
             Icons.AutoMirrored.Rounded.VolumeUp,
             contentDescription = null,
-            tint = if (chrome) VibrantChromeInk else chromeWhite(0.5f),
+            tint = LocalPlayerAccent.current.copy(alpha = 0.65f),
             modifier = Modifier.size(20.dp).vibrantChrome(chrome),
         )
     }
@@ -781,7 +781,7 @@ internal fun CircleGlyph(
             Icon(
                 imageVector = glyph,
                 contentDescription = contentDescription,
-                tint = Color.White,
+                tint = LocalPlayerAccent.current,
                 modifier = Modifier.size(19.dp),
             )
         }
@@ -827,7 +827,7 @@ private fun TransportGlyph(
         Icon(
             painter = painterResource(icon),
             contentDescription = contentDescription,
-            tint = Color.White.copy(alpha = alpha),
+            tint = LocalPlayerAccent.current.copy(alpha = alpha),
             modifier = Modifier
                 .size(size)
                 .then(if (heightScale != 1f) Modifier.graphicsLayer { scaleY = heightScale } else Modifier),
@@ -1102,9 +1102,9 @@ private fun PillSegment(
             VibrantChromeInk
         } else {
             when {
-                !highlighted -> chromeWhite(0.75f)
-                chrome -> Color.White.copy(alpha = CHROME_FULL_ALPHA)
-                else -> Color.White
+                !highlighted -> LocalPlayerAccent.current.copy(alpha = 0.75f)
+                chrome -> LocalPlayerAccent.current.copy(alpha = CHROME_FULL_ALPHA)
+                else -> LocalPlayerAccent.current
             }
         }
         Crossfade(
@@ -1204,7 +1204,7 @@ internal fun OutputCaption(
         Text(
             text = if (badge.inParty) jamName else outputName,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-            color = chromeWhite(0.55f),
+            color = LocalPlayerAccent.current.copy(alpha = 0.65f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -1292,7 +1292,7 @@ private fun BottomGlyph(
     // costs no recomposition. Starts a full window in the past so the first tap
     // is never the one that gets swallowed.
     val lastTap = remember { mutableLongStateOf(-tapWindowMs) }
-    val tileColor = chromeWhite(BOTTOM_ACTIVE_TILE_ALPHA)
+    val tileColor = LocalPlayerAccent.current.copy(alpha = BOTTOM_ACTIVE_TILE_ALPHA)
     val tileChrome = LocalPlayerChrome.current
     Box(
         modifier = Modifier
@@ -1347,7 +1347,7 @@ private fun BottomGlyph(
         val tint = if (vibrant && chrome) {
             VibrantChromeInk
         } else {
-            if (highlighted) Color.White else chromeWhite(0.75f)
+            LocalPlayerAccent.current.copy(alpha = if (highlighted) 1f else 0.75f)
         }
         val glyphChrome = if (vibrant) Modifier.vibrantChrome(chrome) else Modifier.additiveChrome(chrome)
         if (icon != null) {
@@ -1890,7 +1890,7 @@ private fun ShimmerText(
         ),
         label = "lossless-shimmer-progress",
     )
-    val tint = Color.White.copy(alpha = if (LocalPlayerChrome.current) CHROME_FULL_ALPHA else 1f)
+    val tint = LocalPlayerAccent.current.copy(alpha = if (LocalPlayerChrome.current) CHROME_FULL_ALPHA else 1f)
     val baseColor = chromeWhite(baseAlpha)
     // The glyphs are laid out and drawn once, in the plain tint, and the moving
     // band is painted over them in the draw phase with SrcIn — which keeps the
