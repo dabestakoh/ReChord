@@ -69,6 +69,8 @@ object AudioFidelity {
         val bitPerfectVerified: Boolean,
         val verification: Verification,
         val verificationDetail: String,
+        /** User-facing transport description; separate from internal evidence status. */
+        val outputLabel: String,
     )
 
     enum class Verification { VERIFIED, UNVERIFIED, MODIFIED }
@@ -174,9 +176,21 @@ object AudioFidelity {
                 else -> "End-to-end PCM exactness cannot be confirmed"
             }
         }
+        val pcmPreserved = deductions.isEmpty() &&
+            (verified || (inputs.outputExactKnown && inputs.outputExact)) &&
+            (inputs.sourceRateHz == null || inputs.outputRateHz == null ||
+                inputs.sourceRateHz == inputs.outputRateHz)
+        val outputLabel = when {
+            deductions.isNotEmpty() -> "Modified"
+            verified -> "Bit-perfect"
+            inputs.directPlaybackActual -> "Direct Output"
+            else -> "Standard Output"
+        }
         return Assessment(
             score = score,
-            grade = if (verified) "Bit-perfect" else if (score == 100) "No known changes" else gradeOf(score),
+            grade = if (pcmPreserved) "PCM Preserved"
+                else if (score == 100) "PCM Status Pending"
+                else gradeOf(score),
             activeEffects = running.map { it.first },
             effectsAvailable = inputs.dspAvailable,
             effectsBypassed = inputs.dspBypassed,
@@ -184,6 +198,7 @@ object AudioFidelity {
             bitPerfectVerified = verified,
             verification = verification,
             verificationDetail = detail,
+            outputLabel = outputLabel,
         )
     }
 
