@@ -937,8 +937,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     modifier = Modifier.padding(top = 1.dp),
                 )
                 Text(
-                    text = assessment.verification.name.lowercase()
-                        .replaceFirstChar { it.uppercase() },
+                    text = assessment.outputLabel,
                     style = MaterialTheme.typography.labelMedium,
                     color = when (assessment.verification) {
                         AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
@@ -964,8 +963,10 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         if (shown.isEmpty()) {
             Text(
                 text = when (assessment.verification) {
-                    AudioFidelity.Verification.VERIFIED -> "Audio preserved to DAC"
-                    AudioFidelity.Verification.UNVERIFIED -> "Output accuracy not confirmed"
+                    AudioFidelity.Verification.VERIFIED -> "No PCM conversion detected"
+                    AudioFidelity.Verification.UNVERIFIED ->
+                        if (assessment.grade == "PCM Preserved") "No PCM conversion detected"
+                        else "Awaiting PCM output details"
                     AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
                 },
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
