@@ -4880,7 +4880,11 @@ class PlaybackService : MediaLibraryService() {
      * Quality improvement is NOT a new song. Transfer the audio-session owner
      * without restarting history, scrobbling, next-track state or upgrade jobs.
      */
-    private fun adoptPlayerForQualityUpgrade(outgoing: ExoPlayer, incoming: ExoPlayer) {
+    private fun adoptPlayerForQualityUpgrade(
+        outgoing: ExoPlayer,
+        incoming: ExoPlayer,
+        outputConfig: AudioSink.AudioTrackConfig?,
+    ) {
         // Audio-focus ownership was transferred and verified *before* calling
         // this. Do not reconfigure an already playing AudioTrack during adoption.
         traceUpgrade("adopt begin", outgoing, incoming)
@@ -4896,9 +4900,13 @@ class PlaybackService : MediaLibraryService() {
         adoptFormatOf(incoming)
         mediaSession?.player = newSessionPlayer(incoming, requireNotNull(crossfade))
         traceUpgrade("media session rebound", incoming, outgoing)
-        currentAudioInputFormat = incoming.audioFormat ?: currentAudioInputFormat
-        activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(incoming.audioFormat?.sampleMimeType)
-        publishNerdStats()
+        currentAudioInputFormat = incoming.audioFormat
+        activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(currentAudioInputFormat?.sampleMimeType)
+        applySpatialAudioEnabled()
+        applyOutputRoute()
+        outputConfig?.let {
+            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize)
+        }
         incoming.volume = 1f
         traceUpgrade("old player cleanup begins", incoming, outgoing)
         outgoing.stop()
@@ -4970,7 +4978,17 @@ class PlaybackService : MediaLibraryService() {
                 traceUpgrade("standby errorCode=${error.errorCode}", active, standby)
             }
         }
+        var standbyOutputConfig: AudioSink.AudioTrackConfig? = null
+        val standbyOutputListener = object : AnalyticsListener {
+            override fun onAudioTrackInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                audioTrackConfig: AudioSink.AudioTrackConfig,
+            ) {
+                standbyOutputConfig = audioTrackConfig
+            }
+        }
         standby.addListener(standbyTrace)
+        standby.addAnalyticsListener(standbyOutputListener)
         try {
             val items = List(active.mediaItemCount) { i ->
                 if (i == index) replacement else active.getMediaItemAt(i)
@@ -5089,12 +5107,19 @@ class PlaybackService : MediaLibraryService() {
                 val now = SystemClock.elapsedRealtime()
                 val rawDrift = active.currentPosition - standby.currentPosition
                 val measuredDrift = alignment.measureDrift(now, rawDrift)
-                if (abs(rawDrift) > 300L || measuredDrift == null || abs(measuredDrift) > 85L) {
-                    traceUpgrade("fade aborted: alignment driftMs=$measuredDrift", active, standby)
+                val elapsed = now - started
+                if (abs(rawDrift) > 300L ||
+                    (measuredDrift != null && abs(measuredDrift) > 85L) ||
+                    (measuredDrift == null && (abs(rawDrift) > 85L || elapsed >= seamlessUpgradeFadeMs))
+                ) {
+                    traceUpgrade("fade aborted: alignment driftMs=$measuredDrift rawDriftMs=$rawDrift", active, standby)
                     return false
                 }
-                val fraction = ((SystemClock.elapsedRealtime() - started).toFloat() /
-                    seamlessUpgradeFadeMs).coerceIn(0f, 1f)
+                if (measuredDrift == null) {
+                    delay(16)
+                    continue
+                }
+                val fraction = (elapsed.toFloat() / seamlessUpgradeFadeMs).coerceIn(0f, 1f)
                 val gainIn = sin(fraction * (PI / 2.0)).toFloat()
                 val gainOut = cos(fraction * (PI / 2.0)).toFloat()
                 standby.volume = gainIn
@@ -5139,11 +5164,12 @@ class PlaybackService : MediaLibraryService() {
             }
             traceUpgrade("focus verified; committing media session", active, standby)
             active.volume = 0f
-            adoptPlayerForQualityUpgrade(active, standby)
+            adoptPlayerForQualityUpgrade(active, standby, standbyOutputConfig)
             adopted = true
             traceUpgrade("adoption completed")
             return true
         } finally {
+            standby.removeAnalyticsListener(standbyOutputListener)
             standby.removeListener(standbyTrace)
             traceUpgrade("seamless finished adopted=${adopted}", active, standby)
             qualityUpgradeFadeActive = false
@@ -5394,6 +5420,7 @@ class PlaybackService : MediaLibraryService() {
                 ?: "Upgrade"
             NerdStats.onSourceStream(mediaId, stream.format, upgradedSourceName)
             NerdStats.recordSource(mediaId, upgradedSourceName)
+            if (seamlessApplied) publishNerdStats()
             if (stream.format.isLossless == true) {
                 AudioCache.markSuccessfulFlacUpgrade(Uri.parse(upgradedUri), stream.sourceConfigId)
             }
