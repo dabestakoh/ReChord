@@ -1,4 +1,4 @@
-name: ReChord Feature Preview APK
+name: ReChord Develop Preview APK
 
 on:
   push:
@@ -10,15 +10,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: rechord-fidelity-preview-${{ github.ref }}
+  group: rechord-develop-preview-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-preview:
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Checkout feature branch
+      - name: Checkout develop branch
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -94,7 +95,7 @@ jobs:
       - name: Upload ReChord Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: ReChord-Fidelity-UI-Preview-arm64-v8a-${{ github.run_number }}
+          name: ReChord-Develop-Preview-arm64-v8a-${{ github.run_number }}
           path: preview-assets/ReChord-Preview-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
