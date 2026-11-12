@@ -1077,7 +1077,7 @@ private fun PillSegment(
             .width(width)
             .height(BOTTOM_ACTION_SIZE)
             // Round the highlight and both fades, not inside them — see [CircleGlyph].
-            .additiveChrome(chrome && !vibrant)
+            // Keep glyph color independent of the background blend.
             .background(if (highlighted) Color.White.copy(alpha = 0.14f) else Color.Transparent)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -1105,7 +1105,7 @@ private fun PillSegment(
         }
         Crossfade(
             targetState = loading,
-            modifier = Modifier.vibrantChrome(chrome && vibrant),
+            modifier = Modifier,
             animationSpec = tween(durationMillis = 200),
             label = "pillSegmentLoading",
         ) { isLoading ->
@@ -1344,7 +1344,9 @@ private fun BottomGlyph(
         } else {
             LocalPlayerAccent.current.copy(alpha = if (highlighted) 1f else 0.75f)
         }
-        val glyphChrome = if (vibrant) Modifier.vibrantChrome(chrome) else Modifier.additiveChrome(chrome)
+        // The same animated artwork ink as transport; no blend that turns
+        // bright background regions into white glyphs.
+        val glyphChrome = Modifier
         if (icon != null) {
             Icon(
                 imageVector = icon,
