@@ -127,6 +127,10 @@ private fun bitExactVerdict(
     bitPerfect.active && bitPerfect.dacLimited ->
         "No — ${bitPerfect.sourceBits}-bit / ${rateText(bitPerfect.sourceRateHz)} converted to " +
             "${bitPerfect.deviceName}'s max"
+    // Sample-rate conversion must be reported even when sample precision
+    // otherwise survives; bit-exact here means both format dimensions.
+    decodedRateHz != null && outputRateHz != null && decodedRateHz != outputRateHz ->
+        "No — sample rate converted ${rateText(decodedRateHz)} → ${rateText(outputRateHz)}"
     // Every DSP stage is bypassed on the exclusive output, so the only
     // question left is whether the source itself was integer PCM.
     bitPerfect.active && bitPerfect.exact -> "Yes — exact decoded PCM to ${bitPerfect.deviceName}"
@@ -134,8 +138,6 @@ private fun bitExactVerdict(
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
-    decodedRateHz != null && outputRateHz != null && decodedRateHz != outputRateHz ->
-        "No — sample rate converted ${rateText(decodedRateHz)} → ${rateText(outputRateHz)}"
     // Match BitChord: reports decoded PCM precision at AudioTrack.
     // The negotiated sample rate is also checked above; hardware-level
     // sample capture remains outside the scope of this readout.
