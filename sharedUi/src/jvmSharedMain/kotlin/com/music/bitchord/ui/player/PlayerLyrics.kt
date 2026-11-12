@@ -1466,10 +1466,11 @@ internal fun TranslationToggleButton(
 ) {
     val active = showingTranslation || state is LyricsTranslationUiState.Loading
     val chrome = LocalPlayerChrome.current
+    val accent = LocalPlayerAccent.current
     val tint = when {
-        !enabled || state is LyricsTranslationUiState.SameLanguage -> chromeWhite(0.42f)
-        active -> Color.White.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
-        else -> chromeWhite(0.78f)
+        !enabled || state is LyricsTranslationUiState.SameLanguage -> accent.copy(alpha = 0.42f)
+        active -> accent.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
+        else -> accent.copy(alpha = 0.78f)
     }
     val discAlpha by animateFloatAsState(
         targetValue = if (active) 0.34f else 0.18f,
@@ -1519,10 +1520,11 @@ internal fun RomanizationToggleButton(
 ) {
     val active = showingRomanization || state is LyricsTranslationUiState.Loading
     val chrome = LocalPlayerChrome.current
+    val accent = LocalPlayerAccent.current
     val tint = when {
-        !enabled || state is LyricsTranslationUiState.SameLanguage -> chromeWhite(0.42f)
-        active -> Color.White.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
-        else -> chromeWhite(0.78f)
+        !enabled || state is LyricsTranslationUiState.SameLanguage -> accent.copy(alpha = 0.42f)
+        active -> accent.copy(alpha = if (chrome) CHROME_FULL_ALPHA else 1f)
+        else -> accent.copy(alpha = 0.78f)
     }
     val discAlpha by animateFloatAsState(
         targetValue = if (active) 0.34f else 0.18f,
