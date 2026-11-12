@@ -2225,8 +2225,8 @@ class PlaybackService : MediaLibraryService() {
         // the standby player away from a transition already using it. The
         // reverse — Automix arming while a version swap is running — is
         // guarded symmetrically in [createCrossfadeController].
-        if (crossfade?.isTransitioning() == true) {
-            TrackLog.d("BitChord", "version swap deferred: Automix is mid-transition", about = currentItem.mediaId)
+        if (crossfade?.isTransitioning() == true || qualityUpgradeFadeActive) {
+            TrackLog.d("BitChord", "version swap deferred: audio transition is in progress", about = currentItem.mediaId)
             return
         }
 
@@ -4877,6 +4877,7 @@ class PlaybackService : MediaLibraryService() {
             crossfade?.isTransitioning() == true ||
             ListenTogether.state.value.inParty ||
             castPlayback.active || CastController.state.value.casting ||
+            AppSettings.bitPerfectMode.value != BitPerfectMode.OFF ||
             BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active ||
             !active.isPlaying || active.playbackState != Player.STATE_READY ||
             active.currentMediaItem?.mediaId != mediaId ||
@@ -4910,6 +4911,7 @@ class PlaybackService : MediaLibraryService() {
                 active.isPlaying &&
                 AppSettings.seamlessQualityUpgrade.value &&
                 !ListenTogether.state.value.inParty &&
+                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 crossfade?.isTransitioning() != true
 
@@ -5191,6 +5193,7 @@ class PlaybackService : MediaLibraryService() {
                 .withResolvedStreamType(stream.url)
                 .build()
             val seamlessRequested = AppSettings.seamlessQualityUpgrade.value &&
+                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 !ListenTogether.state.value.inParty && !castPlayback.active &&
                 !CastController.state.value.casting
