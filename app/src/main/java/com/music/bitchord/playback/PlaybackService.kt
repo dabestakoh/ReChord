@@ -857,12 +857,12 @@ class PlaybackService : MediaLibraryService() {
      * time: the one [player] names.
      */
 
-    // Keep this trace limited to the actual handoff and a brief tail afterwards.
-    // It is deliberately independent of the optional TrackLog viewer so it can
-    // be collected with: adb logcat -s ReChordUpgrade:D
+    // Event-based tracing is always enabled on the current diagnostic fix branch.
+    // It must not depend on an upgrade *starting*: ordinary buffering and
+    // non-seamless fallback are precisely what we need to distinguish.
+    // Collect with: adb logcat -v threadtime -s ReChordUpgrade:D
     private var upgradeTraceUntilMs = 0L
     private fun traceUpgrade(event: String, active: ExoPlayer? = player, other: ExoPlayer? = spare) {
-        if (SystemClock.elapsedRealtime() > upgradeTraceUntilMs) return
         fun describe(p: ExoPlayer?): String = if (p == null) "null" else
             "id=${p.currentMediaItem?.mediaId} play=${p.isPlaying} intent=${p.playWhenReady} " +
             "state=${p.playbackState} pos=${p.currentPosition} buf=${p.bufferedPosition} " +
@@ -1067,6 +1067,7 @@ class PlaybackService : MediaLibraryService() {
          * broken app looks like from the outside.
          */
         override fun onPlayerError(error: PlaybackException) {
+            traceUpgrade("session playerError code=${error.errorCode} cause=${error.cause?.javaClass?.simpleName}")
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
             val exoPlayer = player ?: return
@@ -4918,9 +4919,16 @@ class PlaybackService : MediaLibraryService() {
         mediaId: String,
         replacement: MediaItem,
     ): Boolean {
-        val active = player ?: return false
-        val standby = spare ?: return false
+        val active = player ?: run {
+            traceUpgrade("seamless rejected: active player absent")
+            return false
+        }
+        val standby = spare ?: run {
+            traceUpgrade("seamless rejected: standby player absent", active)
+            return false
+        }
         val index = active.currentMediaItemIndex
+        traceUpgrade("seamless requested", active, standby)
         if (!AppSettings.seamlessQualityUpgrade.value ||
             qualityUpgradeFadeActive || versionSwapJob?.isActive == true ||
             crossfade?.isTransitioning() == true ||
@@ -4931,13 +4939,15 @@ class PlaybackService : MediaLibraryService() {
             !active.isPlaying || active.playbackState != Player.STATE_READY ||
             active.currentMediaItem?.mediaId != mediaId ||
             index !in 0 until active.mediaItemCount
-        ) return false
+        ) {
+            traceUpgrade("seamless rejected by eligibility guard", active, standby)
+            return false
+        }
 
         val originalDuration = active.duration
         val originalPosition = active.currentPosition
         if (originalDuration <= 0 || originalDuration - originalPosition < UPGRADE_MIN_REMAINING_MS) return false
         qualityUpgradeFadeActive = true
-        upgradeTraceUntilMs = SystemClock.elapsedRealtime() + 45_000L
         traceUpgrade("upgrade begin", active, standby)
         var adopted = false
         var focusTransferred = false
@@ -5306,6 +5316,7 @@ class PlaybackService : MediaLibraryService() {
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 !ListenTogether.state.value.inParty && !castPlayback.active &&
                 !CastController.state.value.casting
+            traceUpgrade("upgrade swap requested seamless=${seamlessRequested}", player, spare)
             val seamlessApplied = if (seamlessRequested) {
                 trySeamlessQualityUpgrade(mediaId, upgradedItem)
             } else false
