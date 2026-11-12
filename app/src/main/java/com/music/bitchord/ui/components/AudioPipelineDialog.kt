@@ -114,6 +114,8 @@ private fun bitExactVerdict(
     bitPerfect: BitPerfectOutput.Status,
     outputExact: Boolean,
     outputExactDetail: String?,
+    decodedRateHz: Int?,
+    outputRateHz: Int?,
     loudnessActive: Boolean,
     eqActive: Boolean,
     spatialActive: Boolean,
@@ -132,6 +134,8 @@ private fun bitExactVerdict(
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
+    decodedRateHz != null && outputRateHz != null && decodedRateHz != outputRateHz ->
+        "No — sample rate converted ${rateText(decodedRateHz)} → ${rateText(outputRateHz)}"
     // Match BitChord: this field reports decoded PCM precision at AudioTrack,\n    // not an independently captured USB endpoint stream. The negotiated\n    // output sample rate is shown separately in Resampler and Output Device.\n    outputExact -> "Yes${outputExactDetail?.let { " ($it)" }.orEmpty()}"
     else -> "No — ${outputExactDetail ?: "converted downstream"}"
 }
@@ -487,6 +491,8 @@ fun AudioPipelineDialog(
                         bitPerfect = bitPerfect,
                         outputExact = outputStatus.outputExact,
                         outputExactDetail = outputStatus.outputExactDetail,
+                        decodedRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
+                        outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
                         loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
                         eqActive = eqEnabled,
                         spatialActive = spatialAudio,
