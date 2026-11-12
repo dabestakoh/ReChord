@@ -652,6 +652,7 @@ private fun BitChordApp(
     var confirmJioSaavn by remember { mutableStateOf(false) }
     var confirmBitPerfect by remember { mutableStateOf<BitPerfectMode?>(null) }
     var confirmFixedVolume by remember { mutableStateOf(false) }
+    val pendingFixedVolumeApproval by BitPerfectOutput.fixedVolumeApprovalRequest.collectAsStateWithLifecycle()
     /** An addon search row tapped while the quality setting skips its addon; see [AddonBlockedAlert]. */
     var blockedAddonSong by remember { mutableStateOf<com.music.bitchord.data.model.Song?>(null) }
     /** An addon a download just went ahead without, and why; see [SourceRegistry.addonsLeftOutOfDownloads]. */
@@ -5946,17 +5947,24 @@ private fun BitChordApp(
             )
         }
 
-        if (confirmFixedVolume) {
+        if (confirmFixedVolume || pendingFixedVolumeApproval != null) {
             ConfirmationAlert(
                 hazeState = hazeState,
                 title = stringResource(R.string.usb_allow_fixed_volume_confirm_title),
-                description = stringResource(R.string.usb_allow_fixed_volume_confirm_message),
+                description = buildString {
+                    pendingFixedVolumeApproval?.label?.let { append("$it: ") }
+                    append(stringResource(R.string.usb_allow_fixed_volume_confirm_message))
+                    append(" This approval is saved only for the connected DAC.")
+                },
                 confirmLabel = stringResource(R.string.enable),
                 onConfirm = {
-                    AppSettings.setUsbAllowFixedVolume(true)
+                    BitPerfectOutput.approveFixedVolume(this@MainActivity)
                     confirmFixedVolume = false
                 },
-                onDismiss = { confirmFixedVolume = false },
+                onDismiss = {
+                    BitPerfectOutput.dismissFixedVolumeApproval()
+                    confirmFixedVolume = false
+                },
             )
         }
 
