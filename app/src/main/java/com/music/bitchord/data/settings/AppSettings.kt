@@ -301,10 +301,10 @@ object AppSettings {
 
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
-     * full scale, with the DAC's own knob (if any) the only volume. On for new
-     * installs; the listener must set the physical DAC/amplifier volume safely.
+     * full scale, with the DAC's own knob (if any) the only volume. Off by
+     * default; enable explicitly only when the listener accepts the risk.
      */
-    val usbAllowFixedVolume = MutableStateFlow(true)
+    val usbAllowFixedVolume = MutableStateFlow(false)
 
     /**
      * Lets the exclusive output convert a track its DAC can't take as it is, to
@@ -986,7 +986,7 @@ object AppSettings {
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
         }.getOrDefault(defaultBitPerfectMode()))
-        usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, true)
+        usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
         loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
