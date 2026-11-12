@@ -1997,11 +1997,14 @@ private fun DownloadQuality.localizedLabel(): String = stringResource(
 )
 
 @Composable
-private fun ThemeMode.localizedLabel(): String = stringResource(
+private fun ThemeMode.localizedLabel(): String = if (this == ThemeMode.AMOLED) {
+    "AMOLED"
+} else stringResource(
     when (this) {
         ThemeMode.SYSTEM -> R.string.system
         ThemeMode.LIGHT -> R.string.light
         ThemeMode.DARK -> R.string.dark
+        ThemeMode.AMOLED -> error("Handled above")
     },
 )
 
