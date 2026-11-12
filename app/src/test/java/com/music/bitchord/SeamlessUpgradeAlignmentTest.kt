@@ -16,13 +16,18 @@ class SeamlessUpgradeAlignmentTest {
         assertNull(alignment.measureDrift(100, 30))
         assertNull(alignment.measureDrift(200, -49))
         assertEquals(19L, alignment.measureDrift(250, -30))
-        assertNull(alignment.measureDrift(260, 301))
 
         alignment.reset()
         for (now in 0L..200L step 50L) {
             assertNull(alignment.measureDrift(now, 88))
         }
         assertEquals(88L, alignment.measureDrift(250, 88))
+
+        alignment.reset()
+        for (now in 0L..200L step 50L) {
+            assertNull(alignment.measureDrift(now, 329))
+        }
+        assertEquals(329L, alignment.measureDrift(250, 329))
     }
 
     @Test
@@ -31,13 +36,29 @@ class SeamlessUpgradeAlignmentTest {
         alignment.sample(0, 5000, 148, ready = true)
         alignment.sample(250, 5250, -102, ready = true)
         alignment.sample(500, 5500, 148, ready = true)
-        assertNull(alignment.correctionTarget(500, 5648))
+        assertNull(alignment.correctionTarget(500, 5648, 148))
         alignment.sample(849, 5849, 148, ready = true)
-        assertNull(alignment.correctionTarget(849, 5997))
+        assertNull(alignment.correctionTarget(849, 5997, 148))
         alignment.sample(850, 5850, 148, ready = true)
-        assertEquals(5998L, alignment.correctionTarget(850, 5998))
+        assertEquals(5998L, alignment.correctionTarget(850, 5998, 148))
         alignment.sample(870, 5870, 148, ready = false)
-        assertNull(alignment.correctionTarget(870, 6018))
+        assertNull(alignment.correctionTarget(870, 6018, 148))
+    }
+
+    @Test
+    fun `second seek compensates for the lag left by the first seek`() {
+        val alignment = SeamlessUpgradeAlignment()
+        alignment.sample(0, 9135, 254, ready = true)
+        alignment.sample(350, 9485, 254, ready = true)
+        assertEquals(9739L, alignment.correctionTarget(350, 9739, 254))
+        alignment.reset()
+        alignment.sample(650, 10850, 144, ready = true)
+        alignment.sample(1000, 11200, 144, ready = true)
+        assertEquals(11488L, alignment.correctionTarget(1000, 11344, 144))
+        alignment.reset()
+        alignment.sample(1300, 11500, 329, ready = true)
+        alignment.sample(1650, 11850, 329, ready = true)
+        assertEquals(12579L, alignment.correctionTarget(1650, 12179, 329))
     }
 
     @Test

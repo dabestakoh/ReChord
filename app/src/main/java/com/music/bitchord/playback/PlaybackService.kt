@@ -5064,8 +5064,8 @@ class PlaybackService : MediaLibraryService() {
                     continue
                 }
                 if (alignment.sample(now, standbyPosition, measuredDrift, ready)) break
-                if (now >= nextCorrectionAt) {
-                    val target = alignment.correctionTarget(now, activePosition)
+                if (now >= nextCorrectionAt && alignmentDeadline - now >= 750L) {
+                    val target = alignment.correctionTarget(now, activePosition, measuredDrift)
                     if (target != null) {
                         traceUpgrade("standby correction driftMs=$measuredDrift seekMs=$target", active, standby)
                         standby.seekTo(index, target)
@@ -5087,8 +5087,9 @@ class PlaybackService : MediaLibraryService() {
                     standby.playerError != null
                 ) return false
                 val now = SystemClock.elapsedRealtime()
-                val measuredDrift = alignment.measureDrift(now, active.currentPosition - standby.currentPosition)
-                if (measuredDrift == null || abs(measuredDrift) > 85L) {
+                val rawDrift = active.currentPosition - standby.currentPosition
+                val measuredDrift = alignment.measureDrift(now, rawDrift)
+                if (abs(rawDrift) > 300L || measuredDrift == null || abs(measuredDrift) > 85L) {
                     traceUpgrade("fade aborted: alignment driftMs=$measuredDrift", active, standby)
                     return false
                 }

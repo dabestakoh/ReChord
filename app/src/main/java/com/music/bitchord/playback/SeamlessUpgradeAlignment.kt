@@ -5,10 +5,8 @@ import kotlin.math.abs
 internal class SeamlessUpgradeAlignment {
     private val driftSamples = ArrayDeque<Pair<Long, Long>>()
 
-    // Average across several position updates from each player. A large
-    // discontinuity must still invalidate the estimate immediately.
+    // Average across several position updates from each player.
     fun measureDrift(nowMs: Long, rawDriftMs: Long): Long? {
-        if (abs(rawDriftMs) > 300L) driftSamples.clear()
         while (driftSamples.isNotEmpty() && nowMs - driftSamples.first().first > 300L) {
             driftSamples.removeFirst()
         }
@@ -46,8 +44,16 @@ internal class SeamlessUpgradeAlignment {
         return nowMs - since >= 350L && positionMs > initialPositionMs
     }
 
-    fun correctionTarget(nowMs: Long, activePositionMs: Long): Long? =
-        activePositionMs.takeIf { driftDirection != 0 && nowMs - driftSinceMs >= 350L }
+    private var previousSeekLeadMs: Long? = null
+
+    fun correctionTarget(nowMs: Long, activePositionMs: Long, measuredDriftMs: Long): Long? {
+        if (driftDirection == 0 || nowMs - driftSinceMs < 350L) return null
+        // The first seek establishes how far the active player moves while
+        // standby recovers. On later seeks, correct the measured residual.
+        val lead = previousSeekLeadMs?.let { (it + measuredDriftMs).coerceIn(0L, 400L) } ?: 0L
+        previousSeekLeadMs = lead
+        return activePositionMs + lead
+    }
 
     private val alignmentToleranceMs = 55L
 
