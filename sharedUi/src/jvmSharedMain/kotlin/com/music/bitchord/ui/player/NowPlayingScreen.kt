@@ -883,20 +883,28 @@ fun NowPlayingScreen(
     // RESOLVED artwork ink, then interpolate directly old -> new once ready.
     // The shared cache is reused, and reopening the player retains its ink.
     val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = ART_PX)
-    val resolvedAccent = artworkAnalysis?.accent
-    val accentTarget = resolvedAccent ?: PlayerAccentMemory.lastResolved
+    val resolvedAccent = artworkAnalysis.accent
+    val accentTarget = when {
+        resolvedAccent != null -> resolvedAccent
+        artworkAnalysis.unavailable -> Color.White
+        else -> PlayerAccentMemory.lastResolved
+    }
     val trackAccent by animateColorAsState(
         targetValue = accentTarget,
         animationSpec = tween(durationMillis = 380),
         label = "trackArtworkAccent",
     )
-    LaunchedEffect(resolvedAccent) {
-        if (resolvedAccent != null) PlayerAccentMemory.lastResolved = resolvedAccent
+    LaunchedEffect(accentTarget, artworkAnalysis.unavailable, resolvedAccent) {
+        // Do not save an interim loading color; save white on a definitive
+        // failure so closing and reopening the player stays consistent.
+        if (resolvedAccent != null || artworkAnalysis.unavailable) {
+            PlayerAccentMemory.lastResolved = accentTarget
+        }
     }
     // This is produced by the palette's existing 128 px decode and cache. It
     // samples the upper band rather than the whole sleeve because that is what
     // lies beneath the status bar when the player expands to full bleed.
-    val artTopLuminance = artworkAnalysis?.topBandLuminance
+    val artTopLuminance = artworkAnalysis.topBandLuminance
     val artworkStatusScrimAlpha = topBandScrimAlpha(artTopLuminance)
 
     // Media-player convention: the player always owns light status icons. The
