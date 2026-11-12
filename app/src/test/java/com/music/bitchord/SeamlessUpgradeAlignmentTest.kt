@@ -9,11 +9,18 @@ import org.junit.Test
 
 class SeamlessUpgradeAlignmentTest {
     @Test
-    fun `correction seeks to the active position without recreating the logged lead`() {
+    fun `a seek requires sustained drift in the same direction`() {
         val alignment = SeamlessUpgradeAlignment()
-        assertEquals(5097L, alignment.correctionTarget(5097, 5177))
-        assertEquals(5097L, alignment.correctionTarget(5097, 4900))
-        assertNull(alignment.correctionTarget(5097, 5152))
+        alignment.sample(0, 5000, 148, ready = true)
+        alignment.sample(250, 5250, -102, ready = true)
+        alignment.sample(500, 5500, 148, ready = true)
+        assertNull(alignment.correctionTarget(500, 5648))
+        alignment.sample(849, 5849, 148, ready = true)
+        assertNull(alignment.correctionTarget(849, 5997))
+        alignment.sample(850, 5850, 148, ready = true)
+        assertEquals(5998L, alignment.correctionTarget(850, 5998))
+        alignment.sample(870, 5870, 148, ready = false)
+        assertNull(alignment.correctionTarget(870, 6018))
     }
 
     @Test

@@ -5006,7 +5006,10 @@ class PlaybackService : MediaLibraryService() {
 
             // Different cuts or long introductions are inappropriate for a blind
             // clock-based blend; preserve the playing stream instead.
-            if (standby.duration <= 0 || abs(standby.duration - originalDuration) > 700L) return false
+            if (standby.duration <= 0 || abs(standby.duration - originalDuration) > 700L) {
+                traceUpgrade("seamless rejected: duration active=${originalDuration} standby=${standby.duration}", active, standby)
+                return false
+            }
 
             // Buffer *ahead* of the live playhead, not the point where prepare
             // began. The outgoing audio keeps playing throughout preparation.
@@ -5036,18 +5039,22 @@ class PlaybackService : MediaLibraryService() {
             // Player positions can jump when the audio clock takes over.
             // Wait for stable alignment while muted and correct persistent drift.
             val alignment = SeamlessUpgradeAlignment()
-            val alignmentDeadline = SystemClock.elapsedRealtime() + 3_000L
+            val alignmentDeadline = SystemClock.elapsedRealtime() + 5_000L
             var nextCorrectionAt = SystemClock.elapsedRealtime() + 450L
             while (true) {
                 val now = SystemClock.elapsedRealtime()
-                if (!valid() || standby.playerError != null || now >= alignmentDeadline) return false
+                if (!valid() || standby.playerError != null) return false
+                if (now >= alignmentDeadline) {
+                    traceUpgrade("seamless rejected: alignment timeout standbyMime=${standby.audioFormat?.sampleMimeType}", active, standby)
+                    return false
+                }
                 val activePosition = active.currentPosition
                 val standbyPosition = standby.currentPosition
                 val ready = standby.isPlaying && (!requiresLossless ||
                     NerdStats.isLosslessMime(standby.audioFormat?.sampleMimeType))
                 if (alignment.sample(now, standbyPosition, activePosition - standbyPosition, ready)) break
                 if (ready && now >= nextCorrectionAt) {
-                    val target = alignment.correctionTarget(activePosition, standbyPosition)
+                    val target = alignment.correctionTarget(now, activePosition)
                     if (target != null) {
                         standby.seekTo(index, target)
                         alignment.reset()
