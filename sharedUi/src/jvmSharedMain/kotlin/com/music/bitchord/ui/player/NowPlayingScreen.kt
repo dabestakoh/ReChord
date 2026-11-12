@@ -3734,7 +3734,7 @@ fun NowPlayingScreen(
                                     label = "playerCredits",
                                 ) {
                                     val scrolling = scrolls()
-                                    val artistColor = chromeWhite(0.55f)
+                                    val artistColor = LocalPlayerAccent.current.copy(alpha = 0.72f)
                                     Column {
                                         MarqueeText(
                                             text = song.title,
