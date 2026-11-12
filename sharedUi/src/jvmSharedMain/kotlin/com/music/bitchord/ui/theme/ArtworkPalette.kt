@@ -142,6 +142,31 @@ fun rememberArtworkPalette(
     )
 }
 
+/** Artwork-dependent controls distinguish loading from a final missing cover. */
+@Immutable
+data class ArtworkPlayerAnalysis(
+    val accent: Color?,
+    val topBandLuminance: Float?,
+    val unavailable: Boolean,
+)
+
+/**
+ * Loading a new cover must keep the current control tint. Only a permanently
+ * missing/failed cover switches to white, with the same color interpolation.
+ */
+@Composable
+fun rememberArtworkPlayerAnalysis(
+    imageUrl: String?,
+    artPx: Int = CARD_ART_PX,
+): ArtworkPlayerAnalysis {
+    val resolution = rememberArtworkSeedResolution(imageUrl, artPx)
+    return ArtworkPlayerAnalysis(
+        accent = resolution.seed?.toPalette(dark = true)?.accent,
+        topBandLuminance = resolution.seed?.topBandLuminance,
+        unavailable = resolution.finished && resolution.seed == null,
+    )
+}
+
 /**
  * Reads top-band relative luminance from the cached palette decode.
  * Returns raw artwork luminance without applying top scrim calculations.
@@ -152,25 +177,54 @@ fun rememberArtworkTopBandLuminance(
     artPx: Int = CARD_ART_PX,
 ): Float? = rememberArtworkSeed(imageUrl, artPx)?.topBandLuminance
 
+private data class SeedResolution(val seed: Seed?, val finished: Boolean)
+
 @Composable
-private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? {
+private fun rememberArtworkSeed(imageUrl: String?, artPx: Int): Seed? =
+    rememberArtworkSeedResolution(imageUrl, artPx).seed
+
+@Composable
+private fun rememberArtworkSeedResolution(imageUrl: String?, artPx: Int): SeedResolution {
     val context = LocalPlatformContext.current
-    var seed by remember(imageUrl) { mutableStateOf(imageUrl?.let(seedCache::get)) }
+    var resolution by remember(imageUrl, artPx) {
+        mutableStateOf(
+            SeedResolution(
+                seed = imageUrl?.let(seedCache::get),
+                finished = imageUrl == null || (imageUrl != null && seedCache.containsKey(imageUrl)),
+            ),
+        )
+    }
 
     LaunchedEffect(imageUrl, artPx) {
-        if (imageUrl == null || seed != null) return@LaunchedEffect
+        if (imageUrl == null || resolution.seed != null) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
             .data(imageUrl.artworkAt(artPx))
             .size(PALETTE_PX)
             .forPixelAccess()
             .build()
-        val result = SingletonImageLoader.get(context).execute(request)
-        val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@LaunchedEffect
-        val found = withContext(Dispatchers.Default) { seedOf(bitmap) } ?: return@LaunchedEffect
-        seedCache[imageUrl] = found
-        seed = found
+        // A transient miss is not failure. Keep the previous player's accent
+        // while we retry. Once retries are exhausted, report a final miss so
+        // only then do the controls smoothly interpolate to white.
+        repeat(3) { attempt ->
+            val result = try {
+                SingletonImageLoader.get(context).execute(request)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val bitmap = (result as? SuccessResult)?.image?.toImageBitmap()
+            val found = bitmap?.let { withContext(Dispatchers.Default) { seedOf(it) } }
+            if (found != null) {
+                seedCache[imageUrl] = found
+                resolution = SeedResolution(seed = found, finished = true)
+                return@LaunchedEffect
+            }
+            if (attempt < 2) kotlinx.coroutines.delay(350L * (attempt + 1))
+        }
+        resolution = SeedResolution(seed = null, finished = true)
     }
-    return seed
+    return resolution
 }
 
 /**

@@ -1,7 +1,7 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.runtime.CompositionLocalProvider
-import com.music.bitchord.ui.theme.rememberArtworkPalette
+import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.offset
@@ -29,6 +29,7 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -877,14 +878,33 @@ fun NowPlayingScreen(
     // every surface below reads the same value rather than each triggering
     // its own extraction.
     val remoteArt = rememberRemoteArtworkUrl(song)
-    // The artwork palette is already decoded and cached for the backdrop. Use
-    // its contrast-adjusted accent for transport, titles and sliders instead
-    // of fixed white. This updates on every track without another art decode.
-    val trackAccent = rememberArtworkPalette(remoteArt, dark = true, artPx = ART_PX).accent
+    // A new sleeve may still be decoding when the queue advances. Never
+    // animate toward theme.primary or white during that gap: keep the last
+    // RESOLVED artwork ink, then interpolate directly old -> new once ready.
+    // The shared cache is reused, and reopening the player retains its ink.
+    val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = ART_PX)
+    val resolvedAccent = artworkAnalysis.accent
+    val accentTarget = when {
+        resolvedAccent != null -> resolvedAccent
+        artworkAnalysis.unavailable -> Color.White
+        else -> PlayerAccentMemory.lastResolved
+    }
+    val trackAccent by animateColorAsState(
+        targetValue = accentTarget,
+        animationSpec = tween(durationMillis = 380),
+        label = "trackArtworkAccent",
+    )
+    LaunchedEffect(accentTarget, artworkAnalysis.unavailable, resolvedAccent) {
+        // Do not save an interim loading color; save white on a definitive
+        // failure so closing and reopening the player stays consistent.
+        if (resolvedAccent != null || artworkAnalysis.unavailable) {
+            PlayerAccentMemory.lastResolved = accentTarget
+        }
+    }
     // This is produced by the palette's existing 128 px decode and cache. It
     // samples the upper band rather than the whole sleeve because that is what
     // lies beneath the status bar when the player expands to full bleed.
-    val artTopLuminance = rememberArtworkTopBandLuminance(remoteArt, ART_PX)
+    val artTopLuminance = artworkAnalysis.topBandLuminance
     val artworkStatusScrimAlpha = topBandScrimAlpha(artTopLuminance)
 
     // Media-player convention: the player always owns light status icons. The
