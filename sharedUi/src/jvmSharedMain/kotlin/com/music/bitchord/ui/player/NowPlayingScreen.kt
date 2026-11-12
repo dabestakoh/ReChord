@@ -3747,9 +3747,10 @@ fun NowPlayingScreen(
                                 Crossfade(
                                     targetState = song.title to song.artist,
                                     // Round the fade and the marquee's edge masks, whose
-                                    // layers would otherwise hide the backdrop from it. The
-                                    // title is in it too and stays white: see [additiveChrome].
-                                    modifier = Modifier.additiveChrome(LocalPlayerChrome.current),
+                                    // layers would otherwise hide the backdrop from it.
+                                    // Keep the credits' actual artwork ink: additive chrome
+                                    // can wash the title and artist toward white.
+                                    modifier = Modifier,
                                     animationSpec = tween(durationMillis = 300),
                                     label = "playerCredits",
                                 ) {
