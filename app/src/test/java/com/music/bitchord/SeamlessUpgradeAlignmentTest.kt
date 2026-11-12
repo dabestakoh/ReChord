@@ -9,6 +9,23 @@ import org.junit.Test
 
 class SeamlessUpgradeAlignmentTest {
     @Test
+    fun `window smooths clock jumps while retaining a sustained offset`() {
+        val alignment = SeamlessUpgradeAlignment()
+        assertNull(alignment.measureDrift(0, -49))
+        assertNull(alignment.measureDrift(51, 193))
+        assertNull(alignment.measureDrift(100, 30))
+        assertNull(alignment.measureDrift(200, -49))
+        assertEquals(19L, alignment.measureDrift(250, -30))
+        assertNull(alignment.measureDrift(260, 301))
+
+        alignment.reset()
+        for (now in 0L..200L step 50L) {
+            assertNull(alignment.measureDrift(now, 88))
+        }
+        assertEquals(88L, alignment.measureDrift(250, 88))
+    }
+
+    @Test
     fun `a seek requires sustained drift in the same direction`() {
         val alignment = SeamlessUpgradeAlignment()
         alignment.sample(0, 5000, 148, ready = true)

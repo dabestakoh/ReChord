@@ -5041,21 +5041,33 @@ class PlaybackService : MediaLibraryService() {
             val alignment = SeamlessUpgradeAlignment()
             val alignmentDeadline = SystemClock.elapsedRealtime() + 5_000L
             var nextCorrectionAt = SystemClock.elapsedRealtime() + 450L
+            var lastMeasuredDrift: Long? = null
             while (true) {
                 val now = SystemClock.elapsedRealtime()
                 if (!valid() || standby.playerError != null) return false
                 if (now >= alignmentDeadline) {
-                    traceUpgrade("seamless rejected: alignment timeout standbyMime=${standby.audioFormat?.sampleMimeType}", active, standby)
+                    traceUpgrade("seamless rejected: alignment timeout driftMs=$lastMeasuredDrift standbyMime=${standby.audioFormat?.sampleMimeType}", active, standby)
                     return false
                 }
                 val activePosition = active.currentPosition
                 val standbyPosition = standby.currentPosition
                 val ready = standby.isPlaying && (!requiresLossless ||
                     NerdStats.isLosslessMime(standby.audioFormat?.sampleMimeType))
-                if (alignment.sample(now, standbyPosition, activePosition - standbyPosition, ready)) break
-                if (ready && now >= nextCorrectionAt) {
+                if (!ready) alignment.reset()
+                val measuredDrift = if (ready) {
+                    alignment.measureDrift(now, activePosition - standbyPosition)
+                } else null
+                lastMeasuredDrift = measuredDrift
+                if (measuredDrift == null) {
+                    alignment.clearDecision()
+                    delay(20)
+                    continue
+                }
+                if (alignment.sample(now, standbyPosition, measuredDrift, ready)) break
+                if (now >= nextCorrectionAt) {
                     val target = alignment.correctionTarget(now, activePosition)
                     if (target != null) {
+                        traceUpgrade("standby correction driftMs=$measuredDrift seekMs=$target", active, standby)
                         standby.seekTo(index, target)
                         alignment.reset()
                         nextCorrectionAt = now + 450L
@@ -5072,9 +5084,14 @@ class PlaybackService : MediaLibraryService() {
             while (true) {
                 if (!valid() || !standby.isPlaying ||
                     standby.playbackState != Player.STATE_READY ||
-                    standby.playerError != null ||
-                    abs(active.currentPosition - standby.currentPosition) > 85L
+                    standby.playerError != null
                 ) return false
+                val now = SystemClock.elapsedRealtime()
+                val measuredDrift = alignment.measureDrift(now, active.currentPosition - standby.currentPosition)
+                if (measuredDrift == null || abs(measuredDrift) > 85L) {
+                    traceUpgrade("fade aborted: alignment driftMs=$measuredDrift", active, standby)
+                    return false
+                }
                 val fraction = ((SystemClock.elapsedRealtime() - started).toFloat() /
                     seamlessUpgradeFadeMs).coerceIn(0f, 1f)
                 val gainIn = sin(fraction * (PI / 2.0)).toFloat()

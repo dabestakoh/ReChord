@@ -3,6 +3,20 @@ package com.music.bitchord.playback
 import kotlin.math.abs
 
 internal class SeamlessUpgradeAlignment {
+    private val driftSamples = ArrayDeque<Pair<Long, Long>>()
+
+    // Average across several position updates from each player. A large
+    // discontinuity must still invalidate the estimate immediately.
+    fun measureDrift(nowMs: Long, rawDriftMs: Long): Long? {
+        if (abs(rawDriftMs) > 300L) driftSamples.clear()
+        while (driftSamples.isNotEmpty() && nowMs - driftSamples.first().first > 300L) {
+            driftSamples.removeFirst()
+        }
+        driftSamples.addLast(nowMs to rawDriftMs)
+        if (nowMs - driftSamples.first().first < 250L) return null
+        return driftSamples.sumOf { it.second } / driftSamples.size
+    }
+
     private var alignedSinceMs: Long? = null
     private var initialPositionMs = 0L
     private var driftSinceMs = 0L
@@ -38,6 +52,11 @@ internal class SeamlessUpgradeAlignment {
     private val alignmentToleranceMs = 55L
 
     fun reset() {
+        driftSamples.clear()
+        clearDecision()
+    }
+
+    fun clearDecision() {
         driftDirection = 0
         alignedSinceMs = null
     }
