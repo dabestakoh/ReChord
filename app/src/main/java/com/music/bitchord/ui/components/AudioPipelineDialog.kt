@@ -136,7 +136,10 @@ private fun bitExactVerdict(
     spatialActive -> "No — spatial audio"
     decodedRateHz != null && outputRateHz != null && decodedRateHz != outputRateHz ->
         "No — sample rate converted ${rateText(decodedRateHz)} → ${rateText(outputRateHz)}"
-    // Match BitChord: this field reports decoded PCM precision at AudioTrack,\n    // not an independently captured USB endpoint stream. The negotiated\n    // output sample rate is shown separately in Resampler and Output Device.\n    outputExact -> "Yes${outputExactDetail?.let { " ($it)" }.orEmpty()}"
+    // Match BitChord: reports decoded PCM precision at AudioTrack.
+    // The negotiated sample rate is also checked above; hardware-level
+    // sample capture remains outside the scope of this readout.
+    outputExact -> "Yes${outputExactDetail?.let { " ($it)" }.orEmpty()}"
     else -> "No — ${outputExactDetail ?: "converted downstream"}"
 }
 
