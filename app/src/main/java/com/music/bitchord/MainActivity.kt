@@ -5959,7 +5959,7 @@ private fun BitChordApp(
                 },
                 confirmLabel = stringResource(R.string.enable),
                 onConfirm = {
-                    BitPerfectOutput.approveFixedVolume(this@MainActivity)
+                    BitPerfectOutput.approveFixedVolume(context)
                     confirmFixedVolume = false
                 },
                 onDismiss = {
