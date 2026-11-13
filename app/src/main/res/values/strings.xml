@@ -1333,4 +1333,9 @@
     <string name="usb_software_volume">USB software volume</string>
     <string name="usb_software_volume_subtitle">Use app volume when hardware volume is unavailable</string>
     <string name="usb_volume_fixed_permission">Allow fixed-volume fallback</string>
+    <string name="playlist_link_title" translatable="false">Import playlist from link</string>
+    <string name="playlist_link_fetching" translatable="false">Reading playlist…</string>
+    <string name="playlist_link_track_count" translatable="false">%1$d tracks ready to import</string>
+    <string name="playlist_link_partial" translatable="false">The source may only expose part of this playlist.</string>
+    <string name="playlist_link_preview" translatable="false">Preview</string>
 </resources>
