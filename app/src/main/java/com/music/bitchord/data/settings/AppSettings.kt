@@ -995,7 +995,11 @@ object AppSettings {
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
-        seamlessQualityUpgrade.value = prefs.getBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
+        val savedSeamlessUpgrade = prefs.getBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
+        seamlessQualityUpgrade.value = savedSeamlessUpgrade && !directSourceStream.value
+        if (savedSeamlessUpgrade && directSourceStream.value) {
+            prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false).apply()
+        }
         spatialAudio.value = prefs.getBoolean(KEY_SPATIAL_AUDIO, false)
         equalizerEnabled.value = prefs.getBoolean(KEY_EQ_ENABLED, false)
         equalizerMode.value = runCatching {
@@ -1313,13 +1317,23 @@ object AppSettings {
     }
 
     fun setDirectSourceStream(value: Boolean) {
+        val edit = prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value)
+        if (value) {
+            seamlessQualityUpgrade.value = false
+            edit.putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
+        }
         directSourceStream.value = value
-        prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value).apply()
+        edit.apply()
     }
 
     fun setSeamlessQualityUpgrade(value: Boolean) {
+        val edit = prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, value)
+        if (value) {
+            directSourceStream.value = false
+            edit.putBoolean(KEY_DIRECT_SOURCE_STREAM, false)
+        }
         seamlessQualityUpgrade.value = value
-        prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, value).apply()
+        edit.apply()
     }
 
     fun setSpatialAudio(value: Boolean) {
