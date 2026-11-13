@@ -4943,7 +4943,6 @@ class PlaybackService : MediaLibraryService() {
             crossfade?.isTransitioning() == true ||
             ListenTogether.state.value.inParty ||
             castPlayback.active || CastController.state.value.casting ||
-            AppSettings.bitPerfectMode.value != BitPerfectMode.OFF ||
             BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active ||
             !active.isPlaying || active.playbackState != Player.STATE_READY ||
             active.currentMediaItem?.mediaId != mediaId ||
@@ -5009,7 +5008,6 @@ class PlaybackService : MediaLibraryService() {
                 active.isPlaying &&
                 AppSettings.seamlessQualityUpgrade.value &&
                 !ListenTogether.state.value.inParty &&
-                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 !castPlayback.active && !CastController.state.value.casting &&
                 crossfade?.isTransitioning() != true
@@ -5391,7 +5389,6 @@ class PlaybackService : MediaLibraryService() {
                 .build()
             val originalIndex = player.currentMediaItemIndex
             val seamlessRequested = AppSettings.seamlessQualityUpgrade.value &&
-                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 !ListenTogether.state.value.inParty && !castPlayback.active &&
                 !CastController.state.value.casting
@@ -5419,9 +5416,12 @@ class PlaybackService : MediaLibraryService() {
                     QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
                 ) return@withContext
 
-                // In seamless mode, a failed or unavailable fade must not
-                // reopen the audible decoder. A paused item can switch quietly.
-                if (AppSettings.seamlessQualityUpgrade.value && player.playWhenReady) {
+                // Speaker playback may apply the proved stream even when
+                // the fade fails. Leave the other routes on seamless-only policy.
+                val playingOnSpeaker = !BitPerfectOutput.ready.value &&
+                    !BitPerfectOutput.status.value.active &&
+                    resolveActiveRouteKind(resolveActiveOutputDevice()) == AudioRouting.Kind.PHONE
+                if (AppSettings.seamlessQualityUpgrade.value && player.playWhenReady && !playingOnSpeaker) {
                     QualityUpgrade.shelve(mediaId, stream)
                     traceUpgrade("upgrade deferred: seamless handoff unavailable", player, spare)
                     return@withContext
