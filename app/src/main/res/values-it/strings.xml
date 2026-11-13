@@ -1399,4 +1399,12 @@
     <string name="diwali_title">ReChord ti augura un felice Diwali</string>
     <string name="diwali_subtitle">Che questa festa delle luci riempia la tua casa di gioia e le tue giornate di musica.</string>
     <string name="diwali_cta">Festeggiamo</string>
+    <string name="usb_volume_software_active">USB diretto · Volume software</string>
+    <string name="usb_volume_software_inexact">USB diretto · Il volume software modifica i campioni audio</string>
+    <string name="usb_volume_fixed">Volume fisso</string>
+    <string name="usb_volume_waiting">In attesa di USB diretto · Nel frattempo, volume multimediale Android</string>
+    <string name="usb_volume_android">Volume multimediale Android</string>
+    <string name="usb_software_volume">Volume USB software</string>
+    <string name="usb_software_volume_subtitle">Usa il volume dell’app se il controllo hardware non è disponibile</string>
+    <string name="usb_volume_fixed_permission">Consenti il volume fisso come alternativa</string>
 </resources>

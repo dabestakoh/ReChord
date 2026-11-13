@@ -43,6 +43,14 @@ internal object DacVolume {
     private val _level = MutableStateFlow<Float?>(null)
     val level: StateFlow<Float?> = _level.asStateFlow()
 
+    private val _softwareLevel = MutableStateFlow<Float?>(null)
+    val softwareLevel = _softwareLevel.asStateFlow()
+
+    internal fun onSoftwareLevel(value: Float?) {
+        _softwareLevel.value = value
+        if (value != null || snapshot == null) _level.value = value
+    }
+
     private var snapshot: UsbVolume.Snapshot? = null
 
     /** Called by [BitPerfectOutput] whenever the DAC reports its volume, or stops having one. */
@@ -55,8 +63,13 @@ internal object DacVolume {
     /** Sets the DAC to [fraction] of its travel. */
     @Synchronized
     fun set(fraction: Float) {
-        val volume = snapshot?.takeIf { it.available } ?: return
         val target = fraction.coerceIn(0f, 1f)
+        if (_softwareLevel.value != null) {
+            BitPerfectOutput.setSoftwareVolume(target)
+            onSoftwareLevel(target)
+            return
+        }
+        val volume = snapshot?.takeIf { it.available } ?: return
         _level.value = target
         BitPerfectOutput.setHardwareVolume(dbOf(volume, target))
     }

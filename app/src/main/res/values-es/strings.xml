@@ -1432,4 +1432,12 @@
     <string name="diwali_title">ReChord te desea un feliz Diwali</string>
     <string name="diwali_subtitle">Que este festival de luces llene tu hogar de alegría y tus días de música.</string>
     <string name="diwali_cta">Celebremos</string>
+    <string name="usb_volume_software_active">USB directo · Volumen por software</string>
+    <string name="usb_volume_software_inexact">USB directo · El volumen por software modifica las muestras de audio</string>
+    <string name="usb_volume_fixed">Volumen fijo</string>
+    <string name="usb_volume_waiting">Esperando USB directo · Mientras tanto, volumen multimedia de Android</string>
+    <string name="usb_volume_android">Volumen multimedia de Android</string>
+    <string name="usb_software_volume">Volumen USB por software</string>
+    <string name="usb_software_volume_subtitle">Usar el volumen de la app si el control del DAC no está disponible</string>
+    <string name="usb_volume_fixed_permission">Permitir volumen fijo como alternativa</string>
 </resources>

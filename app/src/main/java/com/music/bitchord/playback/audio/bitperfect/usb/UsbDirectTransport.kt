@@ -71,6 +71,8 @@ internal class UsbDirectTransport private constructor(
     override val deviceName: String,
     private val format: UsbDescriptors.OutputFormat,
     private val volumeControl: UsbVolume.Volume?,
+    val softwareVolume: Boolean,
+    initialLevel: Float,
 ) : BitPerfectTransport {
 
     override val driver = BitPerfectDriver.USB_DIRECT
@@ -102,8 +104,31 @@ internal class UsbDirectTransport private constructor(
         failure = "USB disconnected"
     }
 
+    @Volatile var softwareLevel: Float = initialLevel
+    private val scaled by lazy { ByteBuffer.allocateDirect(MAX_WRITE) }
+
     override fun write(buffer: ByteBuffer): Int {
-        val count = call { UsbDirectNative.write(handle, buffer, buffer.position(), minOf(buffer.remaining(), MAX_WRITE)) }
+        val bytes = minOf(buffer.remaining(), MAX_WRITE)
+        val input = if (softwareVolume) {
+            val sampleBytes = outputBits / 8
+            val frameBytes = sampleBytes * channelCount
+            scaled.clear()
+            val level = softwareLevel
+            val gain = if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
+            val end = buffer.position() + bytes - bytes % frameBytes
+            for (offset in buffer.position() until end step sampleBytes) {
+                var sample = buffer.get(offset + sampleBytes - 1).toInt()
+                for (byte in sampleBytes - 2 downTo 0) {
+                    sample = (sample shl 8) or (buffer.get(offset + byte).toInt() and 255)
+                }
+                val padding = outputBits - validBits
+                val value = (((sample shr padding) * gain).toInt()) shl padding
+                for (byte in 0 until sampleBytes) scaled.put((value shr (byte * 8)).toByte())
+            }
+            scaled.flip()
+            scaled
+        } else buffer
+        val count = call { UsbDirectNative.write(handle, input, input.position(), minOf(input.remaining(), bytes)) }
         buffer.position(buffer.position() + count)
         return count
     }
@@ -162,6 +187,8 @@ internal class UsbDirectTransport private constructor(
             convert: Boolean,
             allowFixedVolume: Boolean,
             rememberedDb: Double?,
+            softwareVolume: Boolean,
+            softwareLevel: Float,
         ): UsbDirectTransport {
             val connection = manager.openDevice(device) ?: throw BitPerfectTransportException("cannot_open_usb")
             var handle = 0L
@@ -183,7 +210,7 @@ internal class UsbDirectTransport private constructor(
                 // Startup attenuation happens inside Volume.open, before any audio.
                 val volume = UsbVolume.feature(raw, plan.alternate.control, plan.alternate.terminal, channels)
                     ?.let { feature -> runCatching { UsbVolume.Volume.open(control, feature) }.getOrNull() }
-                if (volume == null && !allowFixedVolume) throw BitPerfectTransportException("volume_unavailable")
+                if (volume == null && !allowFixedVolume && !softwareVolume) throw BitPerfectTransportException("volume_unavailable")
                 if (volume != null && rememberedDb != null) {
                     runCatching { volume.set(control, minOf(rememberedDb, volume.snapshot.restoreLimitDb)) }
                 }
@@ -194,6 +221,8 @@ internal class UsbDirectTransport private constructor(
                     deviceName = device.productName?.takeIf { it.isNotBlank() } ?: "USB audio",
                     format = plan.format,
                     volumeControl = volume,
+                    softwareVolume = volume == null && softwareVolume,
+                    initialLevel = softwareLevel,
                 )
             } catch (error: Exception) {
                 if (handle != 0L) UsbDirectNative.close(handle)

@@ -37,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -1545,11 +1546,28 @@ object AudioCache {
                 // and the pin would then stream the substitute after it. That
                 // track's way up is the second look — see [heldByYouTube].
                 val youTubeFilled = heldByYouTube(cacheKeyOf(Uri.parse("bitchord://watch?v=$next")))
+                val fallbackWarm = if (substitutable && !pinnedToYouTube && !youTubeFilled) {
+                    launch(TrackLog.about(next)) {
+                        delay(PREFETCH_DELAY_MS)
+                        runCatching { StreamResolver.resolve(next) }
+                    }
+                } else null
                 val warmed = if (substitutable && target != null && !pinnedToYouTube && !youTubeFilled) {
-                    runCatching { SourceResolver.prefetchSubstitute(target) }
-                        .onFailure { TrackLog.d(TAG, "warm-up substitute failed for $next: ${it.message}", about = next) }
-                        .getOrNull()
-                        ?.also { StreamChoice.remember(next, it, substituted = true) }
+                    val candidate = try {
+                        SourceResolver.prefetchSubstitute(target)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        TrackLog.d(TAG, "warm-up substitute failed for $next: ${error.message}", about = next)
+                        null
+                    }
+                    ensureActive()
+                    candidate?.takeIf {
+                        pendingQueue == mediaIds && !OriginalVersion.isPinned(next) &&
+                            StreamChoice.of(next) == null &&
+                            SourceRegistry.permitsForPlayback(it.sourceConfigId) &&
+                            !heldByYouTube(cacheKeyOf(Uri.parse("bitchord://watch?v=$next")))
+                    }?.also { StreamChoice.remember(next, it, substituted = true) }
                 } else {
                     null
                 }
@@ -1557,6 +1575,7 @@ object AudioCache {
                 // outranks YouTube and read-ahead is the only writer, or a
                 // source has been pinned and every writer now resolves to it.
                 val cacheBytes = (!substitutable || warmed != null) && !pinnedToYouTube
+                if (warmed != null) fallbackWarm?.cancel()
                 if (cacheBytes) {
                     launch(TrackLog.about(next)) {
                         delay(PREFETCH_DELAY_MS)
@@ -1571,7 +1590,7 @@ object AudioCache {
                         // for a YouTube URL: nothing will ask for one, and
                         // minting it spends a client walk to fill a cache entry
                         // that is never read.
-                        if (id == next && warmed != null) continue
+                        if (id == next && (warmed != null || fallbackWarm != null)) continue
                         runCatching { StreamResolver.resolve(id) }
                             .onFailure { TrackLog.d(TAG, "queue warm-up skipped $id: ${it.message}", about = id) }
                         delay(QUEUE_RESOLVE_STAGGER_MS)

@@ -1437,4 +1437,12 @@
     <string name="diwali_title">ReChord mengucapkan Selamat Diwali</string>
     <string name="diwali_subtitle">Semoga festival cahaya ini memenuhi rumah Anda dengan kebahagiaan dan hari-hari Anda dengan musik.</string>
     <string name="diwali_cta">Mari Rayakan</string>
+    <string name="usb_volume_software_active">USB langsung · Volume perangkat lunak</string>
+    <string name="usb_volume_software_inexact">USB langsung · Volume perangkat lunak mengubah sampel audio</string>
+    <string name="usb_volume_fixed">Volume tetap</string>
+    <string name="usb_volume_waiting">Menunggu USB langsung · Sementara memakai volume media Android</string>
+    <string name="usb_volume_android">Volume media Android</string>
+    <string name="usb_software_volume">Volume USB perangkat lunak</string>
+    <string name="usb_software_volume_subtitle">Gunakan volume aplikasi jika kontrol perangkat keras tidak tersedia</string>
+    <string name="usb_volume_fixed_permission">Izinkan volume tetap sebagai cadangan</string>
 </resources>

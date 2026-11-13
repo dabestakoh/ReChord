@@ -856,6 +856,7 @@ class PlaybackService : MediaLibraryService() {
      * — and this has to move with it. It is attached to exactly one player at a
      * time: the one [player] names.
      */
+
     private val playbackListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             val activePlayer = this@PlaybackService.player ?: return
@@ -1197,45 +1198,6 @@ class PlaybackService : MediaLibraryService() {
             applyOutputRoute()
         }
 
-        /**
-         * The seam, measured rather than described. This fires when the
-         * audio track starts putting samples out again after the sink was
-         * flushed, which for a quality swap is the exact instant the music
-         * comes back — and the gap between it and the swap is the only
-         * number that says whether any of the work above paid off. Every
-         * other timing here brackets a fetch, and a fetch being fast has
-         * repeatedly said nothing about whether the listener heard a hole.
-         */
-        override fun onAudioPositionAdvancing(
-            eventTime: AnalyticsListener.EventTime,
-            playoutStartSystemTimeMs: Long,
-        ) {
-            val cutAt = swapCutAt ?: return
-            swapCutAt = null
-            TrackLog.d(
-                "BitChord",
-                "swap seam: ${SystemClock.elapsedRealtime() - cutAt}ms of silence",
-                about = eventTime.mediaId(),
-            )
-        }
-
-        /**
-         * The three legs the seam breaks into, logged separately because
-         * they have entirely different fixes: getting the new source
-         * loaded and past the load control's gate, standing a decoder up,
-         * and opening an audio track. Only the first is ours to shorten.
-         */
-        override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
-            val cutAt = swapCutAt ?: return
-            if (state == Player.STATE_READY) {
-                TrackLog.d(
-                    "BitChord",
-                    "swap leg: ready ${SystemClock.elapsedRealtime() - cutAt}ms after the cut",
-                    about = eventTime.mediaId(),
-                )
-            }
-        }
-
         override fun onAudioDecoderInitialized(
             eventTime: AnalyticsListener.EventTime,
             decoderName: String,
@@ -1246,13 +1208,6 @@ class PlaybackService : MediaLibraryService() {
             TrackLog.i(
                 "AUDIO_OUT",
                 "decoder=$decoderName initialized in ${initializationDurationMs}ms",
-                about = eventTime.mediaId(),
-            )
-            val cutAt = swapCutAt ?: return
-            TrackLog.d(
-                "BitChord",
-                "swap leg: $decoderName stood up in ${initializationDurationMs}ms, " +
-                    "${SystemClock.elapsedRealtime() - cutAt}ms after the cut",
                 about = eventTime.mediaId(),
             )
         }
@@ -4529,12 +4484,6 @@ class PlaybackService : MediaLibraryService() {
     private var swappingMediaId: String? = null
 
     /**
-     * When the audio was last cut for a quality swap, so the analytics listener
-     * can say how long it stayed cut. Null except across a swap.
-     */
-    private var swapCutAt: Long? = null
-
-    /**
      * The track [ExoPlayer.getAudioFormat] is currently describing.
      *
      * `audioFormat` is a property of the *renderer*, not of the queue item, and
@@ -4859,9 +4808,13 @@ class PlaybackService : MediaLibraryService() {
      * Quality improvement is NOT a new song. Transfer the audio-session owner
      * without restarting history, scrobbling, next-track state or upgrade jobs.
      */
-    private fun adoptPlayerForQualityUpgrade(outgoing: ExoPlayer, incoming: ExoPlayer) {
-        setSessionOwner(outgoing, owns = false)
-        setSessionOwner(incoming, owns = true)
+    private fun adoptPlayerForQualityUpgrade(
+        outgoing: ExoPlayer,
+        incoming: ExoPlayer,
+        outputConfig: AudioSink.AudioTrackConfig?,
+    ) {
+        // Audio-focus ownership was transferred and verified *before* calling
+        // this. Do not reconfigure an already playing AudioTrack during adoption.
         outgoing.removeListener(playbackListener)
         outgoing.removeAnalyticsListener(formatListener)
         player = incoming
@@ -4873,15 +4826,18 @@ class PlaybackService : MediaLibraryService() {
         incoming.addAnalyticsListener(formatListener)
         adoptFormatOf(incoming)
         mediaSession?.player = newSessionPlayer(incoming, requireNotNull(crossfade))
-        currentAudioInputFormat = incoming.audioFormat ?: currentAudioInputFormat
-        activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(incoming.audioFormat?.sampleMimeType)
-        publishNerdStats()
+        currentAudioInputFormat = incoming.audioFormat
+        activeTrackIsDolbyAtmos = NerdStats.isDolbyAtmosMime(currentAudioInputFormat?.sampleMimeType)
+        applySpatialAudioEnabled()
+        applyOutputRoute()
+        outputConfig?.let {
+            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize)
+        }
         incoming.volume = 1f
         outgoing.stop()
         outgoing.clearMediaItems()
         outgoing.volume = 1f
         swappingMediaId = null
-        swapCutAt = null
         savePlaybackState(incoming)
         refreshCustomLayouts()
         publishWidgetState()
@@ -4895,6 +4851,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun trySeamlessQualityUpgrade(
         mediaId: String,
         replacement: MediaItem,
+        requiresLossless: Boolean,
     ): Boolean {
         val active = player ?: return false
         val standby = spare ?: return false
@@ -4904,18 +4861,30 @@ class PlaybackService : MediaLibraryService() {
             crossfade?.isTransitioning() == true ||
             ListenTogether.state.value.inParty ||
             castPlayback.active || CastController.state.value.casting ||
-            AppSettings.bitPerfectMode.value != BitPerfectMode.OFF ||
             BitPerfectOutput.ready.value || BitPerfectOutput.status.value.active ||
             !active.isPlaying || active.playbackState != Player.STATE_READY ||
             active.currentMediaItem?.mediaId != mediaId ||
             index !in 0 until active.mediaItemCount
-        ) return false
+        ) {
+            return false
+        }
 
         val originalDuration = active.duration
         val originalPosition = active.currentPosition
         if (originalDuration <= 0 || originalDuration - originalPosition < UPGRADE_MIN_REMAINING_MS) return false
         qualityUpgradeFadeActive = true
         var adopted = false
+        var focusTransferred = false
+        var standbyOutputConfig: AudioSink.AudioTrackConfig? = null
+        val standbyOutputListener = object : AnalyticsListener {
+            override fun onAudioTrackInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                audioTrackConfig: AudioSink.AudioTrackConfig,
+            ) {
+                standbyOutputConfig = audioTrackConfig
+            }
+        }
+        standby.addAnalyticsListener(standbyOutputListener)
         try {
             val items = List(active.mediaItemCount) { i ->
                 if (i == index) replacement else active.getMediaItemAt(i)
@@ -4938,8 +4907,8 @@ class PlaybackService : MediaLibraryService() {
                 active.isPlaying &&
                 AppSettings.seamlessQualityUpgrade.value &&
                 !ListenTogether.state.value.inParty &&
-                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
+                !castPlayback.active && !CastController.state.value.casting &&
                 crossfade?.isTransitioning() != true
 
             val prepareDeadline = SystemClock.elapsedRealtime() + 10_000L
@@ -4950,7 +4919,9 @@ class PlaybackService : MediaLibraryService() {
 
             // Different cuts or long introductions are inappropriate for a blind
             // clock-based blend; preserve the playing stream instead.
-            if (standby.duration <= 0 || abs(standby.duration - originalDuration) > 700L) return false
+            if (standby.duration <= 0 || abs(standby.duration - originalDuration) > 700L) {
+                return false
+            }
 
             // Buffer *ahead* of the live playhead, not the point where prepare
             // began. The outgoing audio keeps playing throughout preparation.
@@ -4977,31 +4948,41 @@ class PlaybackService : MediaLibraryService() {
             ) delay(15)
             if (!valid() || !standby.isPlaying || standby.playerError != null) return false
 
-            // A seek takes time to resume; each correction is performed while
-            // the standby is still muted and never once the blend has started.
-            var aligned = false
-            repeat(3) {
+            // Player positions can jump when the audio clock takes over.
+            // Wait for stable alignment while muted and correct persistent drift.
+            val alignment = SeamlessUpgradeAlignment()
+            val alignmentDeadline = SystemClock.elapsedRealtime() + 5_000L
+            var nextCorrectionAt = SystemClock.elapsedRealtime() + 450L
+            while (true) {
+                val now = SystemClock.elapsedRealtime()
                 if (!valid() || standby.playerError != null) return false
-                val drift = active.currentPosition - standby.currentPosition
-                if (abs(drift) <= 45L && standby.isPlaying) {
-                    aligned = true
-                    return@repeat
+                if (now >= alignmentDeadline) {
+                    return false
                 }
-                if (!aligned) {
-                    standby.seekTo(index, active.currentPosition + 80L)
-                    val seekDeadline = SystemClock.elapsedRealtime() + 900L
-                    while (valid() && standby.playbackState != Player.STATE_READY &&
-                        SystemClock.elapsedRealtime() < seekDeadline
-                    ) delay(15)
+                val activePosition = active.currentPosition
+                val standbyPosition = standby.currentPosition
+                val ready = standby.isPlaying && (!requiresLossless ||
+                    NerdStats.isLosslessMime(standby.audioFormat?.sampleMimeType))
+                if (!ready) alignment.reset()
+                val measuredDrift = if (ready) {
+                    alignment.measureDrift(now, activePosition - standbyPosition)
+                } else null
+                if (measuredDrift == null) {
+                    alignment.clearDecision()
+                    delay(20)
+                    continue
                 }
+                if (alignment.sample(now, standbyPosition, measuredDrift, ready)) break
+                if (now >= nextCorrectionAt && alignmentDeadline - now >= 750L) {
+                    val target = alignment.correctionTarget(now, activePosition, measuredDrift)
+                    if (target != null) {
+                        standby.seekTo(index, target)
+                        alignment.reset()
+                        nextCorrectionAt = now + 450L
+                    }
+                }
+                delay(20)
             }
-            if (!aligned || !valid()) return false
-            val checkedPosition = standby.currentPosition
-            delay(180L)
-            if (!valid() || !standby.isPlaying ||
-                standby.currentPosition <= checkedPosition ||
-                abs(active.currentPosition - standby.currentPosition) > 55L
-            ) return false
 
             // Equal-power blend: both players must continue advancing. Do not
             // seek within the audible overlap; failed alignment simply abandons
@@ -5010,11 +4991,23 @@ class PlaybackService : MediaLibraryService() {
             while (true) {
                 if (!valid() || !standby.isPlaying ||
                     standby.playbackState != Player.STATE_READY ||
-                    standby.playerError != null ||
-                    abs(active.currentPosition - standby.currentPosition) > 85L
+                    standby.playerError != null
                 ) return false
-                val fraction = ((SystemClock.elapsedRealtime() - started).toFloat() /
-                    seamlessUpgradeFadeMs).coerceIn(0f, 1f)
+                val now = SystemClock.elapsedRealtime()
+                val rawDrift = active.currentPosition - standby.currentPosition
+                val measuredDrift = alignment.measureDrift(now, rawDrift)
+                val elapsed = now - started
+                if (abs(rawDrift) > 300L ||
+                    (measuredDrift != null && abs(measuredDrift) > 85L) ||
+                    (measuredDrift == null && (abs(rawDrift) > 85L || elapsed >= seamlessUpgradeFadeMs))
+                ) {
+                    return false
+                }
+                if (measuredDrift == null) {
+                    delay(16)
+                    continue
+                }
+                val fraction = (elapsed.toFloat() / seamlessUpgradeFadeMs).coerceIn(0f, 1f)
                 val gainIn = sin(fraction * (PI / 2.0)).toFloat()
                 val gainOut = cos(fraction * (PI / 2.0)).toFloat()
                 standby.volume = gainIn
@@ -5025,36 +5018,77 @@ class PlaybackService : MediaLibraryService() {
                 if (fraction >= 1f) break
                 delay(16)
             }
-            adoptPlayerForQualityUpgrade(active, standby)
+            // IMPORTANT: focus ownership transfer may reconfigure or briefly
+            // suspend a renderer. Do it while the old decoder is still alive,
+            // and test the new one *after* the change before committing the
+            // MediaSession and stopping the original. That prevents a tiny
+            // audio-focus glitch becoming an irreversible pause.
+            // Keep a quiet copy of the outgoing audio underneath the focus
+            // transition. If Android suspends the incoming AudioTrack for a
+            // fraction of a second, this is preferable to digital silence.
+            active.volume = 0.20f
+            setSessionOwner(active, owns = false)
+            setSessionOwner(standby, owns = true)
+            focusTransferred = true
+            val probePosition = standby.currentPosition
+            // Media3 can report the same position across multiple polls even
+            // when the renderer is playing. Commit on observed progress.
+            val focusDeadline = SystemClock.elapsedRealtime() + 1_000L
+            while (true) {
+                if (!valid() || !standby.isPlaying ||
+                    standby.playbackState != Player.STATE_READY ||
+                    standby.playerError != null
+                ) {
+                    return false
+                }
+                if (standby.currentPosition > probePosition) break
+                if (SystemClock.elapsedRealtime() >= focusDeadline) {
+                    return false
+                }
+                delay(20)
+            }
+            active.volume = 0f
+            adoptPlayerForQualityUpgrade(active, standby, standbyOutputConfig)
             adopted = true
             return true
         } finally {
-            qualityUpgradeFadeActive = false
-            loudnessA.setBlendTrim(1f)
-            loudnessB.setBlendTrim(1f)
-            if (!adopted) {
-                // Cut the failed incoming audio first; restore the original
-                // softly so a failure halfway through the fade does not click.
-                standby.volume = 0f
-                standby.stop()
-                standby.clearMediaItems()
-                standby.playWhenReady = false
-                standby.volume = 1f
-                val originalGain = active.volume
-                if (player === active && active.isPlaying && originalGain < 1f) {
-                    withContext(NonCancellable) {
-                        val started = SystemClock.elapsedRealtime()
-                        while (SystemClock.elapsedRealtime() - started < 150L &&
-                            player === active && active.isPlaying
-                        ) {
-                            val fraction = ((SystemClock.elapsedRealtime() - started) / 150f)
-                                .coerceIn(0f, 1f)
-                            active.volume = originalGain + (1f - originalGain) * fraction
-                            delay(12)
+            try {
+                standby.removeAnalyticsListener(standbyOutputListener)
+                loudnessA.setBlendTrim(1f)
+                loudnessB.setBlendTrim(1f)
+                if (!adopted) {
+                    if (focusTransferred && player === active) {
+                        // Restore focus responsibility while the outgoing source
+                        // can still play; never leave the stopped standby owning it.
+                        setSessionOwner(standby, owns = false)
+                        setSessionOwner(active, owns = true)
+                    }
+                    // Keep the incoming output alive until the outgoing source
+                    // has recovered its volume. Stopping the standby first caused
+                    // exactly the gap this feature is supposed to eliminate.
+                    val originalGain = active.volume
+                    if (player === active && active.isPlaying && originalGain < 1f) {
+                        withContext(NonCancellable) {
+                            val started = SystemClock.elapsedRealtime()
+                            while (SystemClock.elapsedRealtime() - started < 150L &&
+                                player === active && active.isPlaying
+                            ) {
+                                val fraction = ((SystemClock.elapsedRealtime() - started) / 150f)
+                                    .coerceIn(0f, 1f)
+                                active.volume = originalGain + (1f - originalGain) * fraction
+                                delay(12)
+                            }
                         }
                     }
+                    active.volume = 1f
+                    standby.volume = 0f
+                    standby.stop()
+                    standby.clearMediaItems()
+                    standby.playWhenReady = false
+                    standby.volume = 1f
                 }
-                active.volume = 1f
+            } finally {
+                qualityUpgradeFadeActive = false
             }
         }
     }
@@ -5163,7 +5197,7 @@ class PlaybackService : MediaLibraryService() {
         // different route. And nothing is held back on a track nowhere near a
         // transition: the reading is then already long past the grace.
         withContext(Dispatchers.Main) { crossfade?.msSinceTransition() }?.let { since ->
-            if (since < UPGRADE_AFTER_CROSSFADE_MS) {
+            if (AppSettings.seamlessQualityUpgrade.value && since < UPGRADE_AFTER_CROSSFADE_MS) {
                 val settle = UPGRADE_AFTER_CROSSFADE_MS - since
                 TrackLog.d("BitChord", "upgrade for $mediaId holding ${settle}ms; a transition just ended")
                 delay(settle)
@@ -5234,37 +5268,48 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaMetadata(upgradedMetadata)
                 .withResolvedStreamType(stream.url)
                 .build()
+            val originalIndex = player.currentMediaItemIndex
             val seamlessRequested = AppSettings.seamlessQualityUpgrade.value &&
-                AppSettings.bitPerfectMode.value == BitPerfectMode.OFF &&
                 !BitPerfectOutput.ready.value && !BitPerfectOutput.status.value.active &&
                 !ListenTogether.state.value.inParty && !castPlayback.active &&
                 !CastController.state.value.casting
             val seamlessApplied = if (seamlessRequested) {
-                trySeamlessQualityUpgrade(mediaId, upgradedItem)
+                trySeamlessQualityUpgrade(mediaId, upgradedItem, stream.format.isLossless == true)
             } else false
-            if (seamlessRequested && !seamlessApplied) {
-                // In opt-in mode, never substitute a cut that can interrupt
-                // currently audible standard output. Keep the proof for later.
-                QualityUpgrade.shelve(mediaId, stream)
-                return@withContext
-            }
             if (!seamlessApplied) {
+                // The fade is optional. The proved stream can still replace
+                // the same queue item using the active output and play intent.
+                val latest = swapPointFor(mediaId)
+                if (this@PlaybackService.player !== player ||
+                    player.currentMediaItemIndex != originalIndex ||
+                    latest == null || latest.uri != now.uri ||
+                    crossfade?.isTransitioning() == true || versionSwapJob?.isActive == true ||
+                    castPlayback.active || CastController.state.value.casting ||
+                    ListenTogether.state.value.inParty
+                ) {
+                    QualityUpgrade.shelve(mediaId, stream)
+                    return@withContext
+                }
+                if (!SourceRegistry.permitsForPlayback(stream.sourceConfigId) ||
+                    QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
+                ) return@withContext
+
                 swappingMediaId = mediaId
-                swapCutAt = SystemClock.elapsedRealtime()
-                player.replaceMediaItem(player.currentMediaItemIndex, upgradedItem)
-                player.seekTo(player.currentMediaItemIndex, now.position)
+                player.replaceMediaItem(originalIndex, upgradedItem)
+                player.seekTo(originalIndex, latest.position)
                 player.prepare()
             }
             val upgradedSourceName = stream.sourceConfigId?.let { SourceRegistry.config(it)?.displayName }
                 ?: "Upgrade"
             NerdStats.onSourceStream(mediaId, stream.format, upgradedSourceName)
             NerdStats.recordSource(mediaId, upgradedSourceName)
+            if (seamlessApplied) publishNerdStats()
             if (stream.format.isLossless == true) {
                 AudioCache.markSuccessfulFlacUpgrade(Uri.parse(upgradedUri), stream.sourceConfigId)
             }
             QualityUpgrade.unshelve(mediaId)
             TrackLog.d("BitChord", "upgraded to ${stream.format.summary} at ${now.position}ms ($upgradedSourceName)")
-            watchUpgrade(mediaId, now.uri, player.currentPosition, now.duration, previousFormat)
+            watchUpgrade(mediaId, now.uri, (this@PlaybackService.player ?: player).currentPosition, now.duration, previousFormat)
             if (QualityUpgrade.continueAfterLossySwap(mediaId)) {
                 // The immediate JioSaavn improvement stays audible while a
                 // slower lossless source is checked against its higher-quality
@@ -7537,6 +7582,13 @@ class PlaybackService : MediaLibraryService() {
         }
         scope.launch {
             AppSettings.bitPerfectMode.drop(1).collect { requestOutputReconfiguration(rebuild = true) }
+        }
+        scope.launch {
+            AppSettings.usbSoftwareVolume.drop(1).collect {
+                if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT) {
+                    requestOutputReconfiguration(rebuild = true)
+                }
+            }
         }
         scope.launch {
             AppSettings.usbAllowFixedVolume.drop(1).collect {

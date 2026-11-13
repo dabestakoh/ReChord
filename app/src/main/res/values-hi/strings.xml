@@ -1460,4 +1460,12 @@
     <string name="diwali_subtitle">रोशनी का यह त्योहार आपके घर को खुशियों से और आपके दिनों को संगीत से भर दे।</string>
     <string name="diwali_cta">चलो जश्न मनाएँ</string>
     <string name="automix_overview">ऑटोमिक्स का अवलोकन</string>
+    <string name="usb_volume_software_active">डायरेक्ट USB · सॉफ़्टवेयर वॉल्यूम</string>
+    <string name="usb_volume_software_inexact">डायरेक्ट USB · सॉफ़्टवेयर वॉल्यूम ऑडियो सैंपल बदलता है</string>
+    <string name="usb_volume_fixed">स्थिर वॉल्यूम</string>
+    <string name="usb_volume_waiting">डायरेक्ट USB की प्रतीक्षा · तब तक Android मीडिया वॉल्यूम</string>
+    <string name="usb_volume_android">Android मीडिया वॉल्यूम</string>
+    <string name="usb_software_volume">USB सॉफ़्टवेयर वॉल्यूम</string>
+    <string name="usb_software_volume_subtitle">हार्डवेयर वॉल्यूम उपलब्ध न हो तो ऐप का वॉल्यूम इस्तेमाल करें</string>
+    <string name="usb_volume_fixed_permission">विकल्प के रूप में स्थिर वॉल्यूम की अनुमति दें</string>
 </resources>

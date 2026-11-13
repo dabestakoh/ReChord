@@ -448,9 +448,15 @@ object SourceResolver {
         if (target.title.isBlank() || target.isVideo) return null
         val active = SourceRegistry.activeForPlayback()
         val youtube = active.firstOrNull { it.kind == SourceKind.YOUTUBE } ?: return null
-        val quick = rankedAbove(youtube.configId, active).filter { it.kind.worthPrefetching }
+        val request = requestForNow()
+        val quick = rankedAbove(youtube.configId, active).filter {
+            it.kind.worthPrefetching || (request == StreamRequest.Lossless && it.kind == SourceKind.ADDON)
+        }
         if (quick.isEmpty()) return null
-        val (source, stream) = bestAcross(quick, target, requestForNow()) ?: return null
+        val (source, stream) = bestAcross(quick, target, request) { candidate, rendition ->
+            !StreamContainer.isManifest(rendition.url) &&
+                (candidate.kind != SourceKind.ADDON || rendition.format.isLossless == true)
+        } ?: return null
         TrackLog.d(
             TAG,
             "warmed: '${target.title}' from ${source.displayName} at ${stream.format.summary}",
