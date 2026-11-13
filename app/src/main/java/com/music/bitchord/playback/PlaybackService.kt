@@ -5318,7 +5318,7 @@ class PlaybackService : MediaLibraryService() {
         // different route. And nothing is held back on a track nowhere near a
         // transition: the reading is then already long past the grace.
         withContext(Dispatchers.Main) { crossfade?.msSinceTransition() }?.let { since ->
-            if (since < UPGRADE_AFTER_CROSSFADE_MS) {
+            if (AppSettings.seamlessQualityUpgrade.value && since < UPGRADE_AFTER_CROSSFADE_MS) {
                 val settle = UPGRADE_AFTER_CROSSFADE_MS - since
                 TrackLog.d("BitChord", "upgrade for $mediaId holding ${settle}ms; a transition just ended")
                 delay(settle)
@@ -5418,6 +5418,14 @@ class PlaybackService : MediaLibraryService() {
                 if (!SourceRegistry.permitsForPlayback(stream.sourceConfigId) ||
                     QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
                 ) return@withContext
+
+                // In seamless mode, a failed or unavailable fade must not
+                // reopen the audible decoder. A paused item can switch quietly.
+                if (AppSettings.seamlessQualityUpgrade.value && player.playWhenReady) {
+                    QualityUpgrade.shelve(mediaId, stream)
+                    traceUpgrade("upgrade deferred: seamless handoff unavailable", player, spare)
+                    return@withContext
+                }
 
                 traceUpgrade("verified upgrade replacing active item seamlessRequested=$seamlessRequested", player, spare)
                 swappingMediaId = mediaId
