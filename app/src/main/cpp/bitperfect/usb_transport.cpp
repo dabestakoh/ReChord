@@ -24,6 +24,7 @@
 // and opens the first one the device accepts.
 
 #include <android/log.h>
+#include <time.h>
 #include <jni.h>
 #include <libusb.h>
 #include <sys/resource.h>
@@ -296,8 +297,22 @@ public:
         auto lastLoop = Clock::now();
         auto lastReport = lastLoop;
         size_t missingFrames = 0;
-        long long maxLoopUs = 0;
+        using Micros = std::chrono::microseconds;
+        auto elapsed = [](auto start, auto end) -> long long {
+            return std::chrono::duration_cast<Micros>(end - start).count();
+        };
+        auto cpuUs = []() -> long long {
+            timespec time{};
+            return clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0
+                ? time.tv_sec * 1000000LL + time.tv_nsec / 1000 : -1;
+        };
+        long long maxLoopUs = 0, maxEventsUs = 0, maxLockUs = 0;
+        long long maxControlUs = 0, maxSubmitUs = 0, maxRefillUs = 0;
+        size_t minPending = slots.size(), completed = 0;
+        size_t minQueuedFrames = static_cast<size_t>(-1);
+        auto lastCpu = cpuUs();
         for (;;) {
+            const auto eventStart = Clock::now();
             events();
             const auto now = Clock::now();
             const auto loopUs = std::chrono::duration_cast<std::chrono::microseconds>(now - lastLoop).count();
@@ -305,12 +320,22 @@ public:
             if (started && loopUs > maxLoopUs) maxLoopUs = loopUs;
             std::unique_lock<std::mutex> lock(state.mutex);
             if (state.closed) break;
+            if (started) {
+                maxEventsUs = std::max(maxEventsUs, elapsed(eventStart, now));
+                maxLockUs = std::max(maxLockUs, elapsed(now, Clock::now()));
+                minPending = std::min(minPending, static_cast<size_t>(std::count_if(
+                    slots.begin(), slots.end(), [](const auto &slot) { return slot->pending; })));
+            }
             if (!state.controls.empty()) {
                 auto request = std::move(state.controls.front());
                 state.controls.pop_front();
                 lock.unlock();
+                const auto controlStart = Clock::now();
                 serve(*request);
+                maxControlUs = std::max(maxControlUs, elapsed(controlStart, Clock::now()));
+                const auto relockStart = Clock::now();
                 lock.lock();
+                maxLockUs = std::max(maxLockUs, elapsed(relockStart, Clock::now()));
             }
             if (state.flush != state.flushed) {
                 lock.unlock();
@@ -337,6 +362,7 @@ public:
                                         static_cast<int>(slot->transfer->status), state.bytes.size() / frame);
                     require(false, "USB audio transfer failed");
                 }
+                ++completed;
                 state.frames += slot->musicFrames;
                 slot->musicFrames = 0;
                 slot->submitted = false;
@@ -379,18 +405,32 @@ public:
                 finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                 slot->musicFrames = available / frame;
                 missingFrames += (total - available) / frame;
+                minQueuedFrames = std::min(minQueuedFrames, state.bytes.size() / frame);
+                const auto submitStart = Clock::now();
                 slot->submit(handle, chosen.data.address, lengths, packets);
+                const auto submittedAt = Clock::now();
+                maxSubmitUs = std::max(maxSubmitUs, elapsed(submitStart, submittedAt));
+                maxRefillUs = std::max(maxRefillUs, elapsed(now, submittedAt));
             }
             state.changed.notify_all();
             if (now - lastReport >= std::chrono::seconds(1)) {
                 const size_t queuedFrames = state.bytes.size() / frame;
                 lock.unlock();
+                const auto cpu = cpuUs();
                 __android_log_print(ANDROID_LOG_INFO, "ReChordUsb",
-                                    "worker rate=%d queuedFrames=%zu paddedFrames=%zu maxLoopUs=%lld",
-                                    chosen.format.sampleRate, queuedFrames, missingFrames, maxLoopUs);
+                    "worker rate=%u queuedFrames=%zu minQueuedFrames=%zu paddedFrames=%zu "
+                    "completed=%zu minPending=%zu/%zu windowUs=%lld cpuUs=%lld "
+                    "maxLoopUs=%lld eventsUs=%lld lockUs=%lld controlUs=%lld submitUs=%lld refillUs=%lld",
+                    chosen.format.sampleRate, queuedFrames, std::min(minQueuedFrames, queuedFrames), missingFrames,
+                    completed, minPending, slots.size(), elapsed(lastReport, now),
+                    cpu >= 0 && lastCpu >= 0 ? cpu - lastCpu : -1LL,
+                    maxLoopUs, maxEventsUs, maxLockUs, maxControlUs, maxSubmitUs, maxRefillUs);
                 lastReport = now;
-                missingFrames = 0;
-                maxLoopUs = 0;
+                lastCpu = cpu;
+                missingFrames = completed = 0;
+                minPending = slots.size();
+                minQueuedFrames = static_cast<size_t>(-1);
+                maxLoopUs = maxEventsUs = maxLockUs = maxControlUs = maxSubmitUs = maxRefillUs = 0;
             }
         }
         drain();
