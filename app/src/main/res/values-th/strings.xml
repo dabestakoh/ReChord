@@ -1443,4 +1443,12 @@
     <string name="diwali_title">ReChord ขอให้คุณมีความสุขในวันดิวาลี</string>
     <string name="diwali_subtitle">ขอให้เทศกาลแห่งแสงสว่างนี้เติมเต็มบ้านของคุณด้วยความสุขและทุกวันด้วยเสียงเพลง</string>
     <string name="diwali_cta">มาฉลองกัน</string>
+    <string name="usb_volume_software_active">USB โดยตรง · ระดับเสียงแบบซอฟต์แวร์</string>
+    <string name="usb_volume_software_inexact">USB โดยตรง · การปรับเสียงด้วยซอฟต์แวร์จะเปลี่ยนตัวอย่างเสียง</string>
+    <string name="usb_volume_fixed">ระดับเสียงคงที่</string>
+    <string name="usb_volume_waiting">กำลังรอ USB โดยตรง · ใช้ระดับเสียงสื่อของ Android ระหว่างนี้</string>
+    <string name="usb_volume_android">ระดับเสียงสื่อของ Android</string>
+    <string name="usb_software_volume">ระดับเสียง USB แบบซอฟต์แวร์</string>
+    <string name="usb_software_volume_subtitle">ใช้ระดับเสียงของแอปเมื่อควบคุมเสียงผ่านฮาร์ดแวร์ไม่ได้</string>
+    <string name="usb_volume_fixed_permission">อนุญาตให้ใช้ระดับเสียงคงที่เป็นทางเลือก</string>
 </resources>

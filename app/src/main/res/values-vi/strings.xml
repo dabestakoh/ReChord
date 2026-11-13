@@ -1377,4 +1377,12 @@
     <string name="diwali_title">ReChord chúc bạn lễ Diwali vui vẻ</string>
     <string name="diwali_subtitle">Chúc lễ hội ánh sáng mang niềm vui đến ngôi nhà và âm nhạc đến mỗi ngày của bạn.</string>
     <string name="diwali_cta">Cùng ăn mừng</string>
+    <string name="usb_volume_software_active">USB trực tiếp · Âm lượng phần mềm</string>
+    <string name="usb_volume_software_inexact">USB trực tiếp · Âm lượng phần mềm thay đổi mẫu âm thanh</string>
+    <string name="usb_volume_fixed">Âm lượng cố định</string>
+    <string name="usb_volume_waiting">Đang chờ USB trực tiếp · Tạm dùng âm lượng đa phương tiện Android</string>
+    <string name="usb_volume_android">Âm lượng đa phương tiện Android</string>
+    <string name="usb_software_volume">Âm lượng USB bằng phần mềm</string>
+    <string name="usb_software_volume_subtitle">Dùng âm lượng ứng dụng khi không thể điều chỉnh bằng phần cứng</string>
+    <string name="usb_volume_fixed_permission">Cho phép dùng âm lượng cố định thay thế</string>
 </resources>

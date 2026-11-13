@@ -1492,4 +1492,12 @@
     <string name="diwali_title">ReChord поздравляет с Дивали</string>
     <string name="diwali_subtitle">Пусть этот праздник огней наполнит ваш дом радостью, а дни — музыкой.</string>
     <string name="diwali_cta">Давайте праздновать</string>
+    <string name="usb_volume_software_active">Прямой USB · Программная громкость</string>
+    <string name="usb_volume_software_inexact">Прямой USB · Программная регулировка изменяет аудиосэмплы</string>
+    <string name="usb_volume_fixed">Фиксированная громкость</string>
+    <string name="usb_volume_waiting">Ожидание прямого USB · Пока используется громкость мультимедиа Android</string>
+    <string name="usb_volume_android">Громкость мультимедиа Android</string>
+    <string name="usb_software_volume">Программная громкость USB</string>
+    <string name="usb_software_volume_subtitle">Использовать громкость приложения, если аппаратная регулировка недоступна</string>
+    <string name="usb_volume_fixed_permission">Разрешить переход на фиксированную громкость</string>
 </resources>

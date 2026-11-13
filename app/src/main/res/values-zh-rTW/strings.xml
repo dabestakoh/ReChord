@@ -1437,4 +1437,12 @@
     <string name="diwali_title">ReChord 祝你排燈節快樂</string>
     <string name="diwali_subtitle">願這個燈光節日讓你的家充滿歡樂，每一天都有音樂相伴。</string>
     <string name="diwali_cta">一起慶祝</string>
+    <string name="usb_volume_software_active">直連 USB · 軟體音量</string>
+    <string name="usb_volume_software_inexact">直連 USB · 軟體音量會改變音訊取樣值</string>
+    <string name="usb_volume_fixed">固定音量</string>
+    <string name="usb_volume_waiting">等待直連 USB · 備援輸出使用 Android 媒體音量</string>
+    <string name="usb_volume_android">Android 媒體音量</string>
+    <string name="usb_software_volume">USB 軟體音量</string>
+    <string name="usb_software_volume_subtitle">硬體音量無法使用時，改用應用程式音量</string>
+    <string name="usb_volume_fixed_permission">允許改用固定音量</string>
 </resources>
