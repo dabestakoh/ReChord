@@ -5052,40 +5052,43 @@ class PlaybackService : MediaLibraryService() {
             adopted = true
             return true
         } finally {
-            standby.removeAnalyticsListener(standbyOutputListener)
-            qualityUpgradeFadeActive = false
-            loudnessA.setBlendTrim(1f)
-            loudnessB.setBlendTrim(1f)
-            if (!adopted) {
-                if (focusTransferred && player === active) {
-                    // Restore focus responsibility while the outgoing source
-                    // can still play; never leave the stopped standby owning it.
-                    setSessionOwner(standby, owns = false)
-                    setSessionOwner(active, owns = true)
-                }
-                // Keep the incoming output alive until the outgoing source
-                // has recovered its volume. Stopping the standby first caused
-                // exactly the gap this feature is supposed to eliminate.
-                val originalGain = active.volume
-                if (player === active && active.isPlaying && originalGain < 1f) {
-                    withContext(NonCancellable) {
-                        val started = SystemClock.elapsedRealtime()
-                        while (SystemClock.elapsedRealtime() - started < 150L &&
-                            player === active && active.isPlaying
-                        ) {
-                            val fraction = ((SystemClock.elapsedRealtime() - started) / 150f)
-                                .coerceIn(0f, 1f)
-                            active.volume = originalGain + (1f - originalGain) * fraction
-                            delay(12)
+            try {
+                standby.removeAnalyticsListener(standbyOutputListener)
+                loudnessA.setBlendTrim(1f)
+                loudnessB.setBlendTrim(1f)
+                if (!adopted) {
+                    if (focusTransferred && player === active) {
+                        // Restore focus responsibility while the outgoing source
+                        // can still play; never leave the stopped standby owning it.
+                        setSessionOwner(standby, owns = false)
+                        setSessionOwner(active, owns = true)
+                    }
+                    // Keep the incoming output alive until the outgoing source
+                    // has recovered its volume. Stopping the standby first caused
+                    // exactly the gap this feature is supposed to eliminate.
+                    val originalGain = active.volume
+                    if (player === active && active.isPlaying && originalGain < 1f) {
+                        withContext(NonCancellable) {
+                            val started = SystemClock.elapsedRealtime()
+                            while (SystemClock.elapsedRealtime() - started < 150L &&
+                                player === active && active.isPlaying
+                            ) {
+                                val fraction = ((SystemClock.elapsedRealtime() - started) / 150f)
+                                    .coerceIn(0f, 1f)
+                                active.volume = originalGain + (1f - originalGain) * fraction
+                                delay(12)
+                            }
                         }
                     }
+                    active.volume = 1f
+                    standby.volume = 0f
+                    standby.stop()
+                    standby.clearMediaItems()
+                    standby.playWhenReady = false
+                    standby.volume = 1f
                 }
-                active.volume = 1f
-                standby.volume = 0f
-                standby.stop()
-                standby.clearMediaItems()
-                standby.playWhenReady = false
-                standby.volume = 1f
+            } finally {
+                qualityUpgradeFadeActive = false
             }
         }
     }
