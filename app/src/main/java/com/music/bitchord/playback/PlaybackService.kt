@@ -1198,45 +1198,6 @@ class PlaybackService : MediaLibraryService() {
             applyOutputRoute()
         }
 
-        /**
-         * The seam, measured rather than described. This fires when the
-         * audio track starts putting samples out again after the sink was
-         * flushed, which for a quality swap is the exact instant the music
-         * comes back — and the gap between it and the swap is the only
-         * number that says whether any of the work above paid off. Every
-         * other timing here brackets a fetch, and a fetch being fast has
-         * repeatedly said nothing about whether the listener heard a hole.
-         */
-        override fun onAudioPositionAdvancing(
-            eventTime: AnalyticsListener.EventTime,
-            playoutStartSystemTimeMs: Long,
-        ) {
-            val cutAt = swapCutAt ?: return
-            swapCutAt = null
-            TrackLog.d(
-                "BitChord",
-                "swap seam: ${SystemClock.elapsedRealtime() - cutAt}ms of silence",
-                about = eventTime.mediaId(),
-            )
-        }
-
-        /**
-         * The three legs the seam breaks into, logged separately because
-         * they have entirely different fixes: getting the new source
-         * loaded and past the load control's gate, standing a decoder up,
-         * and opening an audio track. Only the first is ours to shorten.
-         */
-        override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
-            val cutAt = swapCutAt ?: return
-            if (state == Player.STATE_READY) {
-                TrackLog.d(
-                    "BitChord",
-                    "swap leg: ready ${SystemClock.elapsedRealtime() - cutAt}ms after the cut",
-                    about = eventTime.mediaId(),
-                )
-            }
-        }
-
         override fun onAudioDecoderInitialized(
             eventTime: AnalyticsListener.EventTime,
             decoderName: String,
@@ -1247,13 +1208,6 @@ class PlaybackService : MediaLibraryService() {
             TrackLog.i(
                 "AUDIO_OUT",
                 "decoder=$decoderName initialized in ${initializationDurationMs}ms",
-                about = eventTime.mediaId(),
-            )
-            val cutAt = swapCutAt ?: return
-            TrackLog.d(
-                "BitChord",
-                "swap leg: $decoderName stood up in ${initializationDurationMs}ms, " +
-                    "${SystemClock.elapsedRealtime() - cutAt}ms after the cut",
                 about = eventTime.mediaId(),
             )
         }
@@ -4530,12 +4484,6 @@ class PlaybackService : MediaLibraryService() {
     private var swappingMediaId: String? = null
 
     /**
-     * When the audio was last cut for a quality swap, so the analytics listener
-     * can say how long it stayed cut. Null except across a swap.
-     */
-    private var swapCutAt: Long? = null
-
-    /**
      * The track [ExoPlayer.getAudioFormat] is currently describing.
      *
      * `audioFormat` is a property of the *renderer*, not of the queue item, and
@@ -4890,7 +4838,6 @@ class PlaybackService : MediaLibraryService() {
         outgoing.clearMediaItems()
         outgoing.volume = 1f
         swappingMediaId = null
-        swapCutAt = null
         savePlaybackState(incoming)
         refreshCustomLayouts()
         publishWidgetState()
@@ -5345,7 +5292,6 @@ class PlaybackService : MediaLibraryService() {
                 ) return@withContext
 
                 swappingMediaId = mediaId
-                swapCutAt = SystemClock.elapsedRealtime()
                 player.replaceMediaItem(originalIndex, upgradedItem)
                 player.seekTo(originalIndex, latest.position)
                 player.prepare()
