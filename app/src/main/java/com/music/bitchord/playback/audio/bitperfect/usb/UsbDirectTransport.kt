@@ -126,6 +126,7 @@ internal class UsbDirectTransport private constructor(
                 for (byte in 0 until sampleBytes) scaled.put((value shr (byte * 8)).toByte())
             }
             scaled.flip()
+            scaled
         } else buffer
         val count = call { UsbDirectNative.write(handle, input, input.position(), minOf(input.remaining(), bytes)) }
         buffer.position(buffer.position() + count)
