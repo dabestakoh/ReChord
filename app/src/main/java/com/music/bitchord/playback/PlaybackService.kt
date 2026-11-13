@@ -5237,10 +5237,15 @@ class PlaybackService : MediaLibraryService() {
         // reaches its bytes through the same resolving data source the real one
         // does, and that is where a marked URI is turned back into a stream.
         QualityUpgrade.force(mediaId, stream)
+        val auditionStartedAt = SystemClock.elapsedRealtime()
         val warmedThrough = auditionUpgrade(mediaId, at, upgradedUri, stream, alreadyFilled)
             // The audition takes seconds, long enough for the ceiling to drop
             // under it; treated as a failed one, so nothing is cut.
             ?.takeIf { SourceRegistry.permitsForPlayback(stream.sourceConfigId) }
+        val auditionElapsedMs = SystemClock.elapsedRealtime() - auditionStartedAt
+        withContext(Dispatchers.Main) {
+            traceUpgrade("upgrade audition mediaId=$mediaId elapsedMs=$auditionElapsedMs ready=${warmedThrough != null}")
+        }
         if (warmedThrough == null) {
             // Nothing was cut, so there is nothing to put back: the listener
             // keeps the stream they already had and never learns this
@@ -5391,6 +5396,7 @@ class PlaybackService : MediaLibraryService() {
                 !ListenTogether.state.value.inParty && !castPlayback.active &&
                 !CastController.state.value.casting
             traceUpgrade("upgrade swap requested seamless=${seamlessRequested}", player, spare)
+            val handoffStartedAt = SystemClock.elapsedRealtime()
             val seamlessApplied = if (seamlessRequested) {
                 trySeamlessQualityUpgrade(mediaId, upgradedItem, stream.format.isLossless == true)
             } else false
@@ -5420,7 +5426,7 @@ class PlaybackService : MediaLibraryService() {
                 player.seekTo(originalIndex, latest.position)
                 player.prepare()
             }
-            traceUpgrade("upgrade swap finished seamlessApplied=${seamlessApplied}", player, spare)
+            traceUpgrade("upgrade swap finished seamlessApplied=$seamlessApplied elapsedMs=${SystemClock.elapsedRealtime() - handoffStartedAt}", player, spare)
             val upgradedSourceName = stream.sourceConfigId?.let { SourceRegistry.config(it)?.displayName }
                 ?: "Upgrade"
             NerdStats.onSourceStream(mediaId, stream.format, upgradedSourceName)
