@@ -1553,7 +1553,6 @@ object AudioCache {
                     }
                 } else null
                 val warmed = if (substitutable && target != null && !pinnedToYouTube && !youTubeFilled) {
-                    val startedAt = SystemClock.elapsedRealtime()
                     val candidate = try {
                         SourceResolver.prefetchSubstitute(target)
                     } catch (cancelled: CancellationException) {
@@ -1563,11 +1562,6 @@ object AudioCache {
                         null
                     }
                     ensureActive()
-                    TrackLog.d(
-                        TAG,
-                        "queue source lookup took ${SystemClock.elapsedRealtime() - startedAt}ms",
-                        about = next,
-                    )
                     candidate?.takeIf {
                         pendingQueue == mediaIds && !OriginalVersion.isPinned(next) &&
                             StreamChoice.of(next) == null &&

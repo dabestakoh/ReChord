@@ -8,7 +8,6 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Toast
@@ -1197,15 +1196,6 @@ private fun BitChordApp(
     var convertedFromVideo by remember { mutableStateOf<Song?>(null) }
     var convertedAudioId by remember { mutableStateOf<String?>(null) }
     var switchingAudioVersion by remember { mutableStateOf(false) }
-    // Event-based UI trace: reveals whether the brief spinner is a controller
-    // loading transition or a manual audio-version operation. No frame spam.
-    LaunchedEffect(player.isLoading, player.isPlaying, switchingAudioVersion) {
-        if (AppSettings.seamlessQualityUpgrade.value) {
-            Log.d("ReChordUpgrade", "UI t=${android.os.SystemClock.elapsedRealtime()} " +
-                "loading=${player.isLoading} playing=${player.isPlaying} " +
-                "versionSwitch=${switchingAudioVersion} spinner=${playPauseBusy || switchingAudioVersion}")
-        }
-    }
     // Revert is an explicit choice for this occurrence of the track. Without
     // remembering it, the automatic preference would see the restored video
     // as a fresh item and immediately convert it again.
