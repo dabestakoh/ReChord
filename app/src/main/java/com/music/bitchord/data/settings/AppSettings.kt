@@ -125,7 +125,7 @@ enum class DownloadQuality(
 }
 
 enum class ThemeMode(val label: String) {
-    SYSTEM("System"), LIGHT("Light"), DARK("Dark")
+    SYSTEM("System"), LIGHT("Light"), DARK("Dark"), AMOLED("AMOLED")
 }
 
 /**
@@ -304,6 +304,7 @@ object AppSettings {
      * full scale, with the DAC's own knob (if any) the only volume. Off by
      * default; enable explicitly only when the listener accepts the risk.
      */
+    val usbSoftwareVolume = MutableStateFlow(false)
     val usbAllowFixedVolume = MutableStateFlow(false)
 
     /**
@@ -357,6 +358,9 @@ object AppSettings {
      * Automix analysis is untouched: it keeps reading its own YouTube Opus copy.
      */
     val directSourceStream = MutableStateFlow(false)
+
+    /** Opt-in seamless mid-track rendition handoff; disabled for existing installs. */
+    val seamlessQualityUpgrade = MutableStateFlow(false)
 
     /**
      * Widens stereo output via [com.music.bitchord.playback.SpatialAudioProcessor],
@@ -986,12 +990,18 @@ object AppSettings {
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
         }.getOrDefault(defaultBitPerfectMode()))
+        usbSoftwareVolume.value = prefs.getBoolean("usb_software_volume", false)
         usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
         loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
         directSourceStream.value = prefs.getBoolean(KEY_DIRECT_SOURCE_STREAM, false)
+        val savedSeamlessUpgrade = prefs.getBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
+        seamlessQualityUpgrade.value = savedSeamlessUpgrade && !directSourceStream.value
+        if (savedSeamlessUpgrade && directSourceStream.value) {
+            prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false).apply()
+        }
         spatialAudio.value = prefs.getBoolean(KEY_SPATIAL_AUDIO, false)
         equalizerEnabled.value = prefs.getBoolean(KEY_EQ_ENABLED, false)
         equalizerMode.value = runCatching {
@@ -1309,8 +1319,23 @@ object AppSettings {
     }
 
     fun setDirectSourceStream(value: Boolean) {
+        val edit = prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value)
+        if (value) {
+            seamlessQualityUpgrade.value = false
+            edit.putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, false)
+        }
         directSourceStream.value = value
-        prefs.edit().putBoolean(KEY_DIRECT_SOURCE_STREAM, value).apply()
+        edit.apply()
+    }
+
+    fun setSeamlessQualityUpgrade(value: Boolean) {
+        val edit = prefs.edit().putBoolean(KEY_SEAMLESS_QUALITY_UPGRADE, value)
+        if (value) {
+            directSourceStream.value = false
+            edit.putBoolean(KEY_DIRECT_SOURCE_STREAM, false)
+        }
+        seamlessQualityUpgrade.value = value
+        edit.apply()
     }
 
     fun setSpatialAudio(value: Boolean) {
@@ -1804,6 +1829,11 @@ object AppSettings {
         prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
     }
 
+    fun setUsbSoftwareVolume(value: Boolean) {
+        usbSoftwareVolume.value = value
+        prefs.edit().putBoolean("usb_software_volume", value).apply()
+    }
+
     fun setUsbAllowFixedVolume(value: Boolean) {
         usbAllowFixedVolume.value = value
         prefs.edit().putBoolean(KEY_USB_ALLOW_FIXED_VOLUME, value).apply()
@@ -2265,6 +2295,7 @@ object AppSettings {
     private const val KEY_LOUDNESS_OFF_ON_SPEAKER = "loudness_off_on_speaker"
     private const val KEY_DOLBY_ATMOS = "dolby_atmos"
     private const val KEY_DIRECT_SOURCE_STREAM = "direct_source_stream"
+    private const val KEY_SEAMLESS_QUALITY_UPGRADE = "seamless_quality_upgrade"
     private const val KEY_SPATIAL_AUDIO = "spatial_audio"
     private const val KEY_EQ_ENABLED = "equalizer_enabled"
     private const val KEY_EQ_MODE = "equalizer_mode"

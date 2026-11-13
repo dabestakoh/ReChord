@@ -35,6 +35,19 @@ private val DarkColors = darkColorScheme(
     outline = Color(0xFF2C2C2E),
 )
 
+// Pure black on OLED panels while preserving readable outlines and on-surface text.
+private val AmoledColors = DarkColors.copy(
+    surface = Color.Black,
+    surfaceVariant = Color.Black,
+    surfaceContainer = Color.Black,
+    surfaceContainerLow = Color.Black,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerHigh = Color.Black,
+    surfaceContainerHighest = Color.Black,
+    surfaceDim = Color.Black,
+    surfaceBright = Color.Black,
+)
+
 private val LightColors = lightColorScheme(
     primary = Color.Black,
     onPrimary = Color.White,
@@ -142,10 +155,11 @@ private fun Typography.withFamily(family: FontFamily) = Typography(
 fun BitChordTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     font: AppFont = AppFont.DEFAULT,
+    amoled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = if (amoled) AmoledColors else if (darkTheme) DarkColors else LightColors,
         typography = when (font) {
             AppFont.DEFAULT -> BitChordTypography
             AppFont.LEGACY -> LegacyTypography

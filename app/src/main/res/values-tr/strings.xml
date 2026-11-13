@@ -1417,4 +1417,12 @@
     <string name="diwali_title">ReChord mutlu Diwali diler</string>
     <string name="diwali_subtitle">Bu ışık festivali evinizi neşeyle, günlerinizi müzikle doldursun.</string>
     <string name="diwali_cta">Kutlayalım</string>
+    <string name="usb_volume_software_active">Doğrudan USB · Yazılımsal ses düzeyi</string>
+    <string name="usb_volume_software_inexact">Doğrudan USB · Yazılımsal ses düzeyi ses örneklerini değiştirir</string>
+    <string name="usb_volume_fixed">Sabit ses düzeyi</string>
+    <string name="usb_volume_waiting">Doğrudan USB bekleniyor · Bu sırada Android medya ses düzeyi kullanılır</string>
+    <string name="usb_volume_android">Android medya ses düzeyi</string>
+    <string name="usb_software_volume">USB yazılımsal ses düzeyi</string>
+    <string name="usb_software_volume_subtitle">Donanım ses kontrolü kullanılamadığında uygulama ses düzeyini kullan</string>
+    <string name="usb_volume_fixed_permission">Alternatif olarak sabit ses düzeyine izin ver</string>
 </resources>

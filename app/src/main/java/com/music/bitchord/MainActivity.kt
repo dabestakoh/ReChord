@@ -189,6 +189,7 @@ import com.music.bitchord.ui.screens.ListenTogetherScreen
 import com.music.bitchord.ui.screens.PartyServerEditor
 import com.music.bitchord.ui.screens.SignatureApiEditor
 import com.music.bitchord.ui.screens.SettingsScreen
+import com.music.bitchord.ui.screens.BulkSourceImportDialog
 import com.music.bitchord.ui.screens.SourceEditorAlert
 import com.music.bitchord.ui.screens.SourcesScreen
 import com.music.bitchord.data.sources.TrackMatcher
@@ -419,9 +420,9 @@ class MainActivity : AppCompatActivity() {
             val darkTheme = when (theme) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
+                ThemeMode.DARK, ThemeMode.AMOLED -> true
             }
-            BitChordTheme(darkTheme = darkTheme, font = appFont) {
+            BitChordTheme(darkTheme = darkTheme, amoled = theme == ThemeMode.AMOLED, font = appFont) {
                 // The glass surfaces sample this layer, and a layer records only
                 // what is drawn into it — which, for BitChord, is a page that
                 // paints no background of its own. Everywhere a page is not
@@ -650,6 +651,7 @@ private fun BitChordApp(
     // background at all. Hosting it here also puts the scrim over the tab bar
     // and the mini player, like every other alert in the app.
     var editingSource by remember { mutableStateOf<SourceConfig?>(null) }
+            var importingSources by remember { mutableStateOf(false) }
     var choosingSourceQuality by remember { mutableStateOf<SourceConfig?>(null) }
     var confirmJioSaavn by remember { mutableStateOf(false) }
     var confirmBitPerfect by remember { mutableStateOf<BitPerfectMode?>(null) }
@@ -3081,6 +3083,7 @@ private fun BitChordApp(
                             SourcesScreen(
                                 contentPadding = listPadding,
                                 onEditSource = { editingSource = it },
+                                onImportSources = { importingSources = true },
                                 onChooseSourceQuality = { choosingSourceQuality = it },
                                 onEditWebDav = { showWebDavEditor = true },
                                 onEditSmb = { showSmbEditor = true },
@@ -5923,6 +5926,10 @@ private fun BitChordApp(
                 hazeState = hazeState,
                 onDismiss = { editingSignatureApi = false },
             )
+        }
+
+        if (importingSources) {
+            BulkSourceImportDialog(onDismiss = { importingSources = false })
         }
 
         editingSource?.let { config ->

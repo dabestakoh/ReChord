@@ -1500,4 +1500,12 @@
     <string name="diwali_title">ReChord życzy szczęśliwego Diwali</string>
     <string name="diwali_subtitle">Niech to święto świateł napełni Twój dom radością, a dni muzyką.</string>
     <string name="diwali_cta">Świętujmy</string>
+    <string name="usb_volume_software_active">Bezpośrednie USB · Głośność programowa</string>
+    <string name="usb_volume_software_inexact">Bezpośrednie USB · Głośność programowa zmienia próbki dźwięku</string>
+    <string name="usb_volume_fixed">Stała głośność</string>
+    <string name="usb_volume_waiting">Oczekiwanie na bezpośrednie USB · Tymczasowo głośność multimediów Androida</string>
+    <string name="usb_volume_android">Głośność multimediów Androida</string>
+    <string name="usb_software_volume">Programowa głośność USB</string>
+    <string name="usb_software_volume_subtitle">Użyj głośności aplikacji, gdy regulacja sprzętowa jest niedostępna</string>
+    <string name="usb_volume_fixed_permission">Zezwól na stałą głośność w trybie awaryjnym</string>
 </resources>

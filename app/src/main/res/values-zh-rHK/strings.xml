@@ -1432,4 +1432,12 @@
     <string name="download_addon_not_allowed">%1$s 不允許下載，因此你的歌曲將從其他來源儲存。</string>
     <string name="download_addon_needs_lossless_output">%1$s 僅在連接有線、USB 或 LDAC 等級耳機時提供音樂。在連接此類耳機前，下載會略過它，因此你的歌曲將從其他來源儲存。</string>
     <string name="source_downloads_on">允許下載</string>
+    <string name="usb_volume_software_active">直連 USB · 軟體音量</string>
+    <string name="usb_volume_software_inexact">直連 USB · 軟體音量會改變音訊取樣值</string>
+    <string name="usb_volume_fixed">固定音量</string>
+    <string name="usb_volume_waiting">等待直連 USB · 備援輸出使用 Android 媒體音量</string>
+    <string name="usb_volume_android">Android 媒體音量</string>
+    <string name="usb_software_volume">USB 軟體音量</string>
+    <string name="usb_software_volume_subtitle">硬體音量無法使用時，改用應用程式音量</string>
+    <string name="usb_volume_fixed_permission">允許改用固定音量</string>
 </resources>

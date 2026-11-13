@@ -1438,4 +1438,12 @@
     <string name="diwali_title">ReChordからディワリのお祝いを申し上げます</string>
     <string name="diwali_subtitle">この光の祭典が、ご家庭に喜びを、毎日に音楽をもたらしますように。</string>
     <string name="diwali_cta">お祝いしましょう</string>
+    <string name="usb_volume_software_active">ダイレクトUSB · ソフトウェア音量</string>
+    <string name="usb_volume_software_inexact">ダイレクトUSB · ソフトウェア音量は音声サンプルを変更します</string>
+    <string name="usb_volume_fixed">固定音量</string>
+    <string name="usb_volume_waiting">ダイレクトUSBを待機中 · 代替出力ではAndroidのメディア音量を使用</string>
+    <string name="usb_volume_android">Androidのメディア音量</string>
+    <string name="usb_software_volume">USBソフトウェア音量</string>
+    <string name="usb_software_volume_subtitle">ハードウェア音量を使用できない場合はアプリで音量を調整</string>
+    <string name="usb_volume_fixed_permission">代替出力として固定音量を許可</string>
 </resources>

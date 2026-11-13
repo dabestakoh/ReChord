@@ -234,6 +234,7 @@ fun SettingsScreen(
     val skipSilence by AppSettings.skipSilence.collectAsStateWithLifecycle()
     val dolbyAtmos by AppSettings.dolbyAtmos.collectAsStateWithLifecycle()
     val directSourceStream by AppSettings.directSourceStream.collectAsStateWithLifecycle()
+    val seamlessQualityUpgrade by AppSettings.seamlessQualityUpgrade.collectAsStateWithLifecycle()
     // A property of the hardware, so it is read once rather than remembered
     // against a key that can never change — see [DeviceCodecs.playsDolbyAtmos],
     // which caches the codec-list walk for the life of the process.
@@ -267,6 +268,8 @@ fun SettingsScreen(
     val bitPerfectMode by AppSettings.bitPerfectMode.collectAsStateWithLifecycle()
     val bitPerfectStatus by BitPerfectOutput.status.collectAsStateWithLifecycle()
     val bitPerfectReady by BitPerfectOutput.ready.collectAsStateWithLifecycle()
+    val softwareVolumeEnabled by AppSettings.usbSoftwareVolume.collectAsStateWithLifecycle()
+    val softwareVolume by com.music.bitchord.playback.audio.bitperfect.DacVolume.softwareLevel.collectAsStateWithLifecycle()
     val dacVolume by BitPerfectOutput.hardwareVolume.collectAsStateWithLifecycle()
     val fixedVolumeDevice by BitPerfectOutput.fixedVolumeDevice.collectAsStateWithLifecycle()
     val convertForLimitedDac by AppSettings.convertForLimitedDac.collectAsStateWithLifecycle()
@@ -531,6 +534,14 @@ fun SettingsScreen(
                         enabled = !party.inParty,
                     )
                 }
+                row("Seamless Quality Upgrade", "quality", "upgrade", "crossfade", "gapless", divided = false) {
+                    SettingsSubRow(
+                        title = "Seamless Quality Upgrade",
+                        checked = seamlessQualityUpgrade,
+                        onCheckedChange = AppSettings::setSeamlessQualityUpgrade,
+                        subtitle = "Keep music playing while a better addon stream is prepared. Exclusive DAC output stays bit-perfect.",
+                    )
+                }
                 val onWifiTitle = stringResource(R.string.on_wifi)
                 row(onWifiTitle, "wi-fi", "streaming quality") {
                     SettingsRow(
@@ -695,7 +706,8 @@ fun SettingsScreen(
                     subtitleContent = {
                         Column {
                             Text(
-                                text = bitPerfectSubtitle(bitPerfectMode, bitPerfectStatus),
+                                text = if (softwareVolume != null) stringResource(R.string.usb_volume_software_inexact)
+                                else bitPerfectSubtitle(bitPerfectMode, bitPerfectStatus),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -711,21 +723,54 @@ fun SettingsScreen(
                     onClick = { onOpenChoice(SettingsChoiceKind.BIT_PERFECT) },
                 )
             }
-            // The DAC's own attenuator: the only volume direct USB has, since
-            // nothing upstream may scale a sample. It and the row after it
-            // belong to Bit-perfect output, so neither is divided from it.
-            dacVolume?.let { volume ->
-                val dacVolumeTitle = stringResource(R.string.dac_volume)
-                row(dacVolumeTitle, "volume", "usb", "dac", divided = false) {
-                    SliderRow(
-                        icon = SfIcons.VolumeUp,
-                        title = dacVolumeTitle,
-                        subtitle = stringResource(R.string.dac_volume_subtitle),
-                        value = "%.1f dB".format(volume.currentDb),
-                        sliderValue = volume.currentDb.toFloat(),
-                        onSliderValue = { BitPerfectOutput.setHardwareVolume(it.toDouble()) },
-                        valueRange = volume.minDb.toFloat()..volume.maxDb.toFloat(),
-                        steps = 0,
+            if (fixedVolumeDevice != null || outputStatus.isUsb || dacVolume != null) {
+                val volume = dacVolume
+                val level = softwareVolume
+                val title = stringResource(R.string.dac_volume)
+                row(title, "volume", "usb", "dac", divided = false) {
+                    when {
+                        volume != null -> SliderRow(
+                            icon = SfIcons.VolumeUp,
+                            title = title,
+                            subtitle = stringResource(R.string.dac_volume_subtitle),
+                            value = "%.1f dB".format(volume.currentDb),
+                            sliderValue = volume.currentDb.toFloat(),
+                            onSliderValue = { BitPerfectOutput.setHardwareVolume(it.toDouble()) },
+                            valueRange = volume.minDb.toFloat()..volume.maxDb.toFloat(),
+                            steps = 0,
+                        )
+                        level != null -> SliderRow(
+                            icon = SfIcons.VolumeUp,
+                            title = title,
+                            subtitle = stringResource(R.string.usb_volume_software_active),
+                            value = "${(level * 100).toInt()}%",
+                            sliderValue = level,
+                            onSliderValue = { com.music.bitchord.playback.audio.bitperfect.DacVolume.set(it) },
+                            valueRange = 0f..1f,
+                            steps = 0,
+                        )
+                        else -> SettingsRow(
+                            icon = SfIcons.VolumeUp,
+                            title = title,
+                            subtitle = stringResource(when {
+                                bitPerfectStatus.active && bitPerfectMode == BitPerfectMode.USB_DIRECT ->
+                                    R.string.usb_volume_fixed
+                                bitPerfectMode == BitPerfectMode.USB_DIRECT -> R.string.usb_volume_waiting
+                                bitPerfectStatus.active -> R.string.usb_volume_fixed
+                                else -> R.string.usb_volume_android
+                            }),
+                        )
+                    }
+                }
+            }
+            if (bitPerfectMode == BitPerfectMode.USB_DIRECT && fixedVolumeDevice != null) {
+                val title = stringResource(R.string.usb_software_volume)
+                row(title, "volume", "usb", "dac", divided = false) {
+                    SettingsSubRow(
+                        title = title,
+                        subtitle = stringResource(R.string.usb_software_volume_subtitle),
+                        checked = softwareVolumeEnabled,
+                        onCheckedChange = AppSettings::setUsbSoftwareVolume,
                     )
                 }
             }
@@ -733,7 +778,7 @@ fun SettingsScreen(
                 // This permission is remembered for the connected DAC only.
                 // A new DAC cannot inherit a global full-scale playback opt-in.
                 val device = fixedVolumeDevice!!
-                val fixedVolumeTitle = stringResource(R.string.usb_allow_fixed_volume)
+                val fixedVolumeTitle = stringResource(R.string.usb_volume_fixed_permission)
                 row(fixedVolumeTitle, "volume", "usb", "dac", divided = false) {
                     SettingsSubRow(
                         title = fixedVolumeTitle,
@@ -1997,11 +2042,14 @@ private fun DownloadQuality.localizedLabel(): String = stringResource(
 )
 
 @Composable
-private fun ThemeMode.localizedLabel(): String = stringResource(
+private fun ThemeMode.localizedLabel(): String = if (this == ThemeMode.AMOLED) {
+    "AMOLED"
+} else stringResource(
     when (this) {
         ThemeMode.SYSTEM -> R.string.system
         ThemeMode.LIGHT -> R.string.light
         ThemeMode.DARK -> R.string.dark
+        ThemeMode.AMOLED -> error("Handled above")
     },
 )
 

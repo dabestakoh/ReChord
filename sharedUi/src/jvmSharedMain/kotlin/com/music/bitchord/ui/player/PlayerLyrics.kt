@@ -91,6 +91,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -2806,6 +2807,7 @@ private fun CurrentLyricLine(
     // Gurmukhi line is taller than a Latin one and the credits and artwork
     // above this strip shift up and down as lines change language.
     val stripStyle = MaterialTheme.typography.titleMedium.copy(
+        shadow = Shadow(Color.Black.copy(alpha = 0.40f), Offset(0f, 1f), 5f),
         lineHeight = STRIP_LINE_HEIGHT,
         lineHeightStyle = LineHeightStyle(
             alignment = LineHeightStyle.Alignment.Center,
@@ -3015,7 +3017,9 @@ private fun LyricsUnavailableLine(trackKey: Any, modifier: Modifier = Modifier) 
     )
     Text(
         text = stringResource(Res.string.lyrics_not_available),
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.titleMedium.copy(
+            shadow = Shadow(Color.Black.copy(alpha = 0.40f), Offset(0f, 1f), 5f),
+        ),
         color = LocalPlayerAccent.current,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -3030,7 +3034,9 @@ private fun LyricsUnavailableLine(trackKey: Any, modifier: Modifier = Modifier) 
 private fun LyricsLoadingLine(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.titleMedium.copy(
+            shadow = Shadow(Color.Black.copy(alpha = 0.40f), Offset(0f, 1f), 5f),
+        ),
         color = LocalPlayerAccent.current.copy(alpha = 0.55f),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

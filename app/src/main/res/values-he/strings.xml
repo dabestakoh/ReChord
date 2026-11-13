@@ -1465,4 +1465,12 @@
     <string name="diwali_title">ReChord מאחלת חג דיוואלי שמח</string>
     <string name="diwali_subtitle">מי ייתן וחג האורות ימלא את ביתכם בשמחה ואת ימיכם במוזיקה.</string>
     <string name="diwali_cta">בואו נחגוג</string>
+    <string name="usb_volume_software_active">USB ישיר · עוצמת קול בתוכנה</string>
+    <string name="usb_volume_software_inexact">USB ישיר · עוצמת קול בתוכנה משנה את דגימות השמע</string>
+    <string name="usb_volume_fixed">עוצמת קול קבועה</string>
+    <string name="usb_volume_waiting">ממתין ל־USB ישיר · בינתיים עוצמת המדיה של Android</string>
+    <string name="usb_volume_android">עוצמת המדיה של Android</string>
+    <string name="usb_software_volume">עוצמת USB בתוכנה</string>
+    <string name="usb_software_volume_subtitle">שימוש בעוצמת האפליקציה כשבקרת החומרה אינה זמינה</string>
+    <string name="usb_volume_fixed_permission">אפשר עוצמת קול קבועה כגיבוי</string>
 </resources>

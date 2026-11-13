@@ -1460,4 +1460,12 @@
     <string name="diwali_title">ReChord wünscht ein frohes Diwali</string>
     <string name="diwali_subtitle">Möge dieses Lichterfest dein Zuhause mit Freude und deine Tage mit Musik erfüllen.</string>
     <string name="diwali_cta">Feiern wir</string>
+    <string name="usb_volume_software_active">Direktes USB · Softwarelautstärke</string>
+    <string name="usb_volume_software_inexact">Direktes USB · Softwarelautstärke verändert die Audiosamples</string>
+    <string name="usb_volume_fixed">Feste Lautstärke</string>
+    <string name="usb_volume_waiting">Warten auf direktes USB · vorübergehend Android-Medienlautstärke</string>
+    <string name="usb_volume_android">Android-Medienlautstärke</string>
+    <string name="usb_software_volume">USB-Softwarelautstärke</string>
+    <string name="usb_software_volume_subtitle">App-Lautstärke verwenden, wenn die Hardwarelautstärke nicht verfügbar ist</string>
+    <string name="usb_volume_fixed_permission">Ausgabe mit fester Lautstärke erlauben</string>
 </resources>
