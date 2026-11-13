@@ -268,6 +268,8 @@ fun SettingsScreen(
     val bitPerfectMode by AppSettings.bitPerfectMode.collectAsStateWithLifecycle()
     val bitPerfectStatus by BitPerfectOutput.status.collectAsStateWithLifecycle()
     val bitPerfectReady by BitPerfectOutput.ready.collectAsStateWithLifecycle()
+    val softwareVolumeEnabled by AppSettings.usbSoftwareVolume.collectAsStateWithLifecycle()
+    val softwareVolume by com.music.bitchord.playback.audio.bitperfect.DacVolume.softwareLevel.collectAsStateWithLifecycle()
     val dacVolume by BitPerfectOutput.hardwareVolume.collectAsStateWithLifecycle()
     val fixedVolumeDevice by BitPerfectOutput.fixedVolumeDevice.collectAsStateWithLifecycle()
     val convertForLimitedDac by AppSettings.convertForLimitedDac.collectAsStateWithLifecycle()
@@ -735,6 +737,29 @@ fun SettingsScreen(
                         onSliderValue = { BitPerfectOutput.setHardwareVolume(it.toDouble()) },
                         valueRange = volume.minDb.toFloat()..volume.maxDb.toFloat(),
                         steps = 0,
+                    )
+                }
+            }
+            if (fixedVolumeDevice != null && dacVolume == null) {
+                val level = softwareVolume
+                row("DAC volume", "volume", "usb", "dac", divided = false) {
+                    if (level != null) {
+                        SliderRow(
+                            icon = SfIcons.VolumeUp,
+                            title = "DAC volume",
+                            subtitle = "Direct USB · Software volume",
+                            value = "${(level * 100).toInt()}%",
+                            sliderValue = level,
+                            onSliderValue = { com.music.bitchord.playback.audio.bitperfect.DacVolume.set(it) },
+                            valueRange = 0f..1f,
+                            steps = 0,
+                        )
+                    }
+                    SettingsSubRow(
+                        title = "USB software volume",
+                        subtitle = "Use app volume when hardware volume is unavailable",
+                        checked = softwareVolumeEnabled,
+                        onCheckedChange = AppSettings::setUsbSoftwareVolume,
                     )
                 }
             }

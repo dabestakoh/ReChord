@@ -304,6 +304,7 @@ object AppSettings {
      * full scale, with the DAC's own knob (if any) the only volume. Off by
      * default; enable explicitly only when the listener accepts the risk.
      */
+    val usbSoftwareVolume = MutableStateFlow(false)
     val usbAllowFixedVolume = MutableStateFlow(false)
 
     /**
@@ -989,6 +990,7 @@ object AppSettings {
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
         }.getOrDefault(defaultBitPerfectMode()))
+        usbSoftwareVolume.value = prefs.getBoolean("usb_software_volume", false)
         usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
         convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
         loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
@@ -1825,6 +1827,11 @@ object AppSettings {
         val compatible = compatibleBitPerfectMode(value)
         bitPerfectMode.value = compatible
         prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
+    }
+
+    fun setUsbSoftwareVolume(value: Boolean) {
+        usbSoftwareVolume.value = value
+        prefs.edit().putBoolean("usb_software_volume", value).apply()
     }
 
     fun setUsbAllowFixedVolume(value: Boolean) {

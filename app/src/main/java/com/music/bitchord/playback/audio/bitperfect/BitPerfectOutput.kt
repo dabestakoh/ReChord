@@ -263,13 +263,19 @@ internal object BitPerfectOutput {
     init {
         // A detached DAC stops its stream at once rather than at the next write.
         UsbDirectDevices.onDetached = { deviceId ->
-            synchronized(this) { (active as? UsbDirectTransport)?.takeIf { it.usbDeviceId == deviceId } }
-                ?.markDetached()
+            synchronized(this) {
+                (active as? UsbDirectTransport)?.takeIf { it.usbDeviceId == deviceId }?.let {
+                    it.markDetached()
+                    publishVolume(null)
+                    DacVolume.onSoftwareLevel(null)
+                }
+                softwareLevels.remove(deviceId)
+            }
         }
     }
 
     private var owner: Any? = null
-    private var active: BitPerfectTransport? = null
+    @Volatile private var active: BitPerfectTransport? = null
 
     @Volatile private var directReleasedAtMs = 0L
 
@@ -372,6 +378,8 @@ internal object BitPerfectOutput {
                         convert = convert,
                         allowFixedVolume = approved,
                         rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
+                        softwareVolume = AppSettings.usbSoftwareVolume.value,
+                        softwareLevel = softwareLevels[device.deviceId] ?: 0.5f,
                     )
                 } catch (error: BitPerfectTransportException) {
                     if (error.message == "volume_unavailable" && !approved) {
@@ -384,7 +392,9 @@ internal object BitPerfectOutput {
         }
         owner = requester
         active = transport
-        publishVolume((transport as? UsbDirectTransport)?.volume)
+        val direct = transport as? UsbDirectTransport
+        publishVolume(direct?.volume)
+        DacVolume.onSoftwareLevel(direct?.takeIf { it.softwareVolume }?.softwareLevel)
         return transport
     }
 
@@ -392,6 +402,14 @@ internal object BitPerfectOutput {
      * A newer request still queued keeps [DacVolume]'s level where it was
      * dragged to; only the last one's read-back is allowed to move it.
      */
+    private val softwareLevels = java.util.concurrent.ConcurrentHashMap<Int, Float>()
+
+    fun setSoftwareVolume(level: Float) {
+        val direct = (active as? UsbDirectTransport)?.takeIf { it.softwareVolume } ?: return
+        direct.softwareLevel = level
+        softwareLevels[direct.usbDeviceId] = level
+    }
+
     private fun publishVolume(snapshot: UsbVolume.Snapshot?) {
         _hardwareVolume.value = snapshot
         DacVolume.onSnapshot(snapshot)
@@ -404,6 +422,7 @@ internal object BitPerfectOutput {
         owner = null
         active = null
         publishVolume(null)
+        DacVolume.onSoftwareLevel(null)
     }
 
     /**

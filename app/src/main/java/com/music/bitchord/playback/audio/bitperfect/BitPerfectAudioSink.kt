@@ -606,7 +606,8 @@ internal class BitPerfectAudioSink(
                 outputBits = if (converter != null) active.validBits else active.outputBits,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,
-                exact = exact && converter == null,
+                exact = exact && converter == null &&
+                    (active as? com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectTransport)?.softwareVolume != true,
                 dacLimited = converter != null,
             ),
         )

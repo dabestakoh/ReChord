@@ -7720,6 +7720,13 @@ class PlaybackService : MediaLibraryService() {
             AppSettings.bitPerfectMode.drop(1).collect { requestOutputReconfiguration(rebuild = true) }
         }
         scope.launch {
+            AppSettings.usbSoftwareVolume.drop(1).collect {
+                if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT) {
+                    requestOutputReconfiguration(rebuild = true)
+                }
+            }
+        }
+        scope.launch {
             AppSettings.usbAllowFixedVolume.drop(1).collect {
                 if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT) {
                     requestOutputReconfiguration(rebuild = true)
