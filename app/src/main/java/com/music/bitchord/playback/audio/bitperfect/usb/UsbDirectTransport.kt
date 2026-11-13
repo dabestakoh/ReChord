@@ -101,6 +101,7 @@ internal class UsbDirectTransport private constructor(
     }
 
     fun markDetached() {
+        android.util.Log.i("ReChordUsb", "transport detach")
         failure = "USB disconnected"
     }
 
@@ -138,6 +139,7 @@ internal class UsbDirectTransport private constructor(
     override fun pause() = call { UsbDirectNative.setPlaying(handle, false) }
 
     override fun flush() {
+        android.util.Log.i("ReChordUsb", "transport flush")
         call { UsbDirectNative.flush(handle) }
         lastFrames = 0
     }
@@ -152,6 +154,7 @@ internal class UsbDirectTransport private constructor(
     }
 
     override fun release() {
+        android.util.Log.i("ReChordUsb", "transport release")
         // Leave the DAC at the volume it had before this stream lowered it;
         // the next owner, Android's driver or another app, expects that level.
         // Pointless once it is unplugged, and a closed handle cannot be asked.
@@ -214,6 +217,7 @@ internal class UsbDirectTransport private constructor(
                 if (volume != null && rememberedDb != null) {
                     runCatching { volume.set(control, minOf(rememberedDb, volume.snapshot.restoreLimitDb)) }
                 }
+                android.util.Log.i("ReChordUsb", "transport open rate=$rate channels=$channels bits=$sourceBits")
                 return UsbDirectTransport(
                     connection = connection,
                     handle = handle,

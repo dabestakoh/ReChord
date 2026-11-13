@@ -23,6 +23,7 @@
 // (UsbDescriptors.kt); this side is handed the candidates in preference order
 // and opens the first one the device accepts.
 
+#include <android/log.h>
 #include <jni.h>
 #include <libusb.h>
 #include <sys/resource.h>
@@ -291,8 +292,17 @@ public:
         uint8_t marker = 0x05;
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
+        using Clock = std::chrono::steady_clock;
+        auto lastLoop = Clock::now();
+        auto lastReport = lastLoop;
+        size_t missingFrames = 0;
+        long long maxLoopUs = 0;
         for (;;) {
             events();
+            const auto now = Clock::now();
+            const auto loopUs = std::chrono::duration_cast<std::chrono::microseconds>(now - lastLoop).count();
+            lastLoop = now;
+            if (started && loopUs > maxLoopUs) maxLoopUs = loopUs;
             std::unique_lock<std::mutex> lock(state.mutex);
             if (state.closed) break;
             if (!state.controls.empty()) {
@@ -322,7 +332,11 @@ public:
             // does not hold back the frame count by what was in flight.
             for (auto &slot : slots) {
                 if (slot->pending || !slot->submitted) continue;
-                require(slot->success(), "USB audio transfer failed");
+                if (!slot->success()) {
+                    __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "transfer failed status=%d queuedFrames=%zu",
+                                        static_cast<int>(slot->transfer->status), state.bytes.size() / frame);
+                    require(false, "USB audio transfer failed");
+                }
                 state.frames += slot->musicFrames;
                 slot->musicFrames = 0;
                 slot->submitted = false;
@@ -364,9 +378,20 @@ public:
                 state.bytes.erase(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available));
                 finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                 slot->musicFrames = available / frame;
+                missingFrames += (total - available) / frame;
                 slot->submit(handle, chosen.data.address, lengths, packets);
             }
             state.changed.notify_all();
+            if (now - lastReport >= std::chrono::seconds(1)) {
+                const size_t queuedFrames = state.bytes.size() / frame;
+                lock.unlock();
+                __android_log_print(ANDROID_LOG_INFO, "ReChordUsb",
+                                    "worker rate=%d queuedFrames=%zu paddedFrames=%zu maxLoopUs=%lld",
+                                    chosen.format.sampleRate, queuedFrames, missingFrames, maxLoopUs);
+                lastReport = now;
+                missingFrames = 0;
+                maxLoopUs = 0;
+            }
         }
         drain();
     }
@@ -393,7 +418,8 @@ public:
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
             // Best effort; failure changes scheduling only, never audio data.
-            setpriority(PRIO_PROCESS, 0, -16);
+            const int priorityResult = setpriority(PRIO_PROCESS, 0, -16);
+            __android_log_print(ANDROID_LOG_INFO, "ReChordUsb", "worker priorityRequestResult=%d", priorityResult);
             std::unique_ptr<Session> session;
             try {
                 // Android owns the descriptor and keeps it open until this

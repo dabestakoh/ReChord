@@ -397,6 +397,17 @@ internal fun shouldSkipAfterDislike(
 
 
 class MainActivity : AppCompatActivity() {
+
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.i("ReChordUsb", "activity visible")
+    }
+
+    override fun onStop() {
+        android.util.Log.i("ReChordUsb", "activity hidden")
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
