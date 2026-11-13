@@ -5416,17 +5416,6 @@ class PlaybackService : MediaLibraryService() {
                     QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
                 ) return@withContext
 
-                // Speaker playback may apply the proved stream even when
-                // the fade fails. Leave the other routes on seamless-only policy.
-                val playingOnSpeaker = !BitPerfectOutput.ready.value &&
-                    !BitPerfectOutput.status.value.active &&
-                    resolveActiveRouteKind(resolveActiveOutputDevice()) == AudioRouting.Kind.PHONE
-                if (AppSettings.seamlessQualityUpgrade.value && player.playWhenReady && !playingOnSpeaker) {
-                    QualityUpgrade.shelve(mediaId, stream)
-                    traceUpgrade("upgrade deferred: seamless handoff unavailable", player, spare)
-                    return@withContext
-                }
-
                 traceUpgrade("verified upgrade replacing active item seamlessRequested=$seamlessRequested", player, spare)
                 swappingMediaId = mediaId
                 swapCutAt = SystemClock.elapsedRealtime()
