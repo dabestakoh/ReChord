@@ -461,6 +461,7 @@ public:
                 lock.lock();
             }
             state.changed.notify_all();
+            const bool controlsReady = !activeControl && !state.controls.empty();
             if (state.playing && now - lastReport >= std::chrono::seconds(1)) {
                 const size_t queuedFrames = state.bytes.size() / frame;
                 lock.unlock();
