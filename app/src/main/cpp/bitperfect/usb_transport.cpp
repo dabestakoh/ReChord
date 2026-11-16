@@ -29,6 +29,7 @@
 #include <libusb.h>
 #include <sys/resource.h>
 #include <poll.h>
+#include <pthread.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include <cerrno>
@@ -358,6 +359,10 @@ public:
         for (size_t i = 0; descriptors[i]; ++i) {
             pollFds.push_back({descriptors[i]->fd, descriptors[i]->events, 0});
         }
+        // Bound voluntary waits to one audio transfer while streaming.
+        // A timeout still services libusb, even without an outer poll wakeup.
+        const int audioPollMs = static_cast<int>((packets * interval + 999) / 1000);
+        size_t audioPollTimeouts = 0;
         long long maxPollUs = 0;
         long long maxLoopUs = 0, maxEventsUs = 0, maxLockUs = 0;
         long long maxControlUs = 0, maxSubmitUs = 0, maxRefillUs = 0;
@@ -461,6 +466,7 @@ public:
                 lock.lock();
             }
             state.changed.notify_all();
+            const bool streaming = state.playing;
             const bool controlsReady = !activeControl && !state.controls.empty();
             if (state.playing && now - lastReport >= std::chrono::seconds(1)) {
                 const size_t queuedFrames = state.bytes.size() / frame;
@@ -468,15 +474,15 @@ public:
                 const auto cpu = cpuUs();
                 __android_log_print(ANDROID_LOG_INFO, "ReChordUsb",
                     "worker rate=%u queuedFrames=%zu minQueuedFrames=%zu paddedFrames=%zu "
-                    "completed=%zu minPending=%zu/%zu windowUs=%lld cpuUs=%lld "
+                    "completed=%zu minPending=%zu/%zu windowUs=%lld cpuUs=%lld pollTimeouts=%zu "
                     "maxLoopUs=%lld pollUs=%lld dispatchUs=%lld lockUs=%lld controlUs=%lld submitUs=%lld refillUs=%lld",
                     chosen.format.sampleRate, queuedFrames, std::min(minQueuedFrames, queuedFrames), missingFrames,
                     completed, minPending, slots.size(), elapsed(lastReport, now),
                     cpu >= 0 && lastCpu >= 0 ? cpu - lastCpu : -1LL,
-                    maxLoopUs, maxPollUs, maxEventsUs, maxLockUs, maxControlUs, maxSubmitUs, maxRefillUs);
+                    audioPollTimeouts, maxLoopUs, maxPollUs, maxEventsUs, maxLockUs, maxControlUs, maxSubmitUs, maxRefillUs);
                 lastReport = now;
                 lastCpu = cpu;
-                missingFrames = completed = 0;
+                missingFrames = completed = audioPollTimeouts = 0;
                 minPending = slots.size();
                 minQueuedFrames = static_cast<size_t>(-1);
                 maxLoopUs = maxPollUs = maxEventsUs = maxLockUs = maxControlUs = maxSubmitUs = maxRefillUs = 0;
@@ -486,12 +492,15 @@ public:
             timeval next{};
             const int hasDeadline = libusb_get_next_timeout(context, &next);
             check(hasDeadline);
-            const int timeout = hasDeadline == 1
+            int timeout = hasDeadline == 1
                 ? static_cast<int>(next.tv_sec * 1000 + (next.tv_usec + 999) / 1000) : -1;
+            if (streaming && (timeout < 0 || timeout > audioPollMs)) timeout = audioPollMs;
             const auto pollStart = Clock::now();
             const int ready = poll(pollFds.data(), pollFds.size(), timeout);
-            maxPollUs = std::max(maxPollUs, elapsed(pollStart, Clock::now()));
-            require(ready >= 0 || errno == EINTR, "USB poll failed");
+            const int pollError = ready < 0 ? errno : 0;
+            if (streaming) maxPollUs = std::max(maxPollUs, elapsed(pollStart, Clock::now()));
+            require(ready >= 0 || pollError == EINTR, "USB poll failed");
+            if (streaming && ready == 0) ++audioPollTimeouts;
             if (ready > 0 && (pollFds.front().revents & POLLIN)) {
                 uint64_t signal;
                 while (::read(state.wakeFd, &signal, sizeof(signal)) < 0 && errno == EINTR) {}
@@ -521,6 +530,7 @@ public:
         std::promise<std::pair<int, Format>> opened;
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
+            pthread_setname_np(pthread_self(), "ReChordUsbOut");
             const int niceError = setpriority(PRIO_PROCESS, 0, -16) == 0 ? 0 : errno;
             __android_log_print(ANDROID_LOG_INFO, "ReChordUsb", "worker nice request errno=%d", niceError);
             std::unique_ptr<Session> session;
