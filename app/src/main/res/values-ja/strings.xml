@@ -1412,6 +1412,9 @@
     <string name="bit_perfect_sheet_warning">トラックを変更せずに DAC に送ります。イコライザー、音量の正規化、クロスフェード、オートミックス、再生速度、ReChord の音量はバイパスされます。</string>
     <string name="bit_perfect_mode_off_subtitle">音声は Android のミキサーと ReChord のエフェクトを通ります。</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">Android と DAC が PCM 形式に対応している場合、デコード済み音声のビットパーフェクト再生を要求します。</string>
+    <string name="bit_perfect_status_usb_waiting">Android が対応する USB 出力を確認しています</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB 出力前にデコード済み PCM が変更されました</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 が各トラックのサンプルレートとビット深度で DAC を開きます。ミキシングやリサンプリングは行いません。</string>
     <string name="bit_perfect_requires_android_14">Android 14 以降が必要です</string>
     <string name="bit_perfect_mode_dap_exclusive">内蔵 DAC（AAudio 排他）</string>

@@ -1439,6 +1439,9 @@
     <string name="bit_perfect_sheet_warning">שולח את הרצועה ל-DAC ללא שינוי. האקולייזר, נרמול העוצמה, ה-Crossfade, ה-Automix, מהירות ההשמעה ועוצמת הקול של ReChord אינם פעילים.</string>
     <string name="bit_perfect_mode_off_subtitle">השמע עובר דרך המיקסר של Android והאפקטים של ReChord.</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">מבקש השמעה מדויקת ברמת הביט של השמע המפוענח כאשר Android וה-DAC תומכים בתבנית ה-PCM שלו.</string>
+    <string name="bit_perfect_status_usb_waiting">ממתין לאישור של Android עבור יציאת USB נתמכת</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · נתוני ה-PCM המפוענחים שונו לפני היציאה דרך USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 פותח את ה-DAC בקצב ובעומק הסיביות של כל רצועה, ללא מיקס וללא דגימה מחדש.</string>
     <string name="bit_perfect_requires_android_14">נדרש Android 14 ומעלה</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC מובנה (AAudio בלעדי)</string>

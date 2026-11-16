@@ -1411,6 +1411,9 @@
     <string name="bit_perfect_sheet_warning">Mengirim trek ke DAC tanpa perubahan. Equalizer, normalisasi kenyaringan, crossfade, Automix, kecepatan putar, dan volume ReChord dilewati.</string>
     <string name="bit_perfect_mode_off_subtitle">Audio melewati mixer Android dan efek ReChord.</string>
     <string name="bit_perfect_mode_usb_android">DAC USB</string>
+    <string name="bit_perfect_mode_usb_android_request">Meminta pemutaran bit-perfect untuk audio yang didekode jika Android dan DAC mendukung format PCM-nya.</string>
+    <string name="bit_perfect_status_usb_waiting">Menunggu Android mengonfirmasi keluaran USB yang didukung</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · PCM yang didekode diubah sebelum keluaran USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 membuka DAC pada rate dan kedalaman bit masing-masing trek, tanpa mixing atau resampling.</string>
     <string name="bit_perfect_requires_android_14">Memerlukan Android 14 atau lebih baru</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC bawaan (AAudio eksklusif)</string>

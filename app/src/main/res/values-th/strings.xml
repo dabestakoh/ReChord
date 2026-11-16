@@ -1417,6 +1417,9 @@
     <string name="bit_perfect_sheet_warning">ส่งแทร็กไปยัง DAC โดยไม่เปลี่ยนแปลง อีควอไลเซอร์ การปรับระดับความดัง ครอสเฟด Automix ความเร็วในการเล่น และระดับเสียงของ ReChord จะถูกข้าม</string>
     <string name="bit_perfect_mode_off_subtitle">เสียงจะผ่านมิกเซอร์ของ Android และเอฟเฟกต์ของ ReChord</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">ขอให้เล่นเสียงที่ถอดรหัสแบบบิตเพอร์เฟกต์เมื่อ Android และ DAC รองรับรูปแบบ PCM ของเสียงนั้น</string>
+    <string name="bit_perfect_status_usb_waiting">กำลังรอให้ Android ยืนยันเอาต์พุต USB ที่รองรับ</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · PCM ที่ถอดรหัสถูกแก้ไขก่อนส่งออกผ่าน USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 เปิด DAC ที่อัตราและความลึกบิตของแต่ละแทร็ก โดยไม่มิกซ์หรือรีแซมเปิล</string>
     <string name="bit_perfect_requires_android_14">ต้องใช้ Android 14 ขึ้นไป</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC ในตัว (AAudio แบบเอกสิทธิ์)</string>

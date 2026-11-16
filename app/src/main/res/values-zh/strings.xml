@@ -1411,6 +1411,9 @@
     <string name="bit_perfect_sheet_warning">将曲目原样发送到 DAC。均衡器、响度标准化、交叉淡入淡出、Automix、播放速度和 ReChord 的音量都会被绕过。</string>
     <string name="bit_perfect_mode_off_subtitle">音频经过 Android 的混音器和 ReChord 的音效。</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">当 Android 和 DAC 支持解码后的 PCM 格式时，请求位完美播放。</string>
+    <string name="bit_perfect_status_usb_waiting">正在等待 Android 确认支持的 USB 输出</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · 解码后的 PCM 在 USB 输出前已被修改</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 按每首曲目自身的采样率和位深打开 DAC，不进行混音或重采样。</string>
     <string name="bit_perfect_requires_android_14">需要 Android 14 或更高版本</string>
     <string name="bit_perfect_mode_dap_exclusive">内置 DAC（AAudio 独占）</string>

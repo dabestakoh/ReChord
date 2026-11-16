@@ -1435,6 +1435,9 @@
     <string name="bit_perfect_sheet_warning">Envoie le morceau au DAC sans modification. L\'égaliseur, la normalisation du volume, le fondu enchaîné, Automix, la vitesse de lecture et le volume de ReChord sont contournés.</string>
     <string name="bit_perfect_mode_off_subtitle">Le son passe par le mixeur d\'Android et les effets de ReChord.</string>
     <string name="bit_perfect_mode_usb_android">DAC USB</string>
+    <string name="bit_perfect_mode_usb_android_request">Demande une lecture bit-perfect du son décodé si Android et le DAC prennent en charge son format PCM.</string>
+    <string name="bit_perfect_status_usb_waiting">En attente de la confirmation par Android d’une sortie USB compatible</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · Le PCM décodé a été modifié avant la sortie USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 ouvre le DAC à la fréquence et à la profondeur de bits de chaque morceau, sans mixage ni rééchantillonnage.</string>
     <string name="bit_perfect_requires_android_14">Nécessite Android 14 ou version ultérieure</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC intégré (AAudio exclusif)</string>

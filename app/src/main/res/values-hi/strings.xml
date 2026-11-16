@@ -1434,6 +1434,9 @@
     <string name="bit_perfect_sheet_warning">ट्रैक को बिना बदलाव DAC पर भेजता है। इक्वलाइज़र, लाउडनेस नॉर्मलाइज़ेशन, क्रॉसफ़ेड, ऑटोमिक्स, प्लेबैक स्पीड और ReChord का वॉल्यूम बायपास हो जाते हैं।</string>
     <string name="bit_perfect_mode_off_subtitle">ऑडियो Android के मिक्सर और ReChord के इफ़ेक्ट से होकर जाता है।</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">जब Android और DAC डिकोड किए गए ऑडियो के PCM फ़ॉर्मैट का समर्थन करते हैं, तब बिट-परफ़ेक्ट प्लेबैक का अनुरोध करता है।</string>
+    <string name="bit_perfect_status_usb_waiting">Android से समर्थित USB आउटपुट की पुष्टि की प्रतीक्षा है</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB आउटपुट से पहले डिकोड किए गए PCM में बदलाव हुआ</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 हर ट्रैक के अपने रेट और बिट डेप्थ पर DAC खोलता है, बिना मिक्सिंग या रीसैंपलिंग के।</string>
     <string name="bit_perfect_requires_android_14">Android 14 या उसके बाद का वर्शन चाहिए</string>
     <string name="bit_perfect_mode_dap_exclusive">बिल्ट-इन DAC (AAudio एक्सक्लूसिव)</string>

@@ -1466,6 +1466,9 @@
     <string name="bit_perfect_sheet_warning">Отправляет трек на ЦАП без изменений. Эквалайзер, нормализация громкости, кроссфейд, автомикс, скорость воспроизведения и громкость ReChord не применяются.</string>
     <string name="bit_perfect_mode_off_subtitle">Звук проходит через микшер Android и эффекты ReChord.</string>
     <string name="bit_perfect_mode_usb_android">USB-ЦАП</string>
+    <string name="bit_perfect_mode_usb_android_request">Запрашивает побитово точное воспроизведение декодированного звука, если Android и ЦАП поддерживают его формат PCM.</string>
+    <string name="bit_perfect_status_usb_waiting">Ожидание подтверждения поддерживаемого выхода USB от Android</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · Декодированный PCM был изменён перед выводом через USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 открывает ЦАП с частотой и разрядностью каждого трека, без микширования и передискретизации.</string>
     <string name="bit_perfect_requires_android_14">Требуется Android 14 или новее</string>
     <string name="bit_perfect_mode_dap_exclusive">Встроенный ЦАП (AAudio, эксклюзивно)</string>

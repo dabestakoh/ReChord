@@ -1284,6 +1284,9 @@
     <string name="bit_perfect_sheet_warning">트랙을 변경 없이 DAC로 보냅니다. 이퀄라이저, 체감 음량 평준화, 크로스페이드, 자동 믹스, 재생 속도, ReChord 음량은 우회됩니다.</string>
     <string name="bit_perfect_mode_off_subtitle">오디오가 Android 믹서와 ReChord 효과를 거칩니다.</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">Android와 DAC가 PCM 형식을 지원하면 디코딩된 오디오의 비트 퍼펙트 재생을 요청합니다.</string>
+    <string name="bit_perfect_status_usb_waiting">Android가 지원되는 USB 출력을 확인하기를 기다리는 중</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB 출력 전에 디코딩된 PCM이 변경되었습니다</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14가 믹싱이나 리샘플링 없이 각 트랙의 샘플레이트와 비트 심도로 DAC를 엽니다.</string>
     <string name="bit_perfect_requires_android_14">Android 14 이상 필요</string>
     <string name="bit_perfect_mode_dap_exclusive">내장 DAC(AAudio 독점)</string>
