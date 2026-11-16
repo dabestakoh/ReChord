@@ -10,7 +10,7 @@
 
 // A mixer-free USB Audio Class output: Android grants permission and opens
 // the device; one worker thread here owns libusb, the claimed interfaces,
-// four isochronous OUT transfers and the explicit feedback transfer. No
+// six isochronous OUT transfers and the explicit feedback transfer. No
 // resampling or gain happens anywhere below the queue.
 //
 // Every raw libusb pointer belongs to the worker. Transfer buffers keep
@@ -159,36 +159,45 @@ public:
     std::unique_ptr<Slot> feedbackSlot;
 
     Session(int fd, const std::vector<Candidate> &candidates) {
-        // NO_DEVICE_DISCOVERY is required on Android: the USB permission grant
-        // is the file descriptor, not a scan of /dev.
-        libusb_init_option option{};
-        option.option = LIBUSB_OPTION_NO_DEVICE_DISCOVERY;
-        check(libusb_init_context(&context, &option, 1));
-        check(libusb_wrap_sys_device(context, static_cast<intptr_t>(fd), &handle));
-        highSpeed = libusb_get_device_speed(libusb_get_device(handle)) >= LIBUSB_SPEED_HIGH;
-        check(libusb_set_auto_detach_kernel_driver(handle, 1));
-        std::string failure = "No supported USB endpoint";
-        for (size_t i = 0; i < candidates.size(); ++i) {
-            try {
-                configure(candidates[i]);
-            } catch (const std::exception &e) {
-                failure = e.what();
-                release();
-                continue;
+        try {
+            // NO_DEVICE_DISCOVERY is required on Android: the USB permission grant
+            // is the file descriptor, not a scan of /dev.
+            libusb_init_option option{};
+            option.option = LIBUSB_OPTION_NO_DEVICE_DISCOVERY;
+            check(libusb_init_context(&context, &option, 1));
+            check(libusb_wrap_sys_device(context, static_cast<intptr_t>(fd), &handle));
+            highSpeed = libusb_get_device_speed(libusb_get_device(handle)) >= LIBUSB_SPEED_HIGH;
+            check(libusb_set_auto_detach_kernel_driver(handle, 1));
+            std::string failure = "No supported USB endpoint";
+            for (size_t i = 0; i < candidates.size(); ++i) {
+                try {
+                    configure(candidates[i]);
+                } catch (const std::exception &e) {
+                    failure = e.what();
+                    release();
+                    continue;
+                }
+                chosenIndex = static_cast<int>(i);
+                const int packets = packetsPerTransfer();
+                for (int s = 0; s < 6; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
+                if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
+                return;
             }
-            chosenIndex = static_cast<int>(i);
-            const int packets = packetsPerTransfer();
-            for (int s = 0; s < 4; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
-            if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
-            return;
+            throw std::runtime_error(failure);
+        } catch (...) {
+            closeDevice();
+            throw;
         }
-        throw std::runtime_error(failure);
     }
 
     ~Session() {
         drain();
         slots.clear();
         feedbackSlot.reset();
+        closeDevice();
+    }
+
+    void closeDevice() {
         release();
         if (handle) libusb_close(handle);
         if (context) libusb_exit(context);
