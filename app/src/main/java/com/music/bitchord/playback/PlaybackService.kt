@@ -88,6 +88,7 @@ import com.music.bitchord.playback.audio.OutputNegotiator
 import com.music.bitchord.playback.audio.PcmEncoding
 import com.music.bitchord.playback.audio.SourceDescriptor
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectAudioSink
+import com.music.bitchord.playback.audio.bitperfect.BitPerfectDriver
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectOutput
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectRoutingSink
 import com.music.bitchord.playback.audio.bitperfect.DacVolume
@@ -4537,6 +4538,7 @@ class PlaybackService : MediaLibraryService() {
         if (AudioCache.isReplayingCachedFlac(mediaId)) return
         val alreadyPending = QualityUpgrade.isPending(mediaId)
         val shelved = QualityUpgrade.shelvedFor(mediaId)
+        if (shelved != null && keepDirectUsbStream(player)) return
         if (shelved == null && !alreadyPending && !QualityUpgrade.couldStillUpgrade(mediaId, uri)) return
         if (upgradeJob?.isActive == true) {
             // Already hunting for this track. One left over from a track the
@@ -5101,6 +5103,12 @@ class PlaybackService : MediaLibraryService() {
 
     private val seamlessUpgradeFadeMs = 1_000L
 
+    private fun keepDirectUsbStream(player: ExoPlayer): Boolean {
+        val output = BitPerfectOutput.status.value
+        return AppSettings.seamlessQualityUpgrade.value && player.playWhenReady &&
+            output.active && output.driver == BitPerfectDriver.USB_DIRECT.label
+    }
+
     private suspend fun swapIn(mediaId: String, stream: SourceStream) {
         // A search or a shelved proof can outlive the ceiling it was made
         // under — see [onCeilingLowered]. Asked again here, where it decides
@@ -5299,6 +5307,14 @@ class PlaybackService : MediaLibraryService() {
                 if (!SourceRegistry.permitsForPlayback(stream.sourceConfigId) ||
                     QualityUpgrade.forcedStream(Uri.parse(upgradedUri))?.url != stream.url
                 ) return@withContext
+
+                // Replacing the active item flushes the Direct USB sink even
+                // when the replacement is already buffered.
+                if (keepDirectUsbStream(player)) {
+                    QualityUpgrade.shelve(mediaId, stream)
+                    Log.i("ReChordUsb", "quality upgrade deferred to avoid Direct USB flush at ${latest.position}ms")
+                    return@withContext
+                }
 
                 swappingMediaId = mediaId
                 player.replaceMediaItem(originalIndex, upgradedItem)
