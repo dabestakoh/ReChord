@@ -224,11 +224,22 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
-    fun lossyPrimedStreamsAreLeftToTheOrdinaryPath() {
-        val sink = BitPerfectAudioSink(FakeOutputs())
-        assertFalse(sink.canAccept(format(delay = 1105)))
-        assertEquals(AudioSink.SINK_FORMAT_UNSUPPORTED, sink.getFormatSupport(format(delay = 1105)))
-        assertTrue(sink.canAccept(format()))
+    fun primedPcmRequestsDedicatedOutputAndTrimsAcrossBuffers() {
+        val outputs = FakeOutputs().apply { dacBits = 16 }
+        val sink = BitPerfectAudioSink(outputs)
+        val decoded = format(rate = 48000, delay = 2).buildUpon().setEncoderPadding(1).build()
+        assertTrue(sink.canAccept(decoded))
+        sink.configure(config(decoded))
+        sink.play()
+
+        assertTrue(sink.handleBuffer(pcm16(1), 0, 1))
+        assertTrue(sink.handleBuffer(pcm16(4, start = 2), 21, 1))
+        sink.playToEndOfStream()
+
+        val transport = outputs.opened.single()
+        assertEquals(2L, transport.written)
+        val pcm = ByteBuffer.wrap(transport.bytes.toByteArray()).order(ByteOrder.LITTLE_ENDIAN)
+        for (sample in 4..7) assertEquals(sample, pcm.short.toInt())
     }
 
     @Test
@@ -469,11 +480,13 @@ class BitPerfectAudioSinkTest {
         val normal = RecordingSink()
         val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
         router.play()
-        // A lossy stream on the normal path, still playing out its tail...
-        router.configure(config(format(delay = 1105)))
+        // The USB format was unavailable when the normal path was selected.
+        outputs.available = false
+        router.configure(config(format()))
         router.handleBuffer(pcm16(10), 0, 1)
         normal.pending = true
-        // ...when a lossless track arrives.
+        // The ordinary output still has audio when the USB format becomes available.
+        outputs.available = true
         router.configure(config(format()))
         assertFalse(router.handleBuffer(pcm16(10), 1_000, 1))
         assertTrue(outputs.opened.isEmpty())

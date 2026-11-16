@@ -315,9 +315,6 @@ internal object BitPerfectOutput {
             BitPerfectMode.USB_ANDROID -> {
                 if (Build.VERSION.SDK_INT < 34) return false
                 val device = MixerTransport.usbDevice(manager) ?: return false
-                if (key(mode, device.id, sampleRate, channels, sourceBits) in currentFailures(mode, device.id)) {
-                    return false
-                }
                 MixerTransport.bestFormat(manager, device, sampleRate, channels, sourceBits, AppSettings.convertForLimitedDac.value) != null
             }
             // Nothing short of opening a stream says whether Android will grant
@@ -448,13 +445,16 @@ internal object BitPerfectOutput {
     fun markFailed(context: Context, sampleRate: Int, channels: Int, sourceBits: Int, reason: String) {
         val mode = AppSettings.bitPerfectMode.value
         val deviceId = when (mode) {
-            BitPerfectMode.USB_ANDROID ->
-                context.getSystemService(AudioManager::class.java)?.let(MixerTransport::usbDevice)?.id ?: NO_DEVICE
             BitPerfectMode.USB_DIRECT ->
                 UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice)?.deviceId ?: NO_DEVICE
             else -> NO_DEVICE
         }
-        currentFailures(mode, deviceId).add(key(mode, deviceId, sampleRate, channels, sourceBits))
+        // Android can reject an otherwise supported request while its route
+        // is changing. The router falls back for this configuration, and a
+        // later configuration is allowed to request the mixer again.
+        if (mode != BitPerfectMode.USB_ANDROID) {
+            currentFailures(mode, deviceId).add(key(mode, deviceId, sampleRate, channels, sourceBits))
+        }
         Log.i(TAG, "Bit-perfect output unavailable ($reason) for $sampleRate Hz/$channels ch/$sourceBits-bit")
         _status.value = Status(fallbackReason = reason)
         recomputeReady()

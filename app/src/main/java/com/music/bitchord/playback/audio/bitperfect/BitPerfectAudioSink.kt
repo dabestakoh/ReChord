@@ -19,9 +19,11 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.TrimmingAudioProcessor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
@@ -64,10 +66,12 @@ internal class BitPerfectAudioSink(
         val sampleRate = format.sampleRate
         val channelCount = format.channelCount
         val sourceBits = BitPerfectPcm.sourceBits(encoding) ?: 0
+        val needsTrim = format.encoderDelay > 0 || format.encoderPadding > 0
         val frameBytes = BitPerfectPcm.bytesPerSample(encoding) * channelCount
 
         fun sameStream(other: Input?) = other != null && encoding == other.encoding &&
-            sampleRate == other.sampleRate && channelCount == other.channelCount
+            sampleRate == other.sampleRate && channelCount == other.channelCount &&
+            (this === other || (!needsTrim && !other.needsTrim))
     }
 
     /** What a reopened transport must match for audio kept from the old one to play on it unchanged. */
@@ -134,12 +138,15 @@ internal class BitPerfectAudioSink(
     private var startMediaTimeUs = C.TIME_UNSET
     private var needsResync = false
     private var currentInput: ByteBuffer? = null
+    private val trimmer = TrimmingAudioProcessor()
+    private var trimmedInput = AudioProcessor.EMPTY_BUFFER
 
     private var playing = false
     private var endOfStream = false
     private var stopped = false
     private var exact = true
     private var advancingReported = false
+    private var androidStatusPublished = false
 
     /** A transport failure raised where Media3 allows no exception, rethrown at the next buffer. */
     private var pendingFailure: BitPerfectTransportException? = null
@@ -147,9 +154,6 @@ internal class BitPerfectAudioSink(
     /** Whether this exact stream could be opened now; asks nothing of the device beyond a query. */
     fun canAccept(format: Format): Boolean {
         if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return false
-        // Encoder priming means a lossy codec whose start and end need trimming:
-        // not what bit-perfect output is for, and left to the ordinary path.
-        if (format.encoderDelay > 0 || format.encoderPadding > 0) return false
         val bits = BitPerfectPcm.sourceBits(format.pcmEncoding) ?: return false
         if (format.channelCount !in 1..2 || format.sampleRate <= 0) return false
         return outputs.canOpen(format.sampleRate, format.channelCount, bits, this)
@@ -214,23 +218,32 @@ internal class BitPerfectAudioSink(
         if (buffer !== currentInput) {
             currentInput = buffer
             syncTimestamp(input, presentationTimeUs)
+            if (input.needsTrim) {
+                // Preserve the original input for the normal sink if opening
+                // or writing the first trimmed output fails.
+                val decoded = buffer.duplicate()
+                trimmer.queueInput(decoded)
+                trimmedInput = trimmer.getOutput()
+                submittedFrames += (decoded.position() - buffer.position()) / input.frameBytes
+            }
         }
+        val pcm = if (input.needsTrim) trimmedInput else buffer
         try {
             if (!writeResumeTail()) return false
             if (output.hasRemaining()) {
                 writeOutput()
                 if (output.hasRemaining()) return false
             }
-            while (buffer.remaining() >= input.frameBytes) {
+            while (pcm.remaining() >= input.frameBytes) {
                 output.clear()
-                val before = buffer.position()
+                val before = pcm.position()
                 val converter = converter
                 if (converter != null) {
-                    converter.process(buffer, output)
-                } else if (!BitPerfectPcm.convert(buffer, input.encoding, input.channelCount, requireNotNull(transport).outputBits, output)) {
+                    converter.process(pcm, output)
+                } else if (!BitPerfectPcm.convert(pcm, input.encoding, input.channelCount, requireNotNull(transport).outputBits, output)) {
                     markInexact()
                 }
-                submittedFrames += (buffer.position() - before) / input.frameBytes
+                if (!input.needsTrim) submittedFrames += (pcm.position() - before) / input.frameBytes
                 output.flip()
                 writeOutput()
                 if (output.hasRemaining()) return false
@@ -300,6 +313,10 @@ internal class BitPerfectAudioSink(
         if (current == null || startMediaTimeUs == C.TIME_UNSET) return AudioSink.CURRENT_POSITION_NOT_SET
         val played = minOf(playedFrames(active), writtenFrames)
         val playedUs = Util.sampleCountToDurationUs(played, active.sampleRate)
+        if (!androidStatusPublished && playing && played > 0 && active is MixerTransport && active.routeVerified) {
+            androidStatusPublished = true
+            publishStatus()
+        }
         if (!advancingReported && playing && played > 0) {
             advancingReported = true
             listener?.onPositionAdvancing(System.currentTimeMillis() - playedUs / 1000)
@@ -311,6 +328,7 @@ internal class BitPerfectAudioSink(
         runCatching { transport?.flush() }
         transportStarted = false
         resetCounters()
+        if (transport is MixerTransport) outputs.publishIdle()
     }
 
     override fun reset() {
@@ -391,6 +409,10 @@ internal class BitPerfectAudioSink(
             null
         }
         exact = true
+        if (input.needsTrim) {
+            trimmer.setTrimFrameCount(input.format.encoderDelay, input.format.encoderPadding)
+            trimmer.configure(AudioProcessor.AudioFormat(input.sampleRate, input.channelCount, input.encoding))
+        }
         resetCounters()
         Log.i(
             TAG,
@@ -597,6 +619,7 @@ internal class BitPerfectAudioSink(
 
     private fun publishStatus() {
         val active = transport ?: return
+        if (active is MixerTransport && (!androidStatusPublished || !active.routeVerified)) return
         outputs.publish(
             BitPerfectOutput.Status(
                 active = true,
@@ -627,9 +650,12 @@ internal class BitPerfectAudioSink(
         startMediaTimeUs = C.TIME_UNSET
         needsResync = false
         currentInput = null
+        trimmedInput = AudioProcessor.EMPTY_BUFFER
+        trimmer.flush(AudioProcessor.StreamMetadata.DEFAULT)
         endOfStream = false
         stopped = false
         advancingReported = false
+        androidStatusPublished = false
     }
 
     private fun writeException(error: BitPerfectTransportException): AudioSink.WriteException {

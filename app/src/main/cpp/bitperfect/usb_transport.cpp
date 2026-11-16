@@ -339,19 +339,6 @@ public:
         uint8_t marker = 0x05;
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
-        using Clock = std::chrono::steady_clock;
-        auto lastLoop = Clock::now();
-        auto lastReport = lastLoop;
-        size_t missingFrames = 0;
-        using Micros = std::chrono::microseconds;
-        auto elapsed = [](auto start, auto end) -> long long {
-            return std::chrono::duration_cast<Micros>(end - start).count();
-        };
-        auto cpuUs = []() -> long long {
-            timespec time{};
-            return clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) == 0
-                ? time.tv_sec * 1000000LL + time.tv_nsec / 1000 : -1;
-        };
         const auto descriptors = libusb_get_pollfds(context);
         require(descriptors != nullptr, "USB poll descriptors unavailable");
         std::unique_ptr<const libusb_pollfd *, decltype(&libusb_free_pollfds)> descriptorList(descriptors, libusb_free_pollfds);
@@ -359,31 +346,10 @@ public:
         for (size_t i = 0; descriptors[i]; ++i) {
             pollFds.push_back({descriptors[i]->fd, descriptors[i]->events, 0});
         }
-        // Bound voluntary waits to one audio transfer while streaming.
-        // A timeout still services libusb, even without an outer poll wakeup.
-        const int audioPollMs = static_cast<int>((packets * interval + 999) / 1000);
-        size_t audioPollTimeouts = 0;
-        long long maxPollUs = 0;
-        long long maxLoopUs = 0, maxEventsUs = 0, maxLockUs = 0;
-        long long maxControlUs = 0, maxSubmitUs = 0, maxRefillUs = 0;
-        size_t minPending = slots.size(), completed = 0;
-        size_t minQueuedFrames = static_cast<size_t>(-1);
-        auto lastCpu = cpuUs();
         for (;;) {
-            const auto eventStart = Clock::now();
             events();
-            const auto now = Clock::now();
-            const auto loopUs = std::chrono::duration_cast<std::chrono::microseconds>(now - lastLoop).count();
-            lastLoop = now;
-            if (started && loopUs > maxLoopUs) maxLoopUs = loopUs;
             std::unique_lock<std::mutex> lock(state.mutex);
             if (state.closed) break;
-            if (started) {
-                maxEventsUs = std::max(maxEventsUs, elapsed(eventStart, now));
-                maxLockUs = std::max(maxLockUs, elapsed(now, Clock::now()));
-                minPending = std::min(minPending, static_cast<size_t>(std::count_if(
-                    slots.begin(), slots.end(), [](const auto &slot) { return slot->pending; })));
-            }
             if (state.flush != state.flushed) {
                 lock.unlock();
                 drain();
@@ -409,7 +375,6 @@ public:
                                         static_cast<int>(slot->transfer->status), state.bytes.size() / frame);
                     require(false, "USB audio transfer failed");
                 }
-                ++completed;
                 state.frames += slot->musicFrames;
                 slot->musicFrames = 0;
                 slot->submitted = false;
@@ -447,60 +412,28 @@ public:
                     state.bytes.erase(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available));
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                     slot->musicFrames = available / frame;
-                    missingFrames += (total - available) / frame;
-                    minQueuedFrames = std::min(minQueuedFrames, state.bytes.size() / frame);
-                    const auto submitStart = Clock::now();
                     slot->submit(handle, chosen.data.address, lengths, packets);
-                    const auto submittedAt = Clock::now();
-                    maxSubmitUs = std::max(maxSubmitUs, elapsed(submitStart, submittedAt));
-                    maxRefillUs = std::max(maxRefillUs, elapsed(now, submittedAt));
                 }
             }
             if (!activeControl && !state.controls.empty()) {
                 auto request = std::move(state.controls.front());
                 state.controls.pop_front();
                 lock.unlock();
-                const auto controlStart = Clock::now();
                 startControl(std::move(request));
-                maxControlUs = std::max(maxControlUs, elapsed(controlStart, Clock::now()));
                 lock.lock();
             }
             state.changed.notify_all();
-            const bool streaming = state.playing;
             const bool controlsReady = !activeControl && !state.controls.empty();
-            if (state.playing && now - lastReport >= std::chrono::seconds(1)) {
-                const size_t queuedFrames = state.bytes.size() / frame;
-                lock.unlock();
-                const auto cpu = cpuUs();
-                __android_log_print(ANDROID_LOG_INFO, "ReChordUsb",
-                    "worker rate=%u queuedFrames=%zu minQueuedFrames=%zu paddedFrames=%zu "
-                    "completed=%zu minPending=%zu/%zu windowUs=%lld cpuUs=%lld pollTimeouts=%zu "
-                    "maxLoopUs=%lld pollUs=%lld dispatchUs=%lld lockUs=%lld controlUs=%lld submitUs=%lld refillUs=%lld",
-                    chosen.format.sampleRate, queuedFrames, std::min(minQueuedFrames, queuedFrames), missingFrames,
-                    completed, minPending, slots.size(), elapsed(lastReport, now),
-                    cpu >= 0 && lastCpu >= 0 ? cpu - lastCpu : -1LL,
-                    audioPollTimeouts, maxLoopUs, maxPollUs, maxEventsUs, maxLockUs, maxControlUs, maxSubmitUs, maxRefillUs);
-                lastReport = now;
-                lastCpu = cpu;
-                missingFrames = completed = audioPollTimeouts = 0;
-                minPending = slots.size();
-                minQueuedFrames = static_cast<size_t>(-1);
-                maxLoopUs = maxPollUs = maxEventsUs = maxLockUs = maxControlUs = maxSubmitUs = maxRefillUs = 0;
-            }
-            if (lock.owns_lock()) lock.unlock();
+            lock.unlock();
             if (controlsReady) continue;
             timeval next{};
             const int hasDeadline = libusb_get_next_timeout(context, &next);
             check(hasDeadline);
-            int timeout = hasDeadline == 1
+            const int timeout = hasDeadline == 1
                 ? static_cast<int>(next.tv_sec * 1000 + (next.tv_usec + 999) / 1000) : -1;
-            if (streaming && (timeout < 0 || timeout > audioPollMs)) timeout = audioPollMs;
-            const auto pollStart = Clock::now();
             const int ready = poll(pollFds.data(), pollFds.size(), timeout);
             const int pollError = ready < 0 ? errno : 0;
-            if (streaming) maxPollUs = std::max(maxPollUs, elapsed(pollStart, Clock::now()));
             require(ready >= 0 || pollError == EINTR, "USB poll failed");
-            if (streaming && ready == 0) ++audioPollTimeouts;
             if (ready > 0 && (pollFds.front().revents & POLLIN)) {
                 uint64_t signal;
                 while (::read(state.wakeFd, &signal, sizeof(signal)) < 0 && errno == EINTR) {}
@@ -531,8 +464,9 @@ public:
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
             pthread_setname_np(pthread_self(), "ReChordUsbOut");
-            const int niceError = setpriority(PRIO_PROCESS, 0, -16) == 0 ? 0 : errno;
-            __android_log_print(ANDROID_LOG_INFO, "ReChordUsb", "worker nice request errno=%d", niceError);
+            if (setpriority(PRIO_PROCESS, 0, -16) != 0) {
+                __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "Could not raise USB worker priority: errno=%d", errno);
+            }
             std::unique_ptr<Session> session;
             try {
                 // Android owns the descriptor and keeps it open until this

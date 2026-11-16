@@ -2291,7 +2291,7 @@ private fun BitPerfectMode.description(): String = stringResource(
         this == BitPerfectMode.USB_ANDROID && !isSupported -> R.string.bit_perfect_requires_android_14
         this == BitPerfectMode.DAP_EXCLUSIVE && !isSupported -> R.string.bit_perfect_requires_android_8_1
         this == BitPerfectMode.OFF -> R.string.bit_perfect_mode_off_subtitle
-        this == BitPerfectMode.USB_ANDROID -> R.string.bit_perfect_mode_usb_android_subtitle
+        this == BitPerfectMode.USB_ANDROID -> R.string.bit_perfect_mode_usb_android_request
         this == BitPerfectMode.USB_DIRECT -> R.string.bit_perfect_mode_usb_direct_subtitle
         else -> R.string.bit_perfect_mode_dap_exclusive_subtitle
     },
@@ -2311,7 +2311,8 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         status.outputBits,
     )
     status.active && !status.exact -> stringResource(
-        R.string.bit_perfect_status_inexact,
+        if (mode == BitPerfectMode.USB_ANDROID) R.string.bit_perfect_status_usb_pcm_changed
+        else R.string.bit_perfect_status_inexact,
         status.deviceName.orEmpty(),
     )
     status.active -> stringResource(
@@ -2321,6 +2322,7 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         status.outputBits,
     )
     status.fallbackReason != null -> stringResource(R.string.bit_perfect_status_unavailable, status.fallbackReason)
+    mode == BitPerfectMode.USB_ANDROID -> stringResource(R.string.bit_perfect_status_usb_waiting)
     else -> stringResource(R.string.bit_perfect_status_waiting)
 }
 

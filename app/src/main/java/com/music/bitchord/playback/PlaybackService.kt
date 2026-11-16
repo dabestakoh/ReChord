@@ -951,7 +951,6 @@ class PlaybackService : MediaLibraryService() {
          */
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT) {
-                android.util.Log.i("ReChordUsb", "play intent=$playWhenReady reason=$reason")
             }
             // Something started the phone's own player while a receiver is the
             // speaker — an internal path, since the session player's door
@@ -1065,7 +1064,6 @@ class PlaybackService : MediaLibraryService() {
         // pause on — the queue simply runs out and the timer is spent.
         override fun onPlaybackStateChanged(state: Int) {
             if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT) {
-                android.util.Log.i("ReChordUsb", "playback state=$state")
             }
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
@@ -5312,7 +5310,6 @@ class PlaybackService : MediaLibraryService() {
                 // when the replacement is already buffered.
                 if (keepDirectUsbStream(player)) {
                     QualityUpgrade.shelve(mediaId, stream)
-                    Log.i("ReChordUsb", "quality upgrade deferred to avoid Direct USB flush at ${latest.position}ms")
                     return@withContext
                 }
 
