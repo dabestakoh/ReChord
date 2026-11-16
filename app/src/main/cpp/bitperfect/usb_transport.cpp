@@ -28,6 +28,8 @@
 #include <jni.h>
 #include <libusb.h>
 #include <sys/resource.h>
+#include <sched.h>
+#include <cerrno>
 #include <sys/time.h>
 
 #include <algorithm>
@@ -466,9 +468,21 @@ public:
         std::promise<std::pair<int, Format>> opened;
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
-            // Best effort; failure changes scheduling only, never audio data.
-            const int priorityResult = setpriority(PRIO_PROCESS, 0, -16);
-            __android_log_print(ANDROID_LOG_INFO, "ReChordUsb", "worker priorityRequestResult=%d", priorityResult);
+            sched_param requested{};
+            requested.sched_priority = 2;
+            const int fifoResult = sched_setscheduler(0, SCHED_FIFO, &requested);
+            const int fifoError = fifoResult == 0 ? 0 : errno;
+            int niceError = 0;
+            if (fifoResult != 0 && setpriority(PRIO_PROCESS, 0, -16) != 0) niceError = errno;
+            const int policy = sched_getscheduler(0);
+            sched_param actual{};
+            const int actualPriority = sched_getparam(0, &actual) == 0 ? actual.sched_priority : -1;
+            errno = 0;
+            const int nice = getpriority(PRIO_PROCESS, 0);
+            const int readNiceError = errno;
+            __android_log_print(ANDROID_LOG_INFO, "ReChordUsb",
+                                "worker scheduling policy=%d priority=%d nice=%d fifoErrno=%d niceErrno=%d readNiceErrno=%d",
+                                policy, actualPriority, nice, fifoError, niceError, readNiceError);
             std::unique_ptr<Session> session;
             try {
                 // Android owns the descriptor and keeps it open until this
