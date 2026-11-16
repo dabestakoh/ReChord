@@ -1418,6 +1418,9 @@
     <string name="bit_perfect_mode_off_subtitle">เสียงจะผ่านมิกเซอร์ของ Android และเอฟเฟกต์ของ ReChord</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
     <string name="bit_perfect_mode_usb_android_request">ขอให้เล่นเสียงที่ถอดรหัสแบบบิตเพอร์เฟกต์เมื่อ Android และ DAC รองรับรูปแบบ PCM ของเสียงนั้น</string>
+    <string name="bit_perfect_usb_no_profiles">Android ไม่มีรูปแบบบิตเพอร์เฟกต์สำหรับ USB DAC นี้</string>
+    <string name="bit_perfect_usb_format_mismatch">ไม่มีรูปแบบบิตเพอร์เฟกต์ของ Android ที่ตรงกับแทร็กนี้</string>
+    <string name="bit_perfect_usb_request_failed">Android ไม่สามารถเปิดเอาต์พุต USB แบบบิตเพอร์เฟกต์ได้</string>
     <string name="bit_perfect_status_usb_waiting">กำลังรอให้ Android ยืนยันเอาต์พุต USB ที่รองรับ</string>
     <string name="bit_perfect_status_usb_pcm_changed">%1$s · PCM ที่ถอดรหัสถูกแก้ไขก่อนส่งออกผ่าน USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 เปิด DAC ที่อัตราและความลึกบิตของแต่ละแทร็ก โดยไม่มิกซ์หรือรีแซมเปิล</string>

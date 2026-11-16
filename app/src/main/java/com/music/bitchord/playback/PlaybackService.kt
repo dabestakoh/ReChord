@@ -549,7 +549,7 @@ class PlaybackService : MediaLibraryService() {
             // picker for "go back to following the system", so a stuck choice
             // would be a picker that had quietly broken the obvious behaviour.
             AudioRouting.forget()
-            requestOutputReconfiguration()
+            requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(addedDevices))
         }
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
             // A chosen output that has been unplugged is no longer a choice.
@@ -559,8 +559,13 @@ class PlaybackService : MediaLibraryService() {
             if (removedDevices.any { it.id == AudioRouting.selectedId.value }) {
                 AudioRouting.forget()
             }
-            requestOutputReconfiguration()
+            requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(removedDevices))
         }
+
+        private fun shouldRebuildAndroidUsb(devices: Array<AudioDeviceInfo>): Boolean =
+            AppSettings.bitPerfectMode.value == BitPerfectMode.USB_ANDROID && devices.any {
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            }
     }
 
     /**

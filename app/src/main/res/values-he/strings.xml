@@ -1440,6 +1440,9 @@
     <string name="bit_perfect_mode_off_subtitle">השמע עובר דרך המיקסר של Android והאפקטים של ReChord.</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
     <string name="bit_perfect_mode_usb_android_request">מבקש השמעה מדויקת ברמת הביט של השמע המפוענח כאשר Android וה-DAC תומכים בתבנית ה-PCM שלו.</string>
+    <string name="bit_perfect_usb_no_profiles">Android אינו מציע פורמטים מדויקים ברמת הביט עבור ממיר USB זה</string>
+    <string name="bit_perfect_usb_format_mismatch">אין פורמט מדויק ברמת הביט של Android שתואם לרצועה זו</string>
+    <string name="bit_perfect_usb_request_failed">Android לא הצליח להפעיל יציאת USB מדויקת ברמת הביט</string>
     <string name="bit_perfect_status_usb_waiting">ממתין לאישור של Android עבור יציאת USB נתמכת</string>
     <string name="bit_perfect_status_usb_pcm_changed">%1$s · נתוני ה-PCM המפוענחים שונו לפני היציאה דרך USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 פותח את ה-DAC בקצב ובעומק הסיביות של כל רצועה, ללא מיקס וללא דגימה מחדש.</string>

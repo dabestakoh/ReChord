@@ -59,6 +59,7 @@ internal class BitPerfectRoutingSink(
     /** The sink being played out after a switch, before [active] writes. */
     private var retiring: AudioSink? = null
     private var lastConfig: AudioSink.AudioSinkConfig? = null
+    private var reportNormalConfig = false
     private var playing = false
 
     /** Whether the current stream is going to the exclusive output. */
@@ -79,6 +80,7 @@ internal class BitPerfectRoutingSink(
             normal.configure(audioSinkConfig)
             normal
         }
+        reportNormalConfig = target === normal
         switchTo(target)
     }
 
@@ -97,6 +99,10 @@ internal class BitPerfectRoutingSink(
         if (active !== bitPerfect) {
             // Straight after direct USB, until the DAC is an Android output again.
             if (bitPerfect.holdsNormalOutput()) return false
+            if (reportNormalConfig) {
+                reportNormalConfig = false
+                lastConfig?.format?.let(bitPerfect::reportAndroidMixerFallback)
+            }
             return active.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         }
         return try {

@@ -1435,6 +1435,9 @@
     <string name="bit_perfect_mode_off_subtitle">ऑडियो Android के मिक्सर और ReChord के इफ़ेक्ट से होकर जाता है।</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
     <string name="bit_perfect_mode_usb_android_request">जब Android और DAC डिकोड किए गए ऑडियो के PCM फ़ॉर्मैट का समर्थन करते हैं, तब बिट-परफ़ेक्ट प्लेबैक का अनुरोध करता है।</string>
+    <string name="bit_perfect_usb_no_profiles">Android इस USB DAC के लिए कोई बिट-परफ़ेक्ट फ़ॉर्मैट उपलब्ध नहीं कराता</string>
+    <string name="bit_perfect_usb_format_mismatch">इस ट्रैक के लिए कोई भी Android बिट-परफ़ेक्ट फ़ॉर्मैट मेल नहीं खाता</string>
+    <string name="bit_perfect_usb_request_failed">Android बिट-परफ़ेक्ट USB आउटपुट सक्रिय नहीं कर सका</string>
     <string name="bit_perfect_status_usb_waiting">Android से समर्थित USB आउटपुट की पुष्टि की प्रतीक्षा है</string>
     <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB आउटपुट से पहले डिकोड किए गए PCM में बदलाव हुआ</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 हर ट्रैक के अपने रेट और बिट डेप्थ पर DAC खोलता है, बिना मिक्सिंग या रीसैंपलिंग के।</string>

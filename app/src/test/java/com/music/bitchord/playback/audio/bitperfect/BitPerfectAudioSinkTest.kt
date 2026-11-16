@@ -64,6 +64,7 @@ class BitPerfectAudioSinkTest {
         var available = true
         var failOpen = false
         var failures = 0
+        val normalConfigurations = mutableListOf<Triple<Int, Int, Int>>()
 
         /** A DAC that stops here, as one on a capped USB-C dongle does. */
         var dacRate: Int? = null
@@ -83,6 +84,9 @@ class BitPerfectAudioSinkTest {
         override fun markFailed(sampleRate: Int, channels: Int, sourceBits: Int, reason: String) { failures++ }
         override fun publish(status: BitPerfectOutput.Status) { statuses += status }
         override fun publishIdle() = Unit
+        override fun reportAndroidMixerFallback(sampleRate: Int, channels: Int, sourceBits: Int) {
+            normalConfigurations.add(Triple(sampleRate, channels, sourceBits))
+        }
         var pendingNormal = false
         override fun normalOutputPending() = pendingNormal
     }
@@ -472,6 +476,20 @@ class BitPerfectAudioSinkTest {
         assertSame(format, normal.configured)
         assertEquals(1, normal.buffers)
         assertTrue(normal.played)
+    }
+
+    @Test
+    fun routerReportsTheDecodedFallbackFormatOnceWhenNormalPlaybackBegins() {
+        val outputs = FakeOutputs().apply { available = false }
+        val router = BitPerfectRoutingSink(RecordingSink(), BitPerfectAudioSink(outputs))
+        router.configure(config(format(rate = 96000, encoding = C.ENCODING_PCM_24BIT)))
+        assertTrue(outputs.normalConfigurations.isEmpty())
+
+        router.play()
+        router.handleBuffer(ByteBuffer.allocate(12), 0, 1)
+        router.handleBuffer(ByteBuffer.allocate(12), 1_000, 1)
+        assertEquals(listOf(Triple(96000, 2, 24)), outputs.normalConfigurations)
+        assertFalse(router.isBitPerfect)
     }
 
     @Test

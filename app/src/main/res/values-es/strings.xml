@@ -1407,6 +1407,9 @@
     <string name="bit_perfect_mode_off_subtitle">El audio pasa por el mezclador de Android y los efectos de ReChord.</string>
     <string name="bit_perfect_mode_usb_android">DAC USB</string>
     <string name="bit_perfect_mode_usb_android_request">Solicita la reproducción bit a bit del audio decodificado cuando Android y el DAC admiten su formato PCM.</string>
+    <string name="bit_perfect_usb_no_profiles">Android no ofrece formatos bit a bit para este DAC USB</string>
+    <string name="bit_perfect_usb_format_mismatch">Ningún formato bit a bit de Android coincide con esta pista</string>
+    <string name="bit_perfect_usb_request_failed">Android no pudo activar la salida USB bit a bit</string>
     <string name="bit_perfect_status_usb_waiting">Esperando a que Android confirme una salida USB compatible</string>
     <string name="bit_perfect_status_usb_pcm_changed">%1$s · El PCM decodificado se modificó antes de la salida USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 abre el DAC con la frecuencia y la profundidad de bits de cada pista, sin mezclar ni remuestrear.</string>

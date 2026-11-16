@@ -159,6 +159,14 @@ internal class BitPerfectAudioSink(
         return outputs.canOpen(format.sampleRate, format.channelCount, bits, this)
     }
 
+    fun reportAndroidMixerFallback(format: Format) {
+        if (format.sampleMimeType == MimeTypes.AUDIO_RAW) {
+            outputs.reportAndroidMixerFallback(
+                format.sampleRate, format.channelCount, BitPerfectPcm.sourceBits(format.pcmEncoding) ?: 0,
+            )
+        }
+    }
+
     /** Whether normal output must wait for the DAC to come back to Android; see [BitPerfectOutput.normalOutputPending]. */
     fun holdsNormalOutput(): Boolean = outputs.normalOutputPending()
 
@@ -660,6 +668,11 @@ internal class BitPerfectAudioSink(
 
     private fun writeException(error: BitPerfectTransportException): AudioSink.WriteException {
         Log.w(TAG, "Bit-perfect output stopped: ${error.message}")
+        if (transport is MixerTransport) {
+            current?.let {
+                outputs.markFailed(it.sampleRate, it.channelCount, it.sourceBits, BitPerfectOutput.ANDROID_MIXER_REJECTED)
+            }
+        }
         return AudioSink.WriteException(
             AudioTrack.ERROR_DEAD_OBJECT,
             current?.format ?: configured?.format ?: Format.Builder().build(),

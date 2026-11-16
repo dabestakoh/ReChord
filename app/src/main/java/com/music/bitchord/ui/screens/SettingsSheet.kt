@@ -2321,6 +2321,12 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         "%.1f".format(status.sampleRateHz / 1000.0),
         status.outputBits,
     )
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE ->
+        stringResource(R.string.bit_perfect_usb_no_profiles)
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH ->
+        stringResource(R.string.bit_perfect_usb_format_mismatch)
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED ->
+        stringResource(R.string.bit_perfect_usb_request_failed)
     status.fallbackReason != null -> stringResource(R.string.bit_perfect_status_unavailable, status.fallbackReason)
     mode == BitPerfectMode.USB_ANDROID -> stringResource(R.string.bit_perfect_status_usb_waiting)
     else -> stringResource(R.string.bit_perfect_status_waiting)

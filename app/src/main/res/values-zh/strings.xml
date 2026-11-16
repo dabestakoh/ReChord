@@ -1412,6 +1412,9 @@
     <string name="bit_perfect_mode_off_subtitle">音频经过 Android 的混音器和 ReChord 的音效。</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
     <string name="bit_perfect_mode_usb_android_request">当 Android 和 DAC 支持解码后的 PCM 格式时，请求位完美播放。</string>
+    <string name="bit_perfect_usb_no_profiles">Android 未为此 USB DAC 提供位完美格式</string>
+    <string name="bit_perfect_usb_format_mismatch">没有与此曲目匹配的 Android 位完美格式</string>
+    <string name="bit_perfect_usb_request_failed">Android 无法启用位完美 USB 输出</string>
     <string name="bit_perfect_status_usb_waiting">正在等待 Android 确认支持的 USB 输出</string>
     <string name="bit_perfect_status_usb_pcm_changed">%1$s · 解码后的 PCM 在 USB 输出前已被修改</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 按每首曲目自身的采样率和位深打开 DAC，不进行混音或重采样。</string>
