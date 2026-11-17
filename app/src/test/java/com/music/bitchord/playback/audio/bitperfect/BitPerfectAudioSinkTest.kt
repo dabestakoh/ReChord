@@ -259,6 +259,28 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
+    fun directUsbVerifiesNative32BitOnlyAfterFramesAdvance() {
+        val outputs = FakeOutputs().apply { driver = BitPerfectDriver.USB_DIRECT }
+        val sink = BitPerfectAudioSink(outputs)
+        sink.play()
+        sink.configure(config(format(rate = 96000, encoding = C.ENCODING_PCM_32BIT)))
+        val pcm = ByteBuffer.allocateDirect(8).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0x71234567).putInt(-0x71234567).flip()
+        assertTrue(sink.handleBuffer(pcm, 0, 1))
+        val transport = outputs.opened.single()
+        assertFalse(outputs.statuses.last().dacOutputVerified)
+        transport.advance(1)
+        sink.getCurrentPositionUs(false)
+        val status = outputs.statuses.last()
+        assertTrue(status.dacOutputVerified)
+        assertTrue(status.exact)
+        assertEquals(32, status.validOutputBits)
+        assertEquals(96000, status.sampleRateHz)
+        assertEquals(2, status.channelCount)
+        assertEquals(0x71234567, ByteBuffer.wrap(transport.bytes.toByteArray()).order(ByteOrder.LITTLE_ENDIAN).int)
+    }
+
+    @Test
     fun trackBeyondTheDacIsConvertedAndNotCalledBitPerfect() {
         val outputs = FakeOutputs().apply { dacRate = 48000; dacBits = 16 }
         val sink = BitPerfectAudioSink(outputs)
