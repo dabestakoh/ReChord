@@ -985,7 +985,6 @@ class PlaybackService : MediaLibraryService() {
         ) {
             val exoPlayer = player ?: return
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                lastSeekAt = SystemClock.elapsedRealtime()
                 if (exoPlayer.isPlaying) pushDiscordPresence(exoPlayer)
                 updateLyricSubtitle()
                 // The watch extrapolates its progress ring from the last
@@ -1282,6 +1281,7 @@ class PlaybackService : MediaLibraryService() {
         localBitrateCache.clear()
         measuredBitrateCache.clear()
         QualityUpgrade.forgetLastSession()
+        DirectSourceGate.reset()
 
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
@@ -1779,6 +1779,7 @@ class PlaybackService : MediaLibraryService() {
             restoreBoundedQueueOrLast(exoPlayer)
         }
         if (restored) {
+            prepareDirectCurrent(exoPlayer)
             publishWidgetState()
         } else {
             MediaWidgetSnapshot.save(this, MediaWidgetSnapshot.EMPTY)
@@ -6924,9 +6925,6 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
-    /** When the listener last seeked, so [driveDirectWindow] can tell a scrub from playback. */
-    private var lastSeekAt = 0L
-
     /** Ticks [driveDirectWindow] for as long as the service runs. */
     private fun watchDirectWindow() {
         scope.launch {
@@ -6937,19 +6935,20 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /**
-     * Direct Source Stream's read-ahead, and the only one it has.
-     *
-     * Tells [DirectSourceGate] what is audible, then opens the next track once
-     * the playing one is within [DirectSourceGate.WINDOW_MS] of its transition.
-     * That is the crossfade or Automix start when one is planned, otherwise the
-     * end of the file. Opening it releases ExoPlayer's own preparation of the
-     * next item and starts [AudioCache.prefetchDirect].
-     *
-     * Only while playing, and only once the playhead has run on its own for
-     * [SEEK_SETTLE_MS] since the last seek, so scrubbing toward the end of a
-     * track or skipping through a queue never fetches anything ahead.
-     */
+    /** Prepare only the restored/current recording, without opening an audio output. */
+    private fun prepareDirectCurrent(exoPlayer: ExoPlayer) {
+        if (!DirectSourceGate.isActive() || AudioCache.isOffline()) return
+        val item = exoPlayer.currentMediaItem ?: return
+        val uri = item.localConfiguration?.uri ?: return
+        if (uri.scheme != "bitchord" || uri.authority != "watch" ||
+            QualityUpgrade.cacheTag(uri) != null || item.mediaId in Downloads.saved.value ||
+            OriginalVersion.isPinned(item.mediaId) || StreamChoice.substitutesRefused(item.mediaId) ||
+            AudioCache.hasReusableFlac(uri)
+        ) return
+        if (StreamChoice.of(item.mediaId)?.format?.isLossless == true) return
+        DirectSourceGate.prepare(item.mediaId, TrackMatcher.targetOf(item.toSong()))
+    }
+
     private fun driveDirectWindow() {
         val exoPlayer = player ?: return
         checkSubstituteLength(exoPlayer)
@@ -6957,26 +6956,14 @@ class PlaybackService : MediaLibraryService() {
             exoPlayer.currentMediaItem?.mediaId?.let(::add)
             if (crossfade?.isTransitioning() == true) spare?.currentMediaItem?.mediaId?.let(::add)
         }
-        if (DirectSourceGate.onPlaying(audible)) AudioCache.cancelDirect()
-        if (!DirectSourceGate.isActive() || !exoPlayer.isPlaying) return
-        if (SystemClock.elapsedRealtime() - lastSeekAt < SEEK_SETTLE_MS) return
-        val current = exoPlayer.currentMediaItem ?: return
         val nextIndex = exoPlayer.nextMediaItemIndex
-        if (nextIndex == C.INDEX_UNSET) return
-        val next = exoPlayer.getMediaItemAt(nextIndex)
+        val next = nextIndex.takeIf { it != C.INDEX_UNSET }?.let(exoPlayer::getMediaItemAt)
+        DirectSourceGate.retain(audible + listOfNotNull(next?.mediaId))
+        if (DirectSourceGate.onPlaying(audible)) AudioCache.cancelDirect()
+        prepareDirectCurrent(exoPlayer)
+        if (!DirectSourceGate.isActive() || !exoPlayer.isPlaying || AudioCache.isOffline() || next == null) return
         if (MusicOnlyPlayback.wants(next)) return
-        val duration = exoPlayer.duration
-        if (duration == C.TIME_UNSET || duration <= 0L) return
-        val boundary = crossfade?.plannedTransitionFor(current.mediaId) ?: duration
-        val speed = exoPlayer.playbackParameters.speed.coerceAtLeast(MIN_WINDOW_SPEED)
-        val remaining = ((boundary - exoPlayer.currentPosition) / speed).toLong()
-        if (remaining > DirectSourceGate.WINDOW_MS) return
         if (!DirectSourceGate.openNext(next.mediaId)) return
-        TrackLog.d(
-            "BitChord",
-            "direct window open: ${next.mediaId} with ${remaining}ms to the transition",
-            about = next.mediaId,
-        )
         val song = next.toSong()
         AudioCache.noteSongs(listOf(song))
         AudioCache.prefetchDirect(AudioCache.Upcoming(song.videoId, TrackMatcher.targetOf(song)))
@@ -7579,6 +7566,26 @@ class PlaybackService : MediaLibraryService() {
 
     private fun observeSettings() {
         scope.launch {
+            combine(
+                AppSettings.directSourceStream,
+                SourceRegistry.configs,
+                combine(
+                    AppSettings.audioQualityWifi,
+                    AppSettings.audioQualityCellular,
+                    AppSettings.meteredConnection,
+                    AppSettings.streamCeilingOverride,
+                ) { _, _, _, _ -> AppSettings.effectiveAudioQuality }.distinctUntilChanged(),
+            ) { direct, sources, ceiling -> Triple(direct, sources, ceiling) }
+                .drop(1)
+                .collect {
+                    cancelPrefetch()
+                    AudioCache.cancelDirect()
+                    DirectSourceGate.reset()
+                    driveDirectWindow()
+                }
+        }
+
+        scope.launch {
             AppSettings.skipSilence.collect { on -> eachPlayer { it.skipSilenceEnabled = on } }
         }
         scope.launch {
@@ -8178,6 +8185,7 @@ class PlaybackService : MediaLibraryService() {
 
 
     override fun onDestroy() {
+        DirectSourceGate.reset()
         WearBridge.attachStreams(null)
         WearBridge.releaseSpeaker()
         // Let go of the receiver's player but leave its session alone: a
@@ -9882,16 +9890,6 @@ class PlaybackService : MediaLibraryService() {
 
         /** How often [driveDirectWindow] checks whether the next track's window has opened. */
         const val DIRECT_WINDOW_STEP_MS = 500L
-
-        /**
-         * How long the playhead has to run on its own after a seek before the
-         * direct window may open. Long enough that a scrub, which is a burst
-         * of seeks, never counts as having reached the end of a track.
-         */
-        const val SEEK_SETTLE_MS = 2_000L
-
-        /** Floor on the speed the window divides by, so a near-zero speed cannot stretch it to forever. */
-        const val MIN_WINDOW_SPEED = 0.25f
 
         /** Bounds on a track's normalization gain, in millibels: the range the platform LoudnessEnhancer this replaced accepted. */
         const val MIN_LOUDNESS_GAIN_MB = -1500

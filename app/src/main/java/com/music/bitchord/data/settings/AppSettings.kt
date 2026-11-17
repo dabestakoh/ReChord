@@ -349,15 +349,7 @@ object AppSettings {
      */
     val dolbyAtmos = MutableStateFlow(true)
 
-    /**
-     * Play a YouTube-queued track straight from an addon ranked above YouTube,
-     * rather than starting it on YouTube and swapping up mid-song.
-     *
-     * Also narrows read-ahead to the next track only, and only once the
-     * playing one is within [DirectSourceGate.WINDOW_MS][com.music.bitchord.playback.DirectSourceGate.WINDOW_MS]
-     * of its transition — see [DirectSourceGate][com.music.bitchord.playback.DirectSourceGate].
-     * Automix analysis is untouched: it keeps reading its own YouTube Opus copy.
-     */
+    /** Resolve addons before playback; prepare only the current and next queued tracks. */
     val directSourceStream = MutableStateFlow(false)
 
     /** Opt-in seamless mid-track rendition handoff; disabled for existing installs. */
