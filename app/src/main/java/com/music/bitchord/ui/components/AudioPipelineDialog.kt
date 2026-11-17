@@ -323,9 +323,7 @@ fun AudioPipelineDialog(
                     outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
                 ),
             )
-            if (bitPerfect.dacOutputVerified && (fidelity.bitPerfectVerified || fidelity.score < 100)) {
-                FidelitySummary(fidelity)
-            }
+            FidelitySummary(fidelity)
 
             PipelineRule()
             PipelineSection(
@@ -914,7 +912,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = animatedScore.roundToInt().coerceAtMost(if (assessment.bitPerfectVerified) 100 else 99).toString(),
+                        text = animatedScore.roundToInt().toString(),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontSize = 26.sp,
                             fontWeight = FontWeight.W700,
