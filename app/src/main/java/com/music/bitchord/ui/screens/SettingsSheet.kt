@@ -669,14 +669,16 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = SfIcons.GraphicEq,
                     title = outputPrecisionTitle,
-                    subtitle = buildString {
-                        append(outputStatus.sink)
-                        append(" · ")
-                        append(outputStatus.deviceName)
-                        (outputStatus.actualSampleRateHz ?: outputStatus.sampleRatesHz.firstOrNull())
-                            ?.let { append(" · ${it / 1000.0} kHz") }
-                        append(" · ")
-                        append(AudioOutputStatus.encodingLabel(outputStatus))
+                    subtitle = when {
+                        bitPerfectStatus.dacOutputVerified -> "${bitPerfectStatus.outputBits}-bit PCM · " +
+                            "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
+                        !bitPerfectStatus.active && outputStatus.actualEncoding != null ->
+                            listOfNotNull(
+                                AudioOutputStatus.encodingLabel(outputStatus),
+                                outputStatus.actualSampleRateHz?.let { "${it / 1000.0} kHz" },
+                                outputStatus.deviceName,
+                            ).joinToString(" · ")
+                        else -> null
                     },
                 )
                 SegmentedControl(

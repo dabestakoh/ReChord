@@ -541,6 +541,7 @@ class PlaybackService : MediaLibraryService() {
     private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private val bluetoothTracker by lazy { BluetoothAudioTracker(this) }
     private var currentAudioInputFormat: Format? = null
+    @Volatile private var measuredOutputSource: Pair<String, Format>? = null
     private val outputDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
             // Plugging something in moves the music to it. Always — a choice
@@ -1205,6 +1206,7 @@ class PlaybackService : MediaLibraryService() {
             applySpatialAudioEnabled()
             publishNerdStats()
             currentAudioInputFormat = format
+            measuredOutputSource = audioFormatFor?.let { it to format }
             applyOutputRoute()
         }
 
@@ -1230,6 +1232,7 @@ class PlaybackService : MediaLibraryService() {
                 encoding = audioTrackConfig.encoding,
                 sampleRateHz = audioTrackConfig.sampleRate,
                 bufferSize = audioTrackConfig.bufferSize,
+                channelCount = Integer.bitCount(audioTrackConfig.channelConfig),
             )
             TrackLog.i(
                 "AUDIO_OUT",
@@ -4842,7 +4845,7 @@ class PlaybackService : MediaLibraryService() {
         applySpatialAudioEnabled()
         applyOutputRoute()
         outputConfig?.let {
-            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize)
+            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize, Integer.bitCount(it.channelConfig))
         }
         incoming.volume = 1f
         outgoing.stop()
@@ -7203,7 +7206,17 @@ class PlaybackService : MediaLibraryService() {
                 delegate = defaultSink,
                 dspChain = dspChain,
                 enableFloatOutput = enableFloatOutput,
-                preferredOutputEncodingProvider = { format -> resolvePreferredOutputEncoding(format) },
+                preferredOutputEncodingProvider = { config ->
+                    val mediaId = config.mediaPeriodId?.let { id ->
+                        val period = config.timeline.getIndexOfPeriod(id.periodUid)
+                        if (period == C.INDEX_UNSET) null
+                        else config.timeline.getWindow(
+                            config.timeline.getPeriod(period, Timeline.Period()).windowIndex, Timeline.Window(),
+                        ).mediaItem.mediaId
+                    }
+                    val source = measuredOutputSource?.takeIf { it.first == mediaId }?.second
+                    resolvePreferredOutputEncoding(config.format, source)
+                },
                 // Which of the two sinks the listener can hear, told by the
                 // role its transition filter currently holds — [activeFilter]
                 // and [spareFilter] trade places at every handoff. Only the
@@ -7297,7 +7310,6 @@ class PlaybackService : MediaLibraryService() {
             routeKind = routeKind,
             directSupport = directSupport,
             bluetoothTelemetry = btTelemetry,
-            systemMixerRateHz = if (routeKind == AudioRouting.Kind.USB) 48000 else null,
         )
 
         if (format != null) {
@@ -7305,7 +7317,10 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun resolvePreferredOutputEncoding(format: Format): PcmEncoding? {
+    private fun resolvePreferredOutputEncoding(
+        format: Format,
+        sourceFormat: Format? = currentAudioInputFormat,
+    ): PcmEncoding? {
         val manager = audioManager ?: return null
         val activeDevice = resolveActiveOutputDevice()
         val routeKind = resolveActiveRouteKind(activeDevice)
@@ -7314,7 +7329,7 @@ class PlaybackService : MediaLibraryService() {
             return PcmEncoding.PCM_16BIT
         }
 
-        val inputFormat = currentAudioInputFormat ?: format
+        val inputFormat = sourceFormat ?: format
         val measuredFormat = format.measure()
         val measuredInput by lazy(LazyThreadSafetyMode.NONE) {
             if (inputFormat === format) measuredFormat else inputFormat.measure()
@@ -7338,7 +7353,7 @@ class PlaybackService : MediaLibraryService() {
             ?: 2
         val bitDepth = measuredFormat.bitDepth
             ?: measuredInput.bitDepth
-            ?: NerdStats.current.value?.bitDepth ?: when (inputFormat.pcmEncoding) {
+            ?: when (inputFormat.pcmEncoding) {
             C.ENCODING_PCM_32BIT -> 32
             C.ENCODING_PCM_24BIT -> 24
             C.ENCODING_PCM_FLOAT -> 32
@@ -7395,7 +7410,9 @@ class PlaybackService : MediaLibraryService() {
             // silently re-converted, costing an extra quantization and leaving
             // this readout naming a bit depth that was never written.
             delegateSupportsPcm24 = false,
-            knownSystemMixerRateHz = if (routeKind == AudioRouting.Kind.USB) 48000 else null,
+            processingEnabled = AppSettings.equalizerEnabled.value ||
+                AppSettings.loudnessNormalization.value ||
+                AppSettings.spatialAudio.value,
         )
 
         AudioOutputStatus.publishNegotiation(negotiation)
@@ -7518,7 +7535,11 @@ class PlaybackService : MediaLibraryService() {
     private fun shouldEnableFloatOutput(): Boolean {
         val activeDevice = resolveActiveOutputDevice()
         val routeKind = resolveActiveRouteKind(activeDevice)
-        val advertisesFloat = activeDevice?.encodings?.contains(AudioFormat.ENCODING_PCM_FLOAT) == true
+        val encodings = activeDevice?.encodings ?: intArrayOf()
+        val mode = AppSettings.outputPcmMode.value
+        val advertisesFloat = AudioFormat.ENCODING_PCM_FLOAT in encodings ||
+            (mode == OutputPcmMode.AUTO && routeKind == AudioRouting.Kind.USB &&
+                (AudioFormat.ENCODING_PCM_24BIT_PACKED in encodings || AudioFormat.ENCODING_PCM_32BIT in encodings))
         val directFloatSupported = audioManager?.let { mgr ->
             DirectAudioProbe.probeDirectSupport(mgr, 48000, 2, activeDevice).supportsFloat
         } ?: false

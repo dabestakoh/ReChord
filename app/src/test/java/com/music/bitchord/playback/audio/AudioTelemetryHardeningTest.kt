@@ -40,17 +40,17 @@ class AudioTelemetryHardeningTest {
         // Verifications:
         // 1. USB Endpoint truthfully represents physical DAC: PCM16 / 48000 Hz
         assertEquals("PCM16 / 48000 Hz", evaluated.usbEndpointFormat)
-        // 2. Direct playback is rejected
-        assertTrue(evaluated.directPlaybackRejected)
+        // 2. Direct playback cannot be confirmed
+        assertFalse(evaluated.directPlaybackRejected)
         assertFalse(evaluated.directPlaybackActual)
-        // 3. AudioFlinger Mixer is in the path at 48000 Hz with HAL format PCM24 packed
-        assertEquals(48000, evaluated.systemMixerRateHz)
-        assertEquals("PCM24 packed", evaluated.halFormat)
+        // 3. No system mixer or HAL format was measured
+        assertNull(evaluated.systemMixerRateHz)
+        assertNull(evaluated.halFormat)
         // 4. AudioTrack requested is Float32 / 176400 Hz (not physical Float32)
         assertEquals(AudioFormat.ENCODING_PCM_FLOAT, evaluated.actualEncoding)
         assertEquals(176400, evaluated.actualSampleRateHz)
         // 5. Fallback detail accurately explains route limitation
-        assertEquals("Direct playback unavailable for active USB device", evaluated.fallbackDetail)
+        assertNull(evaluated.fallbackDetail)
     }
 
     @Test
@@ -72,19 +72,19 @@ class AudioTelemetryHardeningTest {
         // Verifications:
         // 1. USB Endpoint truthfully represents advertised 24-bit DAC: PCM24 / 48000 Hz
         assertEquals("PCM24 / 48000 Hz", evaluated.usbEndpointFormat)
-        // 2. Direct playback is rejected (AudioFlinger is still in the path)
-        assertTrue(evaluated.directPlaybackRejected)
+        // 2. The active transport cannot be inferred from capabilities
+        assertFalse(evaluated.directPlaybackRejected)
         assertFalse(evaluated.directPlaybackActual)
         // 3. AudioFlinger mixer and HAL format
-        assertEquals(48000, evaluated.systemMixerRateHz)
-        assertEquals("PCM24 packed", evaluated.halFormat)
+        assertNull(evaluated.systemMixerRateHz)
+        assertNull(evaluated.halFormat)
         // 4. Client format remains Float32
         assertEquals(AudioFormat.ENCODING_PCM_FLOAT, evaluated.actualEncoding)
         assertEquals(176400, evaluated.actualSampleRateHz)
     }
 
     @Test
-    fun genuineDirectPlaybackReportsBitMatchedAndNullMixer() {
+    fun directCapabilityDoesNotProveAnActiveDirectTrack() {
         val directCapableSnapshot = AudioOutputStatus.Snapshot(
             deviceName = "Hi-Res Direct DAC",
             routeKind = AudioRouting.Kind.USB,
@@ -105,16 +105,17 @@ class AudioTelemetryHardeningTest {
 
         val evaluated = AudioOutputStatus.evaluateActualPath(directCapableSnapshot)
 
-        assertTrue(evaluated.directPlaybackActual)
+        assertTrue(evaluated.directPlaybackSupported)
+        assertFalse(evaluated.directPlaybackActual)
         assertFalse(evaluated.directPlaybackRejected)
-        assertEquals(TransportType.AUDIO_TRACK_DIRECT, evaluated.transportType)
+        assertEquals(TransportType.AUDIO_TRACK, evaluated.transportType)
         assertNull(evaluated.systemMixerRateHz)
         assertNull(evaluated.halFormat)
         assertEquals("PCM24 / 192000 Hz", evaluated.usbEndpointFormat)
     }
 
     @Test
-    fun phoneSpeakerAlwaysSetsHalFormatAndNullUsbEndpoint() {
+    fun phoneSpeakerDoesNotInventHalFormatOrUsbEndpoint() {
         val speakerSnapshot = AudioOutputStatus.Snapshot(
             deviceName = "Built-in Speaker",
             routeKind = AudioRouting.Kind.PHONE,
@@ -128,8 +129,8 @@ class AudioTelemetryHardeningTest {
 
         assertFalse(evaluated.directPlaybackActual)
         assertFalse(evaluated.directPlaybackRejected)
-        assertEquals(48000, evaluated.systemMixerRateHz)
-        assertEquals("PCM24 packed", evaluated.halFormat)
+        assertNull(evaluated.systemMixerRateHz)
+        assertNull(evaluated.halFormat)
         assertNull(evaluated.usbEndpointFormat)
     }
 
@@ -163,10 +164,11 @@ class AudioTelemetryHardeningTest {
         // 2. Active AudioTrack is 176.4 kHz PCM16
         assertEquals(176400, evaluated.actualSampleRateHz)
         assertEquals(AudioFormat.ENCODING_PCM_16BIT, evaluated.actualEncoding)
-        // 3. Direct playback is ACTIVE and bypassing mixer (not capped at 96 kHz)
-        assertTrue("Direct playback must be active at 176.4 kHz", evaluated.directPlaybackActual)
+        // 3. The capability probe did not observe an active direct path
+        assertTrue(evaluated.directPlaybackSupported)
+        assertFalse(evaluated.directPlaybackActual)
         assertFalse("Direct playback must not be rejected", evaluated.directPlaybackRejected)
-        assertNull("System mixer must be bypassed", evaluated.systemMixerRateHz)
+        assertNull(evaluated.systemMixerRateHz)
     }
 
     @Test
@@ -191,7 +193,8 @@ class AudioTelemetryHardeningTest {
 
         val evaluated = AudioOutputStatus.evaluateActualPath(pending)
 
-        assertTrue("Direct playback must survive an unmeasured rate", evaluated.directPlaybackActual)
+        assertTrue(evaluated.directPlaybackSupported)
+        assertFalse(evaluated.directPlaybackActual)
         assertFalse("Direct playback must not be rejected", evaluated.directPlaybackRejected)
     }
 

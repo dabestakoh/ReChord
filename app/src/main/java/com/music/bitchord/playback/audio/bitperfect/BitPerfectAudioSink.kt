@@ -183,7 +183,9 @@ internal class BitPerfectAudioSink(
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         val mapping = audioSinkConfig.outputChannelMapping
-        if (mapping != null && (0 until mapping.length()).any { mapping[it] != it }) {
+        if (mapping != null &&
+            (mapping.length() != format.channelCount || (0 until mapping.length()).any { mapping[it] != it })
+        ) {
             throw AudioSink.ConfigurationException("Channel remapping is not bit-perfect", format)
         }
         if (!canAccept(format)) {
@@ -327,6 +329,7 @@ internal class BitPerfectAudioSink(
         }
         if (!advancingReported && playing && played > 0) {
             advancingReported = true
+            if (active.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
             listener?.onPositionAdvancing(System.currentTimeMillis() - playedUs / 1000)
         }
         return startMediaTimeUs + playedUs
@@ -337,6 +340,7 @@ internal class BitPerfectAudioSink(
         transportStarted = false
         resetCounters()
         if (transport is MixerTransport) outputs.publishIdle()
+        else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
     }
 
     override fun reset() {
@@ -634,7 +638,10 @@ internal class BitPerfectAudioSink(
                 driver = active.driver.label,
                 deviceName = active.deviceName,
                 sampleRateHz = active.sampleRate,
-                outputBits = if (converter != null) active.validBits else active.outputBits,
+                outputBits = active.outputBits,
+                channelCount = active.channelCount,
+                validOutputBits = active.validBits,
+                dacOutputVerified = active.driver == BitPerfectDriver.USB_DIRECT && advancingReported,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,
                 exact = exact && converter == null &&

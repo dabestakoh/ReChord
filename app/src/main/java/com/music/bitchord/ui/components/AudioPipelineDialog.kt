@@ -116,6 +116,7 @@ private fun bitExactVerdict(
     outputExactDetail: String?,
     decodedRateHz: Int?,
     outputRateHz: Int?,
+    channelChanged: Boolean,
     loudnessActive: Boolean,
     eqActive: Boolean,
     spatialActive: Boolean,
@@ -135,6 +136,7 @@ private fun bitExactVerdict(
     // question left is whether the source itself was integer PCM.
     bitPerfect.active && bitPerfect.exact -> "Yes — exact decoded PCM to ${bitPerfect.deviceName}"
     bitPerfect.active -> "No — transport altered decoded PCM"
+    channelChanged -> "No — channel count changed"
     loudnessActive -> "No — loudness normalization"
     eqActive -> "No — equalizer"
     spatialActive -> "No — spatial audio"
@@ -298,13 +300,12 @@ fun AudioPipelineDialog(
                     routeKind = outputStatus.routeKind,
                     // This driver owns the audio stream when active. Its telemetry,
                     // not the old AudioTrack snapshot, describes the DAC endpoint.
-                    verifiedTransportActive = bitPerfect.active,
+                    verifiedTransportActive = bitPerfect.dacOutputVerified,
                     verifiedTransportExact = bitPerfect.active && bitPerfect.exact,
                     transportDescription = bitPerfect.driver,
                     dacLimited = bitPerfect.active && bitPerfect.dacLimited,
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
-                    outputBits = bitPerfect.outputBits.takeIf { bitPerfect.active && it > 0 },
-                    directPlaybackActual = !bitPerfect.active && outputStatus.directPlaybackActual,
+                    outputBits = bitPerfect.validOutputBits.takeIf { bitPerfect.dacOutputVerified && it > 0 },
                     outputExact = !bitPerfect.active && outputStatus.outputExact,
                     // reset() clears the exactness detail while a new decoder/sink
                     // is being configured. Unknown is not proof of PCM loss.
@@ -322,7 +323,9 @@ fun AudioPipelineDialog(
                     outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
                 ),
             )
-            FidelitySummary(fidelity)
+            if (bitPerfect.dacOutputVerified && (fidelity.bitPerfectVerified || fidelity.score < 100)) {
+                FidelitySummary(fidelity)
+            }
 
             PipelineRule()
             PipelineSection(
@@ -471,7 +474,7 @@ fun AudioPipelineDialog(
                 PipelineRow(stringResource(R.string.pipeline_pcm_format), if (bitPerfect.active) "Bypassed" else pcmFormat)
                 PipelineRow(stringResource(R.string.pipeline_sample_rate), if (bitPerfect.active) rateText(bitPerfect.sampleRateHz) else dspRateText)
                 if (bitPerfect.active) {
-                    PipelineRow("Processing", "Bypassed (bit-perfect)")
+                    PipelineRow("Processing", "Bypassed")
                 } else {
                     PipelineRow(stringResource(R.string.pipeline_loudness_gain), loudnessGainText)
                     PipelineRow(stringResource(R.string.pipeline_loudness_measured), loudnessMeasuredText)
@@ -482,27 +485,36 @@ fun AudioPipelineDialog(
                 PipelineRow(
                     stringResource(R.string.pipeline_output_api),
                     if (bitPerfect.active) bitPerfect.driver ?: "Dedicated output"
-                    else outputStatus.sink.ifBlank { "AAudio" },
+                    else "AudioTrack",
                 )
                 // The verdict, rather than the settings. Names whichever
                 // stage is altering samples — or, when none is, whether
                 // the route can carry the decoder's own encoding —
                 // instead of leaving the reader to infer it from four
                 // rows above.
-                PipelineRow(
-                    stringResource(R.string.pipeline_bit_exact),
-                    bitExactVerdict(
-                        dsd = dsdRateHz != null,
-                        bitPerfect = bitPerfect,
-                        outputExact = outputStatus.outputExact,
-                        outputExactDetail = outputStatus.outputExactDetail,
-                        decodedRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
-                        outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
-                        loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
-                        eqActive = eqEnabled,
-                        spatialActive = spatialAudio,
-                    ),
-                )
+                val channelChanged = outputStatus.actualChannelCount?.let { count ->
+                    nerdStats?.channels?.let { it != count }
+                } == true
+                val hasAudioTrackEvidence = !bitPerfect.active &&
+                    outputStatus.actualEncoding != null && outputStatus.actualSampleRateHz != null &&
+                    outputStatus.outputExactDetail != null
+                if (bitPerfect.dacOutputVerified || hasAudioTrackEvidence) {
+                    PipelineRow(
+                        if (bitPerfect.dacOutputVerified) "Bit-exact to DAC" else "Bit-exact to AudioTrack",
+                        bitExactVerdict(
+                            dsd = dsdRateHz != null,
+                            bitPerfect = bitPerfect,
+                            outputExact = outputStatus.outputExact,
+                            outputExactDetail = outputStatus.outputExactDetail,
+                            decodedRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
+                            outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
+                            channelChanged = channelChanged,
+                            loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
+                            eqActive = eqEnabled,
+                            spatialActive = spatialAudio,
+                        ),
+                    )
+                }
             }
 
             // 5. Output Device Stage
@@ -515,9 +527,15 @@ fun AudioPipelineDialog(
                 else -> null
             }
             val audioTrackRate = outputStatus.actualSampleRateHz
+            val appChannels = when (outputStatus.actualChannelCount) {
+                1 -> stringResource(R.string.mono)
+                2 -> stringResource(R.string.stereo)
+                null -> null
+                else -> "${outputStatus.actualChannelCount} ch"
+            }
             val audioTrackText = when {
                 audioTrackEncoding != null && audioTrackRate != null ->
-                    "$audioTrackEncoding / ${rateText(audioTrackRate)}"
+                    listOfNotNull(audioTrackEncoding, rateText(audioTrackRate), appChannels).joinToString(" / ")
                 audioTrackEncoding != null -> audioTrackEncoding
                 audioTrackRate != null -> rateText(audioTrackRate)
                 else -> "—"
@@ -532,46 +550,43 @@ fun AudioPipelineDialog(
                 stageActivationProvider = stageActivation,
                 onStageIconPositioned = onStageIconPositioned,
             ) {
-                PipelineRow(stringResource(R.string.pipeline_device_name), deviceName)
-                PipelineRow("Route", outputStatus.routeKind.name)
-                PipelineRow("Transport", bitPerfect.driver.takeIf { bitPerfect.active } ?: outputStatus.transportType.label)
-
-                val directStatusText = when {
-                    bitPerfect.active ->
-                        "Active (${bitPerfect.driver}, bypasses mixer)"
-                    outputStatus.directPlaybackActual ->
-                        "Active (Direct AudioTrack, Bypasses Mixer)"
-                    outputStatus.directPlaybackRejected ->
-                        "Rejected"
-                    outputStatus.directPlaybackSupported ->
-                        "Supported (Framework Mixed)"
-                    else ->
-                        "Not Supported (Mixed Path)"
-                }
-                PipelineRow("Direct", directStatusText)
-                PipelineRow(
-                    if (bitPerfect.active) "Output" else "AudioTrack",
-                    if (bitPerfect.active) "PCM${bitPerfect.outputBits} / ${rateText(bitPerfect.sampleRateHz)}" else audioTrackText,
-                )
-
-                val mixerText = when {
-                    bitPerfect.active ->
-                        if (bitPerfect.dacLimited) "Bypassed (DAC max)" else "Bypassed (bit-perfect)"
-                    outputStatus.directPlaybackActual ->
-                        "Direct path active; endpoint format not independently verified"
-                    outputStatus.systemMixerRateHz != null -> {
-                        val hal = outputStatus.halFormat
-                        val mixerRate = outputStatus.systemMixerRateHz?.let(::rateText)
-                        if (hal != null) {
-                            "AudioFlinger Mixer $mixerRate, HAL $hal"
-                        } else {
-                            "AudioFlinger Mixer $mixerRate"
-                        }
+                PipelineRow(stringResource(R.string.pipeline_device_name), bitPerfect.deviceName ?: deviceName)
+                PipelineRow("Route", if (bitPerfect.dacOutputVerified) "USB" else outputStatus.routeKind.name)
+                if (bitPerfect.dacOutputVerified) {
+                    PipelineRow("Transport", bitPerfect.driver ?: "Direct USB")
+                    val channelText = when (bitPerfect.channelCount) {
+                        1 -> stringResource(R.string.mono)
+                        2 -> stringResource(R.string.stereo)
+                        else -> "${bitPerfect.channelCount} ch"
                     }
-                    else -> null
+                    PipelineRow("Decoded PCM", "${bitPerfect.sourceBits}-bit / ${rateText(bitPerfect.sourceRateHz)} / $channelText")
+                    val precision = when {
+                        bitPerfect.validOutputBits < bitPerfect.sourceBits ->
+                            "${bitPerfect.validOutputBits}-bit precision in ${bitPerfect.outputBits}-bit PCM"
+                        bitPerfect.sourceBits < bitPerfect.outputBits && bitPerfect.exact ->
+                            "${bitPerfect.sourceBits}-bit samples in ${bitPerfect.outputBits}-bit PCM"
+                        else -> "${bitPerfect.outputBits}-bit PCM"
+                    }
+                    PipelineRow("Active DAC output", "$precision / ${rateText(bitPerfect.sampleRateHz)} / $channelText")
+                    val changes = buildList {
+                        if (bitPerfect.sourceRateHz != bitPerfect.sampleRateHz) {
+                            add("Resampled ${rateText(bitPerfect.sourceRateHz)} → ${rateText(bitPerfect.sampleRateHz)}")
+                        }
+                        if (bitPerfect.sourceBits > bitPerfect.validOutputBits) {
+                            add("Reduced ${bitPerfect.sourceBits} → ${bitPerfect.validOutputBits} bit")
+                        }
+                        if (isEmpty() && !bitPerfect.exact) add("PCM samples changed in the USB output path")
+                    }
+                    if (changes.isNotEmpty()) PipelineRow("Changes", changes.joinToString(" · "))
+                } else if (!bitPerfect.active && audioTrackEncoding != null && audioTrackRate != null) {
+                    PipelineRow("AudioTrack", audioTrackText)
                 }
-                mixerText?.let {
-                    PipelineRow("System", it)
+                if (bitPerfect.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE) {
+                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_no_profiles))
+                } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH) {
+                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_format_mismatch))
+                } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED) {
+                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_request_failed))
                 }
 
                 outputStatus.usbEndpointFormat?.let {
@@ -593,9 +608,8 @@ fun AudioPipelineDialog(
                     }
                 }
 
-                if (outputStatus.fallbackReason != com.music.bitchord.playback.audio.FallbackReason.NONE) {
-                    val fallbackText = outputStatus.fallbackDetail ?: outputStatus.fallbackReason.label
-                    PipelineRow("Fallback", fallbackText)
+                if (!bitPerfect.active && outputStatus.floatFallback && audioTrackEncoding == "PCM16") {
+                    PipelineRow("Output precision", "32-bit float requested · 16-bit PCM active")
                 }
             }
         }
@@ -900,7 +914,7 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = animatedScore.roundToInt().toString(),
+                        text = animatedScore.roundToInt().coerceAtMost(if (assessment.bitPerfectVerified) 100 else 99).toString(),
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontSize = 26.sp,
                             fontWeight = FontWeight.W700,

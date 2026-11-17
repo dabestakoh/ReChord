@@ -72,6 +72,9 @@ internal object BitPerfectOutput {
         val deviceName: String? = null,
         val sampleRateHz: Int = 0,
         val outputBits: Int = 0,
+        val channelCount: Int = 0,
+        val validOutputBits: Int = 0,
+        val dacOutputVerified: Boolean = false,
         val sourceBits: Int = 0,
         val sourceRateHz: Int = 0,
         /** False once any sample of the current track had to be rounded. */

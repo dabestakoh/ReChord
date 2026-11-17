@@ -56,6 +56,7 @@ fun AudioQuality.permits(kind: SourceKind): Boolean = when (this) {
  * output device, which is why the player exposes the negotiated format.
  */
 enum class OutputPcmMode(val label: String) {
+    AUTO("Auto"),
     PCM_16("16-bit PCM"),
     FLOAT_32("32-bit float"),
 }
@@ -281,7 +282,7 @@ object AppSettings {
     val skipSilence = MutableStateFlow(false)
 
     /** Requested PCM representation at the Android AudioTrack boundary. */
-    val outputPcmMode = MutableStateFlow(OutputPcmMode.PCM_16)
+    val outputPcmMode = MutableStateFlow(OutputPcmMode.AUTO)
 
     /** Prefer an attached USB audio output over the system's normal route. */
     val preferUsbDac = MutableStateFlow(true)
@@ -982,10 +983,10 @@ object AppSettings {
         skipSilence.value = prefs.getBoolean(KEY_SKIP_SILENCE, false)
         outputPcmMode.value = runCatching {
             OutputPcmMode.valueOf(
-                prefs.getString(KEY_OUTPUT_PCM_MODE, OutputPcmMode.PCM_16.name)
-                    ?: OutputPcmMode.PCM_16.name,
+                prefs.getString(KEY_OUTPUT_PCM_MODE, OutputPcmMode.AUTO.name)
+                    ?: OutputPcmMode.AUTO.name,
             )
-        }.getOrDefault(OutputPcmMode.PCM_16)
+        }.getOrDefault(OutputPcmMode.AUTO)
         preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, true)
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
