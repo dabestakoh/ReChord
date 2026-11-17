@@ -46,6 +46,7 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
@@ -7122,6 +7123,12 @@ class PlaybackService : MediaLibraryService() {
         transition: TransitionFilterProcessor,
         loudness: LoudnessProcessor,
     ) = object : FfmpegFallbackRenderersFactory(this) {
+        private var rendererSourceFormat: Format? = null
+
+        override fun onSourceFormat(format: Format) {
+            rendererSourceFormat = format
+        }
+
         init {
             // Do not force PCM_FLOAT onto an OEM speaker mixer merely because
             // the preference asks for it. The selected route must advertise
@@ -7214,7 +7221,7 @@ class PlaybackService : MediaLibraryService() {
                             config.timeline.getPeriod(period, Timeline.Period()).windowIndex, Timeline.Window(),
                         ).mediaItem.mediaId
                     }
-                    val source = measuredOutputSource?.takeIf { it.first == mediaId }?.second
+                    val source = rendererSourceFormat ?: measuredOutputSource?.takeIf { it.first == mediaId }?.second
                     resolvePreferredOutputEncoding(config.format, source)
                 },
                 // Which of the two sinks the listener can hear, told by the
@@ -7351,8 +7358,8 @@ class PlaybackService : MediaLibraryService() {
             ?: measuredInput.channels?.takeIf { it > 0 }
             ?: lastReportedChannelCount()
             ?: 2
-        val bitDepth = measuredFormat.bitDepth
-            ?: measuredInput.bitDepth
+        val bitDepth = measuredInput.bitDepth
+            ?: measuredFormat.bitDepth
             ?: when (inputFormat.pcmEncoding) {
             C.ENCODING_PCM_32BIT -> 32
             C.ENCODING_PCM_24BIT -> 24
@@ -10185,6 +10192,9 @@ class PlaybackService : MediaLibraryService() {
  * same decoder, or the proof is of something else.
  */
 private open class FfmpegFallbackRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+    protected open fun onSourceFormat(format: Format) = Unit
+
+
     override fun buildAudioRenderers(
         context: Context,
         extensionRendererMode: Int,
@@ -10195,6 +10205,7 @@ private open class FfmpegFallbackRenderersFactory(context: Context) : DefaultRen
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
+        val first = out.size
         super.buildAudioRenderers(
             context,
             extensionRendererMode,
@@ -10205,6 +10216,20 @@ private open class FfmpegFallbackRenderersFactory(context: Context) : DefaultRen
             eventListener,
             out,
         )
+        val platform = (first until out.size).firstOrNull { out[it] is MediaCodecAudioRenderer }
+        if (platform != null) {
+            out[platform] = object : MediaCodecAudioRenderer(
+                context, withoutPlatformAlac(mediaCodecSelector), enableDecoderFallback,
+                eventHandler, eventListener, audioSink,
+            ) {
+                override fun onOutputFormatChanged(format: Format, mediaFormat: android.media.MediaFormat?) {
+                    // This executes on the playback thread before the decoded sink
+                    // is configured, including when the decoder is reused.
+                    onSourceFormat(format)
+                    super.onOutputFormatChanged(format, mediaFormat)
+                }
+            }
+        }
         out.add(FfmpegAudioRenderer(eventHandler, eventListener, audioSink))
     }
 }
