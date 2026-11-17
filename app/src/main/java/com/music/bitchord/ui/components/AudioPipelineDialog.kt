@@ -580,7 +580,7 @@ fun AudioPipelineDialog(
                     PipelineRow("AudioTrack", audioTrackText)
                 }
                 if (bitPerfect.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE) {
-                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_no_profiles))
+                    PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.usb_standard_android))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH) {
                     PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_format_mismatch))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED) {

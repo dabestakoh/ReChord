@@ -561,6 +561,42 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
+    fun failedOpenWaitsForAndroidBeforeConsumingTheFallbackBuffer() {
+        val outputs = FakeOutputs().apply { failOpen = true; pendingNormal = true }
+        val normal = RecordingSink()
+        val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
+        router.configure(config(format()))
+        router.play()
+        val input = pcm16(10)
+        assertFalse(router.handleBuffer(input, 0, 1))
+        assertEquals(0, normal.buffers)
+        assertEquals(0, input.position())
+        assertFalse(router.isBitPerfect)
+        outputs.pendingNormal = false
+        assertTrue(router.handleBuffer(input, 0, 1))
+        assertEquals(1, normal.buffers)
+        assertTrue(normal.played)
+    }
+
+    @Test
+    fun failedWriteWaitsForAndroidBeforeHandingOverTheNextBuffer() {
+        val outputs = FakeOutputs()
+        val normal = RecordingSink()
+        val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
+        router.configure(config(format()))
+        router.play()
+        assertTrue(router.handleBuffer(pcm16(10), 0, 1))
+        outputs.opened.single().failOnWrite = true
+        outputs.pendingNormal = true
+        val input = pcm16(10)
+        assertFalse(router.handleBuffer(input, 1_000, 1))
+        assertEquals(0, normal.buffers)
+        outputs.pendingNormal = false
+        assertTrue(router.handleBuffer(input, 1_000, 1))
+        assertEquals(1, normal.buffers)
+    }
+
+    @Test
     fun normalOutputWaitsWhileTheDacReturnsToAndroid() {
         val outputs = FakeOutputs().apply { available = false; pendingNormal = true }
         val normal = RecordingSink()

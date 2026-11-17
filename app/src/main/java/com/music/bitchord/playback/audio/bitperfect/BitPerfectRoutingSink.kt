@@ -97,23 +97,32 @@ internal class BitPerfectRoutingSink(
             if (playing) active.play()
         }
         if (active !== bitPerfect) {
-            // Straight after direct USB, until the DAC is an Android output again.
-            if (bitPerfect.holdsNormalOutput()) return false
-            if (reportNormalConfig) {
-                reportNormalConfig = false
-                lastConfig?.format?.let(bitPerfect::reportAndroidMixerFallback)
-            }
-            return active.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            return handleNormalBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         }
         return try {
             bitPerfect.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         } catch (error: AudioSink.InitializationException) {
             fallBack(error)
-            normal.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            handleNormalBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         } catch (error: AudioSink.WriteException) {
             fallBack(error)
-            normal.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+            handleNormalBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
         }
+    }
+
+    private fun handleNormalBuffer(
+        buffer: ByteBuffer,
+        presentationTimeUs: Long,
+        encodedAccessUnitCount: Int,
+    ): Boolean {
+        // Android must reclaim the USB interface before normal output starts,
+        // including the first buffer after an exclusive transport fails.
+        if (bitPerfect.holdsNormalOutput()) return false
+        if (reportNormalConfig) {
+            reportNormalConfig = false
+            lastConfig?.format?.let(bitPerfect::reportAndroidMixerFallback)
+        }
+        return normal.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
     }
 
     override fun playToEndOfStream() {

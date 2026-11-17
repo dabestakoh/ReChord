@@ -127,7 +127,8 @@ internal class MixerTransport private constructor(
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING || now < nextRouteCheck) return
         val routed = track.routedDevice
         if (routed == null && now < routeDeadline) return
-        if (routed?.id != device.id || manager.getPreferredMixerAttributes(ATTRIBUTES, device) != mixer) {
+        val preferred = runCatching { manager.getPreferredMixerAttributes(ATTRIBUTES, device) }.getOrNull()
+        if (routed?.id != device.id || preferred != mixer) {
             failure = BitPerfectOutput.ANDROID_MIXER_REJECTED
             throw BitPerfectTransportException(failure!!)
         }

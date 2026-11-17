@@ -1404,7 +1404,9 @@
     <string name="bit_perfect_mode_off_subtitle">音訊會經過 Android 的混音器和 ReChord 的音效。</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
     <string name="bit_perfect_mode_usb_android_request">當 Android 和 DAC 支援解碼後的 PCM 格式時，要求位元完美播放。</string>
-    <string name="bit_perfect_usb_no_profiles">Android 未為此 USB DAC 提供位元完美格式</string>
+    <string name="bit_perfect_usb_no_profiles">正在使用標準 Android USB 輸出</string>
+    <string name="usb_standard_android">標準 Android USB</string>
+    <string name="pipeline_usb_mode">USB 模式</string>
     <string name="bit_perfect_usb_format_mismatch">沒有與此曲目相符的 Android 位元完美格式</string>
     <string name="bit_perfect_usb_request_failed">Android 無法啟用位元完美 USB 輸出</string>
     <string name="bit_perfect_status_usb_waiting">正在等待 Android 確認支援的 USB 輸出</string>
