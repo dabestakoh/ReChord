@@ -1332,4 +1332,13 @@
     <string name="local_refresh_index">음악 라이브러리 새로고침</string>
     <string name="local_scan_running">음악 라이브러리 업데이트 중…</string>
     <string name="local_scan_unavailable">음악 소스를 사용할 수 없음 · 다시 시도</string>
+    <string name="home_featured_carousel">추천 캐러셀</string>
+    <string name="home_show_carousel">캐러셀 표시</string>
+    <string name="home_continue_listening">이어서 듣기</string>
+    <string name="home_new_from_artists">즐겨 듣는 아티스트의 신곡</string>
+    <string name="home_song_recommendations">추천 곡</string>
+    <string name="home_artist_recommendations">추천 아티스트</string>
+    <string name="home_shelves">홈 섹션</string>
+    <string name="home_recently_played">최근 재생</string>
+    <string name="home_trending">인기 급상승</string>
 </resources>

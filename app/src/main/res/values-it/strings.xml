@@ -1421,4 +1421,13 @@
     <string name="local_refresh_index">Aggiorna la libreria musicale</string>
     <string name="local_scan_running">Aggiornamento della libreria musicale…</string>
     <string name="local_scan_unavailable">Sorgente musicale non disponibile · Riprova</string>
+    <string name="home_featured_carousel">Carosello in evidenza</string>
+    <string name="home_show_carousel">Mostra il carosello</string>
+    <string name="home_continue_listening">Continua ad ascoltare</string>
+    <string name="home_new_from_artists">Novità dai tuoi artisti</string>
+    <string name="home_song_recommendations">Brani consigliati</string>
+    <string name="home_artist_recommendations">Artisti consigliati</string>
+    <string name="home_shelves">Sezioni della Home</string>
+    <string name="home_recently_played">Ascoltati di recente</string>
+    <string name="home_trending">Di tendenza</string>
 </resources>

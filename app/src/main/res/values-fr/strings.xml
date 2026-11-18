@@ -1483,4 +1483,13 @@
     <string name="local_refresh_index">Actualiser la bibliothèque musicale</string>
     <string name="local_scan_running">Mise à jour de la bibliothèque musicale…</string>
     <string name="local_scan_unavailable">Source musicale indisponible · Réessayer</string>
+    <string name="home_featured_carousel">Carrousel à la une</string>
+    <string name="home_show_carousel">Afficher le carrousel</string>
+    <string name="home_continue_listening">Continuer à écouter</string>
+    <string name="home_new_from_artists">Nouveautés de vos artistes</string>
+    <string name="home_song_recommendations">Titres recommandés</string>
+    <string name="home_artist_recommendations">Artistes recommandés</string>
+    <string name="home_shelves">Sections de l’accueil</string>
+    <string name="home_recently_played">Écoutés récemment</string>
+    <string name="home_trending">Tendances</string>
 </resources>

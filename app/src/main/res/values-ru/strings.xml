@@ -1514,4 +1514,13 @@
     <string name="local_refresh_index">Обновить музыкальную библиотеку</string>
     <string name="local_scan_running">Обновление музыкальной библиотеки…</string>
     <string name="local_scan_unavailable">Источник музыки недоступен · Повторить</string>
+    <string name="home_featured_carousel">Карусель рекомендаций</string>
+    <string name="home_show_carousel">Показывать карусель</string>
+    <string name="home_continue_listening">Продолжить прослушивание</string>
+    <string name="home_new_from_artists">Новинки от ваших исполнителей</string>
+    <string name="home_song_recommendations">Рекомендуемые треки</string>
+    <string name="home_artist_recommendations">Рекомендуемые исполнители</string>
+    <string name="home_shelves">Разделы главной страницы</string>
+    <string name="home_recently_played">Недавно прослушанные</string>
+    <string name="home_trending">В тренде</string>
 </resources>

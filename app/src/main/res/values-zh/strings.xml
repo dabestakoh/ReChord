@@ -1459,4 +1459,13 @@
     <string name="local_refresh_index">刷新音乐库</string>
     <string name="local_scan_running">正在更新音乐库…</string>
     <string name="local_scan_unavailable">音乐来源不可用 · 重试</string>
+    <string name="home_featured_carousel">精选轮播</string>
+    <string name="home_show_carousel">显示轮播</string>
+    <string name="home_continue_listening">继续收听</string>
+    <string name="home_new_from_artists">常听艺人的新作品</string>
+    <string name="home_song_recommendations">歌曲推荐</string>
+    <string name="home_artist_recommendations">艺人推荐</string>
+    <string name="home_shelves">首页栏目</string>
+    <string name="home_recently_played">最近播放</string>
+    <string name="home_trending">热门趋势</string>
 </resources>

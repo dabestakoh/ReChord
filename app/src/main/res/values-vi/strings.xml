@@ -1399,4 +1399,13 @@
     <string name="local_refresh_index">Làm mới thư viện nhạc</string>
     <string name="local_scan_running">Đang cập nhật thư viện nhạc…</string>
     <string name="local_scan_unavailable">Nguồn nhạc không khả dụng · Thử lại</string>
+    <string name="home_featured_carousel">Băng chuyền nổi bật</string>
+    <string name="home_show_carousel">Hiện băng chuyền</string>
+    <string name="home_continue_listening">Nghe tiếp</string>
+    <string name="home_new_from_artists">Nhạc mới từ nghệ sĩ bạn nghe</string>
+    <string name="home_song_recommendations">Bài hát đề xuất</string>
+    <string name="home_artist_recommendations">Nghệ sĩ đề xuất</string>
+    <string name="home_shelves">Các mục trên Trang chủ</string>
+    <string name="home_recently_played">Đã phát gần đây</string>
+    <string name="home_trending">Thịnh hành</string>
 </resources>

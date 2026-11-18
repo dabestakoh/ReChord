@@ -1482,4 +1482,13 @@
     <string name="local_refresh_index">Musikbibliothek aktualisieren</string>
     <string name="local_scan_running">Musikbibliothek wird aktualisiert…</string>
     <string name="local_scan_unavailable">Musikquelle nicht verfügbar · Erneut versuchen</string>
+    <string name="home_featured_carousel">Empfohlene Inhalte</string>
+    <string name="home_show_carousel">Karussell anzeigen</string>
+    <string name="home_continue_listening">Weiterhören</string>
+    <string name="home_new_from_artists">Neues von deinen Künstlern</string>
+    <string name="home_song_recommendations">Songempfehlungen</string>
+    <string name="home_artist_recommendations">Künstlerempfehlungen</string>
+    <string name="home_shelves">Startseitenbereiche</string>
+    <string name="home_recently_played">Kürzlich gehört</string>
+    <string name="home_trending">Im Trend</string>
 </resources>
