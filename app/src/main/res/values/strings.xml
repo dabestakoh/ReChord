@@ -1099,6 +1099,11 @@
     <string name="bit_perfect_status_dac_limited">%1$s · %2$s kHz · %3$d-bit · DAC max, converted from this track\'s format</string>
     <string name="bit_perfect_status_inexact">%1$s · not exact: this source isn\'t lossless PCM</string>
     <string name="bit_perfect_status_waiting">Waiting for a lossless track on a supported output</string>
+    <string name="bit_perfect_standard_output">Standard audio output</string>
+    <string name="local_album_artists">Album Artists</string>
+    <string name="local_recently_added">Recently Added</string>
+    <string name="local_existing_library">Existing library</string>
+    <string name="local_singles_other">Singles &amp; Other tracks</string>
     <string name="bit_perfect_status_unavailable">Not available for this track (%1$s)</string>
 
     <string name="loudness_normalization">Loudness normalization</string>
@@ -1344,4 +1349,7 @@
     <string name="playlist_link_track_count" translatable="false">%1$d tracks ready to import</string>
     <string name="playlist_link_partial" translatable="false">The source may only expose part of this playlist.</string>
     <string name="playlist_link_preview" translatable="false">Preview</string>
+    <string name="local_refresh_index">Refresh music library</string>
+    <string name="local_scan_running">Updating music library…</string>
+    <string name="local_scan_unavailable">Music source unavailable · Retry</string>
 </resources>

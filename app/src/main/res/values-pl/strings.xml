@@ -1514,4 +1514,12 @@
     <string name="usb_software_volume">Programowa głośność USB</string>
     <string name="usb_software_volume_subtitle">Użyj głośności aplikacji, gdy regulacja sprzętowa jest niedostępna</string>
     <string name="usb_volume_fixed_permission">Zezwól na stałą głośność w trybie awaryjnym</string>
+    <string name="bit_perfect_standard_output">Standardowe wyjście audio</string>
+    <string name="local_album_artists">Wykonawcy albumów</string>
+    <string name="local_recently_added">Ostatnio dodane</string>
+    <string name="local_existing_library">Istniejąca biblioteka</string>
+    <string name="local_singles_other">Single i inne utwory</string>
+    <string name="local_refresh_index">Odśwież bibliotekę muzyczną</string>
+    <string name="local_scan_running">Aktualizowanie biblioteki muzycznej…</string>
+    <string name="local_scan_unavailable">Źródło muzyki niedostępne · Spróbuj ponownie</string>
 </resources>

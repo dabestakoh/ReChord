@@ -278,6 +278,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
                 // Covers filed on the SMB share; anything else falls
                 // through to Coil's own fetchers. See SmbCoverFetcher.
                 add(SmbCoverFetcher.Factory())
+                add(com.music.bitchord.data.LocalArtwork.Factory(context))
                 // Artist signatures are usually SVG, which Coil can't
                 // decode without this. See ArtistSignatureRepository.
                 add(SvgDecoder.Factory())

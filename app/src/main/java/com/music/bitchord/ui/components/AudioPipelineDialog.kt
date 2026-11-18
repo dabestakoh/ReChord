@@ -295,6 +295,8 @@ fun AudioPipelineDialog(
 
             // Fidelity is a diagnostic score for the active output path, not a
             // measurement of the source recording's sound quality.
+            val audioTrackMatchesSource = nerdStats?.mediaId?.let { it == outputStatus.audioTrackMediaId } == true
+            val comparableAudioTrackRate = outputStatus.actualSampleRateHz.takeIf { audioTrackMatchesSource }
             val fidelity = AudioFidelity.assess(
                 AudioFidelity.Inputs(
                     routeKind = outputStatus.routeKind,
@@ -309,7 +311,7 @@ fun AudioPipelineDialog(
                     outputExact = !bitPerfect.active && outputStatus.outputExact,
                     // reset() clears the exactness detail while a new decoder/sink
                     // is being configured. Unknown is not proof of PCM loss.
-                    outputExactKnown = !bitPerfect.active &&
+                    outputExactKnown = !bitPerfect.active && audioTrackMatchesSource &&
                         outputStatus.outputExactDetail != null,
                     dspAvailable = outputStatus.dspAvailable,
                     // BitPerfectAudioSink routes decoded PCM around PrecisionAudioSink's
@@ -320,7 +322,7 @@ fun AudioPipelineDialog(
                     spatialActive = spatialAudio,
                     dsd = dsdRateHz != null,
                     sourceRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
-                    outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
+                    outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else comparableAudioTrackRate,
                 ),
             )
             FidelitySummary(fidelity)
@@ -371,11 +373,11 @@ fun AudioPipelineDialog(
             // step that actually changes the rate, so it is described
             // as what it is rather than as a resample, and its output
             // side is the PCM it produced, not the DSD rate.
-            val inRate = dsdRateHz ?: nerdStats?.sampleRateHz
+            val inRate = dsdRateHz ?: if (bitPerfect.active) bitPerfect.sourceRateHz else nerdStats?.sampleRateHz
             val outRate = when {
                 dsdRateHz != null -> DsdFormat.PCM_RATE
                 bitPerfect.active -> bitPerfect.sampleRateHz
-                else -> outputStatus.actualSampleRateHz
+                else -> comparableAudioTrackRate
             }
             val isPassthrough = inRate != null && outRate != null && inRate == outRate
             val ioRateText = if (inRate != null && outRate != null) {
@@ -419,7 +421,7 @@ fun AudioPipelineDialog(
 
             // 4. DSP Stage
             val pcmFormat = outputStatus.dspFormat
-            val dspRate = outputStatus.actualSampleRateHz ?: pcmRateHz
+            val dspRate = comparableAudioTrackRate ?: pcmRateHz
             val dspRateText = dspRate?.let(::rateText) ?: "—"
             val eqPresetText = if (eqEnabled) {
                 eqPreset.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
@@ -428,7 +430,7 @@ fun AudioPipelineDialog(
             }
             val stereoExpandText = if (spatialAudio) "250%" else "100%"
             val buffersText = outputStatus.bufferSize?.let { size ->
-                val rate = outputStatus.actualSampleRateHz
+                val rate = comparableAudioTrackRate
                 val bytesPerSample = when (outputStatus.actualEncoding) {
                     AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_32BIT -> 4
                     AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
@@ -493,7 +495,7 @@ fun AudioPipelineDialog(
                 val channelChanged = outputStatus.actualChannelCount?.let { count ->
                     nerdStats?.channels?.let { it != count }
                 } == true
-                val hasAudioTrackEvidence = !bitPerfect.active &&
+                val hasAudioTrackEvidence = !bitPerfect.active && audioTrackMatchesSource &&
                     outputStatus.actualEncoding != null && outputStatus.actualSampleRateHz != null &&
                     outputStatus.outputExactDetail != null
                 if (bitPerfect.dacOutputVerified || hasAudioTrackEvidence) {
@@ -505,7 +507,7 @@ fun AudioPipelineDialog(
                             outputExact = outputStatus.outputExact,
                             outputExactDetail = outputStatus.outputExactDetail,
                             decodedRateHz = if (bitPerfect.active) bitPerfect.sourceRateHz else pcmRateHz,
-                            outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else outputStatus.actualSampleRateHz,
+                            outputRateHz = if (bitPerfect.active) bitPerfect.sampleRateHz else comparableAudioTrackRate,
                             channelChanged = channelChanged,
                             loudnessActive = loudnessNormalization && outputStatus.loudnessGainDb != null,
                             eqActive = eqEnabled,
@@ -517,14 +519,14 @@ fun AudioPipelineDialog(
 
             // 5. Output Device Stage
             val deviceName = outputStatus.deviceName.ifBlank { "System default" }
-            val audioTrackEncoding = when (outputStatus.actualEncoding) {
+            val audioTrackEncoding = when (outputStatus.actualEncoding.takeIf { audioTrackMatchesSource }) {
                 AudioFormat.ENCODING_PCM_FLOAT -> "Float32"
                 AudioFormat.ENCODING_PCM_24BIT_PACKED -> "PCM24"
                 AudioFormat.ENCODING_PCM_32BIT -> "PCM32"
                 AudioFormat.ENCODING_PCM_16BIT -> "PCM16"
                 else -> null
             }
-            val audioTrackRate = outputStatus.actualSampleRateHz
+            val audioTrackRate = comparableAudioTrackRate
             val appChannels = when (outputStatus.actualChannelCount) {
                 1 -> stringResource(R.string.mono)
                 2 -> stringResource(R.string.stereo)

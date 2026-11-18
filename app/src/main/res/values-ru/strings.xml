@@ -1506,4 +1506,12 @@
     <string name="usb_software_volume">Программная громкость USB</string>
     <string name="usb_software_volume_subtitle">Использовать громкость приложения, если аппаратная регулировка недоступна</string>
     <string name="usb_volume_fixed_permission">Разрешить переход на фиксированную громкость</string>
+    <string name="bit_perfect_standard_output">Стандартный аудиовыход</string>
+    <string name="local_album_artists">Исполнители альбомов</string>
+    <string name="local_recently_added">Недавно добавленные</string>
+    <string name="local_existing_library">Существующая медиатека</string>
+    <string name="local_singles_other">Синглы и другие треки</string>
+    <string name="local_refresh_index">Обновить музыкальную библиотеку</string>
+    <string name="local_scan_running">Обновление музыкальной библиотеки…</string>
+    <string name="local_scan_unavailable">Источник музыки недоступен · Повторить</string>
 </resources>

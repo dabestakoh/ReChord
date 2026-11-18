@@ -3141,6 +3141,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _detailStack.value = _detailStack.value.map { if (it.browseId == browseId) it.copy(title = title) else it }
     }
 
+    private var localRefresh: kotlinx.coroutines.Job? = null
+    private var localRefreshPending = false
+
+    fun refreshLocalLibrary() {
+        localRefreshPending = true
+        if (localRefresh?.isActive == true) return
+        localRefresh = viewModelScope.launch {
+            val context = getApplication<Application>()
+            while (localRefreshPending) {
+                localRefreshPending = false
+                val songs = com.music.bitchord.data.LocalLibraryIndex.refresh(context)
+                if (_librarySongs.value is UiState.Success || songs.isNotEmpty()) {
+                    _librarySongs.value = UiState.Success(songs)
+                }
+                _detailStack.value = _detailStack.value.map { page ->
+                    when {
+                        page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
+                        LocalGroups.folderOf(page.browseId) == "local:all" ->
+                            page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
+                        else -> page
+                    }
+                }
+            }
+        }
+    }
+
     fun reloadLocalDetail(browseId: String) {
         viewModelScope.launch {
             val state = localPageState(browseId) ?: return@launch
@@ -3170,7 +3196,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // A playlist deleted while its page was still reachable — from
             // "Playing from", say — is an empty page, not a YouTube lookup.
             val playlist = OfflinePlaylists.get(browseId) ?: return UiState.Error(text(R.string.no_tracks_here))
-            return nonEmpty(LocalMediaRepository.present(context, playlist.songs)) {
+            val indexed = LocalMediaRepository.getLocalMusic(context).associateBy { it.localUri }
+            val present = LocalMediaRepository.present(context, playlist.songs)
+            return nonEmpty(present.map { song ->
+                indexed[song.localUri]?.let { row ->
+                    song.copy(thumbnailUrl = row.thumbnailUrl, localAlbumArtist = row.localAlbumArtist,
+                        localDiscNumber = row.localDiscNumber, localAlbumArtwork = row.localAlbumArtwork)
+                } ?: song
+            }) {
                 text(if (playlist.isLiked) R.string.offline_liked_empty else R.string.offline_playlist_empty)
             }
         }
@@ -3194,10 +3227,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             browseId == "local:downloads" ->
                 nonEmpty(Downloads.getDownloadedSongs(context)) { "No downloaded tracks" }
             browseId == CACHE_FOLDER_BROWSE_ID -> cachedSongsState()
-            browseId == "local:all" -> if (!LocalMediaRepository.hasStoragePermission(context)) {
-                UiState.Error(text(R.string.storage_required_read))
-            } else {
-                nonEmpty(LocalMediaRepository.getLocalMusic(context)) { text(R.string.no_local_audio_found) }
+            browseId == "local:all" -> nonEmpty(LocalMediaRepository.getLocalMusic(context)) {
+                text(if (LocalMediaRepository.hasStoragePermission(context)) R.string.no_local_audio_found else R.string.storage_required_read)
             }
             else -> null
         }

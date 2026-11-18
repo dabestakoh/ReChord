@@ -559,7 +559,10 @@ private fun SongRowContent(
                         .matchParentSize()
                         .clip(RoundedCornerShape(8.dp))
                         .thumbnailBorder(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .background(
+                            if (song.localUri != null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                        ),
                 )
                 if (searchPlayingStyle && isCurrent && isPlaying) {
                     SearchPlayingBars(Modifier.align(Alignment.Center))

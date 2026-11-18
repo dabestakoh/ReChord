@@ -1324,4 +1324,12 @@
     <string name="usb_software_volume">USB 소프트웨어 볼륨</string>
     <string name="usb_software_volume_subtitle">하드웨어 볼륨을 사용할 수 없으면 앱에서 볼륨 조절</string>
     <string name="usb_volume_fixed_permission">대체 방식으로 고정 볼륨 허용</string>
+    <string name="bit_perfect_standard_output">표준 오디오 출력</string>
+    <string name="local_album_artists">앨범 아티스트</string>
+    <string name="local_recently_added">최근 추가됨</string>
+    <string name="local_existing_library">기존 라이브러리</string>
+    <string name="local_singles_other">싱글 및 기타 곡</string>
+    <string name="local_refresh_index">음악 라이브러리 새로고침</string>
+    <string name="local_scan_running">음악 라이브러리 업데이트 중…</string>
+    <string name="local_scan_unavailable">음악 소스를 사용할 수 없음 · 다시 시도</string>
 </resources>

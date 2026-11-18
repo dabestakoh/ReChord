@@ -23,7 +23,7 @@ import com.music.bitchord.data.remote.RemoteArtworkStore
 @Composable
 fun rememberRemoteArtworkUrl(song: Song?): String? {
     val context = LocalContext.current
-    val key = song?.videoId
+    val key = song?.videoId to song?.thumbnailUrl
     var resolved by remember(key) { mutableStateOf(song?.thumbnailUrl) }
     LaunchedEffect(key) {
         if (song != null && song.thumbnailUrl == null &&

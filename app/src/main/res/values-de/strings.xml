@@ -1474,4 +1474,12 @@
     <string name="usb_software_volume">USB-Softwarelautstärke</string>
     <string name="usb_software_volume_subtitle">App-Lautstärke verwenden, wenn die Hardwarelautstärke nicht verfügbar ist</string>
     <string name="usb_volume_fixed_permission">Ausgabe mit fester Lautstärke erlauben</string>
+    <string name="bit_perfect_standard_output">Standard-Audioausgabe</string>
+    <string name="local_album_artists">Albuminterpreten</string>
+    <string name="local_recently_added">Kürzlich hinzugefügt</string>
+    <string name="local_existing_library">Vorhandene Mediathek</string>
+    <string name="local_singles_other">Singles und weitere Titel</string>
+    <string name="local_refresh_index">Musikbibliothek aktualisieren</string>
+    <string name="local_scan_running">Musikbibliothek wird aktualisiert…</string>
+    <string name="local_scan_unavailable">Musikquelle nicht verfügbar · Erneut versuchen</string>
 </resources>

@@ -126,6 +126,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.flow.collectLatest
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.music.bitchord.auth.DiscordLoginScreen
 import com.music.bitchord.auth.SpotifyLoginScreen
@@ -962,6 +964,16 @@ private fun BitChordApp(
         }
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.refreshLocalLibrary()
+        onPauseOrDispose { }
+    }
+    LaunchedEffect(viewModel) {
+        com.music.bitchord.data.LocalLibraryIndex.changes(context).collectLatest {
+            kotlinx.coroutines.delay(500)
+            viewModel.refreshLocalLibrary()
+        }
+    }
     val selectedChannelName by viewModel.selectedChannelName.collectAsStateWithLifecycle()
     val googleAccounts by viewModel.googleAccounts.collectAsStateWithLifecycle()
     val activeAccountId by viewModel.activeAccountId.collectAsStateWithLifecycle()
@@ -3178,7 +3190,8 @@ private fun BitChordApp(
                             // this same release page: the header any playlist has, then
                             // Songs / Artists / Albums under it. An album or artist
                             // picked there opens as a page of its own — see LocalGroups.
-                            val folder = if (page.browseId.isDeviceFolder()) {
+                            val localArtist = LocalGroups.isArtist(page.browseId) && LocalGroups.folderOf(page.browseId) == "local:all"
+                            val folder = if (page.browseId.isDeviceFolder() || localArtist) {
                                 val isDownloads = page.browseId == "local:downloads"
                                 val isCache = page.browseId == CACHE_FOLDER_BROWSE_ID
                                 // The whole device: the one folder that is an offline
@@ -3196,7 +3209,20 @@ private fun BitChordApp(
                                     if (isDownloads) Downloads.collectionsAmong(folderSongs) else emptyList()
                                 }
                                 LocalFolder(
-                                    state = localFolderStates.getOrPut(page.browseId) { LocalFolderState() },
+                                    state = localFolderStates.getOrPut(page.browseId) {
+                                        LocalFolderState().apply {
+                                            if (localArtist) tab = LocalFolderTab.ALBUMS
+                                            else if (isDevice) tab = context.getSharedPreferences("local_music_view", 0)
+                                                .getString("tab", null)?.let { name ->
+                                                    LocalFolderTab.DEVICE.firstOrNull { it.name == name }
+                                                } ?: LocalFolderTab.SONGS
+                                        }
+                                    }.also { state ->
+                                        if (isDevice) LaunchedEffect(state.tab) {
+                                            context.getSharedPreferences("local_music_view", 0).edit()
+                                                .putString("tab", state.tab.name).apply()
+                                        }
+                                    },
                                     sort = folderSortOf(page.browseId),
                                     viewType = folderViewTypeOf(page.browseId),
                                     collections = downloadCollections,
@@ -3233,9 +3259,14 @@ private fun BitChordApp(
                                     },
                                     onDownload = if (isCache) downloadFromCache else null,
                                     onRemoveFromCache = if (isCache) removeFromCache else null,
-                                    tabs = if (isDevice) LocalFolderTab.DEVICE else LocalFolderTab.BASIC,
+                                    tabs = when {
+                                        isDevice -> LocalFolderTab.DEVICE
+                                        localArtist -> listOf(LocalFolderTab.ALBUMS)
+                                        else -> LocalFolderTab.BASIC
+                                    },
                                     playlists = if (isDevice) offlinePlaylistGroups else emptyList(),
                                     onCreatePlaylist = if (isDevice) ({ creatingOfflinePlaylist = true }) else null,
+                                    onRefreshIndex = if (isDevice) viewModel::refreshLocalLibrary else null,
                                 )
                             } else {
                                 null
@@ -5600,12 +5631,21 @@ private fun BitChordApp(
             BackHandler { folderMenuOpen = false }
             val downloadsFolder = menuFolder == "local:downloads"
             val viewType = folderViewTypeOf(menuFolder)
+            val recentState = localFolderStates[menuFolder]?.takeIf { it.tab == LocalFolderTab.RECENTLY_ADDED }
             FrostedFolderMenu(
                 hazeState = hazeState,
-                sort = folderSortOf(menuFolder),
+                sort = recentState?.let {
+                    if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
+                } ?: folderSortOf(menuFolder),
+                recentlyAdded = recentState != null,
+                onRefresh = if (menuFolder == "local:all") ({
+                    folderMenuOpen = false
+                    viewModel.refreshLocalLibrary()
+                }) else null,
                 viewType = viewType,
                 onSort = { option ->
-                    if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
+                    if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+                    else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
                     else AppSettings.setLocalMusicSort(option)
                     folderMenuOpen = false
                 },
@@ -6153,6 +6193,8 @@ private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
+    recentlyAdded: Boolean,
+    onRefresh: (() -> Unit)?,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
     onDismiss: () -> Unit,
@@ -6170,11 +6212,25 @@ private fun FrostedFolderMenu(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
         )
-        LocalMusicSort.entries.forEach { option ->
+        val sorts = if (recentlyAdded) listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
+            else LocalMusicSort.entries
+        sorts.forEach { option ->
             FrostedMenuRow(
                 label = option.localizedLabel(),
                 checked = option == sort,
                 onClick = { onSort(option) },
+            )
+        }
+        onRefresh?.let { refresh ->
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 4.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            )
+            FrostedMenuRow(
+                label = stringResource(R.string.local_refresh_index),
+                checked = false,
+                onClick = refresh,
             )
         }
     }

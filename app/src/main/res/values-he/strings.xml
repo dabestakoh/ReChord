@@ -1479,4 +1479,12 @@
     <string name="usb_software_volume">עוצמת USB בתוכנה</string>
     <string name="usb_software_volume_subtitle">שימוש בעוצמת האפליקציה כשבקרת החומרה אינה זמינה</string>
     <string name="usb_volume_fixed_permission">אפשר עוצמת קול קבועה כגיבוי</string>
+    <string name="bit_perfect_standard_output">פלט שמע רגיל</string>
+    <string name="local_album_artists">אמני אלבומים</string>
+    <string name="local_recently_added">נוספו לאחרונה</string>
+    <string name="local_existing_library">ספרייה קיימת</string>
+    <string name="local_singles_other">סינגלים ורצועות נוספות</string>
+    <string name="local_refresh_index">רענון ספריית המוזיקה</string>
+    <string name="local_scan_running">ספריית המוזיקה מתעדכנת…</string>
+    <string name="local_scan_unavailable">מקור המוזיקה אינו זמין · ניסיון חוזר</string>
 </resources>
