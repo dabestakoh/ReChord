@@ -102,6 +102,7 @@ internal fun AudioOutputSheet(
     PlayerDrawer(
         hazeState = hazeState,
         title = stringResource(Res.string.audio_output),
+        maxHeight = androidx.compose.ui.unit.Dp.Unspecified,
         onDismiss = onDismiss,
         modifier = modifier,
     ) {

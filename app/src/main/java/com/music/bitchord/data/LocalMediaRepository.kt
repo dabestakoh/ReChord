@@ -203,6 +203,11 @@ object LocalMediaRepository {
      * Queries MediaStore for all audio files available on the device.
      */
     suspend fun getLocalMusic(context: Context): List<Song> = withContext(Dispatchers.IO) {
+        if (extraLocalMusic != null) return@withContext scanLocalMusic(context)
+        LocalLibraryIndex.get(context)
+    }
+
+    internal suspend fun scanLocalMusic(context: Context): List<Song> = withContext(Dispatchers.IO) {
         if (!hasStoragePermission(context)) {
             return@withContext extraLocalMusic?.invoke(context, emptyList()) ?: emptyList()
         }
@@ -250,14 +255,14 @@ object LocalMediaRepository {
         }
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
-        runCatching {
-            context.contentResolver.query(
+        run {
+            requireNotNull(context.contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                AUDIO_PROJECTION,
+                if (Build.VERSION.SDK_INT >= 30) AUDIO_PROJECTION else AUDIO_PROJECTION.dropLast(1).toTypedArray(),
                 selection,
                 selectionArgs,
                 sortOrder,
-            )?.use { cursor ->
+            )).use { cursor ->
                 val columns = AudioColumns(cursor)
                 // Parsed once for the scan rather than once per row.
                 val treeUri = AppSettings.localMusicFolderUri.value
@@ -273,7 +278,7 @@ object LocalMediaRepository {
                     songs.add(columns.song(cursor, videoIdByUri))
                 }
             }
-        }.onFailure { Log.w(TAG, "Failed scanning device local music: ${it.message}") }
+        }
 
         extraLocalMusic?.invoke(context, songs) ?: songs
     }
@@ -290,6 +295,7 @@ object LocalMediaRepository {
         MediaStore.Audio.Media.DATE_ADDED,
         MediaStore.Audio.Media.DATE_MODIFIED,
         MediaStore.Audio.Media.TRACK,
+        "album_artist",
     )
 
     /**
@@ -311,6 +317,7 @@ object LocalMediaRepository {
         val dateAdded = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
         val dateModified = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
         val track = cursor.getColumnIndex(MediaStore.Audio.Media.TRACK)
+        val albumArtist = cursor.getColumnIndex("album_artist")
 
         fun song(cursor: Cursor, videoIdByUri: Map<String, String>): Song {
             val rowId = cursor.getLong(id)
@@ -338,6 +345,8 @@ object LocalMediaRepository {
                 localDateAddedSeconds = cursor.getLong(dateAdded),
                 localDateModifiedSeconds = cursor.getLong(dateModified),
                 trackNumber = trackNumber,
+                localAlbumArtist = albumArtist.takeIf { it >= 0 }?.let { cursor.getString(it).cleanTag() },
+                localDiscNumber = track.takeIf { it >= 0 }?.let { cursor.getInt(it) / 1000 }?.takeIf { it > 0 },
             )
         }
     }
@@ -430,7 +439,7 @@ object LocalMediaRepository {
                 Triple(MediaStore.getMediaUri(context, uri) ?: return@runCatching null, null, null)
             else -> return@runCatching null
         }
-        resolver.query(target, AUDIO_PROJECTION, selection, args, null)?.use { cursor ->
+        resolver.query(target, if (Build.VERSION.SDK_INT >= 30) AUDIO_PROJECTION else AUDIO_PROJECTION.dropLast(1).toTypedArray(), selection, args, null)?.use { cursor ->
             if (!cursor.moveToFirst()) return@use null
             val videoIdByUri = Downloads.saved.value.entries.associate { (id, saved) -> saved to id }
             AudioColumns(cursor).song(cursor, videoIdByUri)
@@ -531,6 +540,8 @@ object LocalMediaRepository {
         var albumName: String? = null
         var durationText: String? = null
         var trackNumber: Int? = null
+        var albumArtist: String? = null
+        var discNumber: Int? = null
 
         runCatching {
             val retriever = MediaMetadataRetriever()
@@ -547,6 +558,8 @@ object LocalMediaRepository {
                 albumName = metaAlbum.cleanTag()
                 if (metaDur != null && metaDur > 0) durationText = formatDuration(metaDur)
                 trackNumber = trackNumberFromTag(metaTrack)
+                albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST).cleanTag()
+                discNumber = trackNumberFromTag(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER))
             } finally {
                 retriever.release()
             }
@@ -563,6 +576,8 @@ object LocalMediaRepository {
             localDateAddedSeconds = scanned?.dateAddedSeconds,
             localDateModifiedSeconds = scanned?.dateModifiedSeconds,
             trackNumber = trackNumber,
+            localAlbumArtist = albumArtist,
+            localDiscNumber = discNumber,
         )
     }
 

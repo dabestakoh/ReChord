@@ -131,6 +131,7 @@ import androidx.compose.material.icons.rounded.Album
 import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.OfflinePlaylists
 import com.music.bitchord.data.matchesSearch
+import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.data.sortedForLibrary
 import com.music.bitchord.data.useTrackTags
 import com.music.bitchord.ui.components.CoverPlaceholder
@@ -373,7 +374,9 @@ fun DetailScreen(
     val rawSongs = (page.songs as? UiState.Success)?.data.orEmpty()
     // A folder keeps its own sort — the one its top bar menu sets — rather
     // than the per-page one a release takes.
-    val folderSort = folder?.sort
+    val folderSort = if (folder != null && folder.state.tab == LocalFolderTab.RECENTLY_ADDED) {
+        if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
+    } else folder?.sort
     val songs = remember(rawSongs, songSort, folderSort) {
         if (folderSort != null) rawSongs.sortedForLibrary(folderSort) else rawSongs.sortedForDetail(songSort)
     }
@@ -564,7 +567,19 @@ fun DetailScreen(
                 val fullBleedSleeve = fullBleedArtwork && maxWidth <= maxHeight * FULL_BLEED_MAX_HEIGHT
                 // A folder's grid view: the same column count the Library's
                 // "Show all" grids reach at this width.
-                val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2).columns
+                val tab = folderState?.tab
+                val grouped = tab != null && tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED
+                val localPage = page.browseId == "local:all" ||
+                    com.music.bitchord.data.LocalGroups.folderOf(page.browseId) == "local:all" ||
+                    page.browseId.startsWith(com.music.bitchord.data.OfflinePlaylists.PREFIX)
+                val alphabetic = grouped || folderSort == LocalMusicSort.TITLE_ASC || folderSort == LocalMusicSort.TITLE_DESC ||
+                    (folderSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
+                val names = remember(alphabetic, grouped, folderGroups, queue) {
+                    if (!alphabetic) emptyList()
+                    else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
+                }
+                val gutter = if (localPage && names.size >= 20 && !isArtist && reorder == null) 22.dp else 0.dp
+                val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
 
                 // The artist photo is drawn behind the list rather than in it, so
                 // both need to agree on its height without being able to ask each
@@ -586,7 +601,7 @@ fun DetailScreen(
                     reorder(palette)
                 } else LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(end = gutter),
                     // The artist photo runs edge-to-edge up under the glass bar;
                     // a release header clears the bar itself, see [ReleaseHeader].
                     contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
@@ -891,6 +906,23 @@ fun DetailScreen(
             }
             if (isArtist) aboutItem()
         }
+
+                if (gutter > 0.dp) {
+                    val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
+                    val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
+                        (if ((folder?.tabs?.size ?: 0) > 1) 1 else 0) +
+                        (if (folder?.onRefreshIndex != null) 1 else 0) +
+                        (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0) +
+                        (if (tab == LocalFolderTab.RECENTLY_ADDED) 1 else 0) +
+                        (if (tab == LocalFolderTab.SONGS && query.isNotBlank()) folderGroups.size else 0)
+                    val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
+                    val positions = remember(names, start, columns) { localLetterPositions(names, start, columns) }
+                    LocalLetterIndex(
+                        positions, listState,
+                        Modifier.align(Alignment.CenterEnd).width(gutter)
+                            .padding(top = topBarContentPadding(), bottom = contentPadding.calculateBottomPadding()),
+                    )
+                }
 
                 if (folder != null && folderState != null && folderState.selecting) {
                     LocalFolderSelectionBar(

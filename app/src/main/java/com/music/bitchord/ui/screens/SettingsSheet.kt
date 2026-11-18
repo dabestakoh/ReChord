@@ -2313,6 +2313,7 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         stringResource(R.string.bit_perfect_usb_format_mismatch)
     mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED ->
         stringResource(R.string.bit_perfect_usb_request_failed)
+    mode == BitPerfectMode.DAP_EXCLUSIVE && status.fallbackReason != null -> stringResource(R.string.bit_perfect_standard_output)
     status.fallbackReason != null -> stringResource(R.string.bit_perfect_status_unavailable, status.fallbackReason)
     mode == BitPerfectMode.USB_ANDROID -> stringResource(R.string.bit_perfect_status_usb_waiting)
     else -> stringResource(R.string.bit_perfect_status_waiting)

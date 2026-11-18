@@ -49,6 +49,8 @@ object LocalGroups {
     const val PREFIX = "local:group:"
     private const val ALBUM = "album"
     private const val ARTIST = "artist"
+    private const val ALBUM_ARTIST = "album-artist"
+    private const val RELEASE = "release"
     private const val FOLDER = "folder"
 
     fun albumPageId(folderId: String, name: String): String = pageId(ALBUM, folderId, name)
@@ -64,7 +66,7 @@ object LocalGroups {
     private fun pageId(kind: String, folderId: String, name: String) =
         "$PREFIX$kind:${folderId.removePrefix("local:")}:$name"
 
-    private val KINDS = setOf(ALBUM, ARTIST, FOLDER)
+    private val KINDS = setOf(ALBUM, ARTIST, FOLDER, ALBUM_ARTIST, RELEASE)
 
     private class Parsed(val kind: String, val folderId: String, val name: String)
 
@@ -82,7 +84,7 @@ object LocalGroups {
     fun typeOf(browseId: String): BrowseType? =
         parse(browseId)?.let {
             when (it.kind) {
-                ALBUM -> BrowseType.ALBUM
+                ALBUM, RELEASE -> BrowseType.ALBUM
                 // A directory is a list somebody put together by hand, which is
                 // what a playlist is too — and it plays like one.
                 FOLDER -> BrowseType.PLAYLIST
@@ -90,7 +92,7 @@ object LocalGroups {
             }
         }
 
-    fun isArtist(browseId: String?): Boolean = parse(browseId)?.kind == ARTIST
+    fun isArtist(browseId: String?): Boolean = parse(browseId)?.kind in setOf(ARTIST, ALBUM_ARTIST)
 
     fun isDirectory(browseId: String?): Boolean = parse(browseId)?.kind == FOLDER
 
@@ -99,6 +101,8 @@ object LocalGroups {
         val group = parse(browseId) ?: return emptyList()
         return when (group.kind) {
             ALBUM -> folderSongs.filter { it.albumName == group.name }.sortedForAlbum()
+            RELEASE -> folderSongs.filter { it.releaseKey() == group.name }.sortedForAlbum()
+            ALBUM_ARTIST -> folderSongs.filter { it.albumCredit() == group.name }.sortedByTitle()
             FOLDER -> folderSongs.filter { it.directory() == group.name }.sortedByTitle()
             else -> folderSongs.filter { it.artist == group.name }.sortedByTitle()
         }
@@ -127,6 +131,7 @@ object LocalGroups {
         folderId: String,
         songs: List<Song>,
         collections: List<DownloadedCollection>,
+        singlesTitle: String? = null,
     ): List<LocalGroup> {
         val asked = collections.map { collection ->
             LocalGroup(
@@ -145,13 +150,16 @@ object LocalGroups {
         }
         val claimed = asked.mapTo(HashSet()) { it.title.lowercase(Locale.ROOT) }
         val derived = songs
-            .groupBy { it.albumName }
-            .mapNotNull { (name, group) ->
+            .groupBy { if (folderId == "local:all") it.releaseKey() else it.albumName }
+            .mapNotNull { (key, group) ->
+                val name = group.first().albumName ?: singlesTitle
                 // Null is every track that never said what release it was off,
                 // and there is no row to draw for "no album" — those are the
                 // Songs tab's and nothing else's.
                 if (name == null || name.lowercase(Locale.ROOT) in claimed) return@mapNotNull null
-                album(folderId, name, group)
+                album(folderId, name, group).let { album ->
+                    if (folderId == "local:all" && key != null) album.copy(browseId = pageId(RELEASE, folderId, key)) else album
+                }
             }
         return (asked + derived).sortedWith(
             compareByDescending<LocalGroup> { it.downloadId != null }
@@ -163,9 +171,11 @@ object LocalGroups {
      * The Artists tab, by name. No cover of their own: a track's sleeve is not
      * a picture of whoever made it, so the page opens on a placeholder.
      */
-    fun artistsOf(folderId: String, songs: List<Song>): List<LocalGroup> =
-        songs.groupBy { it.artist }
-            .map { (name, group) -> artist(folderId, name, group) }
+    fun artistsOf(folderId: String, songs: List<Song>, albumArtists: Boolean = false): List<LocalGroup> =
+        songs.groupBy { if (albumArtists) it.albumCredit() else it.artist }
+            .map { (name, group) -> artist(folderId, name, group).let {
+                if (albumArtists) it.copy(browseId = pageId(ALBUM_ARTIST, folderId, name)) else it
+            } }
             .sortedBy { it.title.lowercase(Locale.ROOT) }
 
     /**
@@ -196,6 +206,8 @@ object LocalGroups {
         val group = parse(browseId) ?: return null
         return when (group.kind) {
             ALBUM -> album(group.folderId, group.name, songs)
+            RELEASE -> album(group.folderId, songs.firstOrNull()?.albumName.orEmpty(), songs).copy(browseId = browseId)
+            ALBUM_ARTIST -> artist(group.folderId, group.name, songs).copy(browseId = browseId)
             FOLDER -> folder(group.folderId, group.name, songs)
             else -> artist(group.folderId, group.name, songs)
         }
@@ -204,8 +216,8 @@ object LocalGroups {
     private fun album(folderId: String, name: String, songs: List<Song>) = LocalGroup(
         browseId = albumPageId(folderId, name),
         title = name,
-        subtitle = songs.firstOrNull()?.artist.orEmpty(),
-        thumbnailUrl = songs.firstNotNullOfOrNull { it.thumbnailUrl },
+        subtitle = songs.firstOrNull()?.albumCredit().orEmpty(),
+        thumbnailUrl = songs.firstNotNullOfOrNull { it.localAlbumArtwork ?: it.thumbnailUrl },
         type = BrowseType.ALBUM,
         songs = songs.sortedForAlbum(),
     )
@@ -227,6 +239,18 @@ object LocalGroups {
         type = BrowseType.PLAYLIST,
         songs = songs.sortedByTitle(),
     )
+
+    private fun Song.albumCredit() = localAlbumArtist ?: artist
+
+    private fun Song.releaseKey(): String {
+        if (albumName == null) return "untagged"
+        val root = directory()?.let { path ->
+            if (Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""").matches(path.substringAfterLast('/'))) {
+                path.substringBeforeLast('/', path)
+            } else path
+        }.orEmpty()
+        return listOf(albumName, albumCredit(), root).joinToString("") { "${it.length}:$it" }
+    }
 
     /** The directory a device file sits in, or null when its path isn't known. */
     private fun Song.directory(): String? =
@@ -252,7 +276,8 @@ object LocalGroups {
 fun Song.matchesSearch(query: String): Boolean =
     title.contains(query, ignoreCase = true) ||
         artist.contains(query, ignoreCase = true) ||
-        albumName?.contains(query, ignoreCase = true) == true
+        albumName?.contains(query, ignoreCase = true) == true ||
+        localAlbumArtist?.contains(query, ignoreCase = true) == true
 
 /** A device folder's running order, per the sort its top bar menu picked. */
 fun List<Song>.sortedForLibrary(order: LocalMusicSort): List<Song> = when (order) {
@@ -260,7 +285,7 @@ fun List<Song>.sortedForLibrary(order: LocalMusicSort): List<Song> = when (order
     LocalMusicSort.TITLE_DESC -> sortedWith(compareByDescending<Song> { it.title.lowercase(Locale.ROOT) })
     LocalMusicSort.DATE_ADDED -> sortedWith(
         compareByDescending<Song> { it.localDateAddedSeconds ?: Long.MIN_VALUE }
-            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.videoId },
     )
     LocalMusicSort.DATE_MODIFIED -> sortedWith(
         compareByDescending<Song> { it.localDateModifiedSeconds ?: Long.MIN_VALUE }
@@ -279,7 +304,7 @@ private fun List<Song>.sortedByTitle(): List<Song> =
 fun List<Song>.sortedForAlbum(): List<Song> {
     if (none { it.trackNumber != null }) return this
     return sortedWith(
-        compareBy<Song> { it.trackNumber ?: Int.MAX_VALUE }
+        compareBy<Song> { it.localDiscNumber ?: 1 }.thenBy { it.trackNumber ?: Int.MAX_VALUE }
             .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
     )
 }
