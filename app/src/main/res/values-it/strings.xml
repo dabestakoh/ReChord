@@ -1413,4 +1413,12 @@
     <string name="usb_software_volume">Volume USB software</string>
     <string name="usb_software_volume_subtitle">Usa il volume dell’app se il controllo hardware non è disponibile</string>
     <string name="usb_volume_fixed_permission">Consenti il volume fisso come alternativa</string>
+    <string name="bit_perfect_standard_output">Uscita audio standard</string>
+    <string name="local_album_artists">Artisti degli album</string>
+    <string name="local_recently_added">Aggiunti di recente</string>
+    <string name="local_existing_library">Libreria esistente</string>
+    <string name="local_singles_other">Singoli e altri brani</string>
+    <string name="local_refresh_index">Aggiorna la libreria musicale</string>
+    <string name="local_scan_running">Aggiornamento della libreria musicale…</string>
+    <string name="local_scan_unavailable">Sorgente musicale non disponibile · Riprova</string>
 </resources>

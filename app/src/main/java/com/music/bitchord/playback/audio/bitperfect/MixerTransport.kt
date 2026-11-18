@@ -19,6 +19,7 @@ import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.annotation.RequiresApi
 import java.nio.ByteBuffer
 
@@ -63,15 +64,9 @@ internal class MixerTransport private constructor(
         val routed = track.routedDevice
         if (routed != null && routed.id != device.id) failure = "USB route changed"
     }
-    private val mixerListener = AudioManager.OnPreferredMixerAttributesChangedListener { attr, changed, value ->
-        if (attr.usage == AudioAttributes.USAGE_MEDIA && changed.id == device.id && value != mixer) {
-            failure = "Bit-perfect mixer attributes changed"
-        }
-    }
 
     init {
         track.addOnRoutingChangedListener(routing, Handler(Looper.getMainLooper()))
-        manager.addOnPreferredMixerAttributesChangedListener(Runnable::run, mixerListener)
     }
 
     override fun write(buffer: ByteBuffer): Int {
@@ -116,7 +111,6 @@ internal class MixerTransport private constructor(
 
     override fun release() {
         runCatching { track.removeOnRoutingChangedListener(routing) }
-        runCatching { manager.removeOnPreferredMixerAttributesChangedListener(mixerListener) }
         runCatching { track.release() }
         runCatching { manager.clearPreferredMixerAttributes(ATTRIBUTES, device) }
     }
@@ -127,11 +121,14 @@ internal class MixerTransport private constructor(
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING || now < nextRouteCheck) return
         val routed = track.routedDevice
         if (routed == null && now < routeDeadline) return
+        // Query the live preference. A delayed callback from the outgoing track
+        // can still describe its clear operation after the replacement is open.
         val preferred = runCatching { manager.getPreferredMixerAttributes(ATTRIBUTES, device) }.getOrNull()
         if (routed?.id != device.id || preferred != mixer) {
             failure = BitPerfectOutput.ANDROID_MIXER_REJECTED
             throw BitPerfectTransportException(failure!!)
         }
+        if (!matchedRoute) Log.i("ReChordUsb", "Android USB route confirmed: ${sampleRate}Hz/${outputBits}-bit")
         matchedRoute = true
         nextRouteCheck = now + ROUTE_CHECK_MS
     }
@@ -192,6 +189,7 @@ internal class MixerTransport private constructor(
                 ?: throw BitPerfectTransportException(BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH)
             val outputBits = bits(selected.format.encoding)
             val openedRate = selected.format.sampleRate
+            Log.i("ReChordUsb", "Android USB request: ${rate}Hz/${sourceBits}-bit, profile ${openedRate}Hz/${outputBits}-bit")
             var track: AudioTrack? = null
             var mixerSet = false
             try {

@@ -1451,4 +1451,12 @@
     <string name="usb_software_volume">Volume USB perangkat lunak</string>
     <string name="usb_software_volume_subtitle">Gunakan volume aplikasi jika kontrol perangkat keras tidak tersedia</string>
     <string name="usb_volume_fixed_permission">Izinkan volume tetap sebagai cadangan</string>
+    <string name="bit_perfect_standard_output">Output audio standar</string>
+    <string name="local_album_artists">Artis album</string>
+    <string name="local_recently_added">Baru ditambahkan</string>
+    <string name="local_existing_library">Koleksi yang sudah ada</string>
+    <string name="local_singles_other">Singel dan lagu lainnya</string>
+    <string name="local_refresh_index">Segarkan koleksi musik</string>
+    <string name="local_scan_running">Memperbarui koleksi musik…</string>
+    <string name="local_scan_unavailable">Sumber musik tidak tersedia · Coba lagi</string>
 </resources>

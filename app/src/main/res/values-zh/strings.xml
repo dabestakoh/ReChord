@@ -1451,4 +1451,12 @@
     <string name="usb_software_volume">USB 软件音量</string>
     <string name="usb_software_volume_subtitle">硬件音量不可用时使用应用内音量</string>
     <string name="usb_volume_fixed_permission">允许回退到固定音量</string>
+    <string name="bit_perfect_standard_output">标准音频输出</string>
+    <string name="local_album_artists">专辑艺术家</string>
+    <string name="local_recently_added">最近添加</string>
+    <string name="local_existing_library">现有音乐库</string>
+    <string name="local_singles_other">单曲及其他曲目</string>
+    <string name="local_refresh_index">刷新音乐库</string>
+    <string name="local_scan_running">正在更新音乐库…</string>
+    <string name="local_scan_unavailable">音乐来源不可用 · 重试</string>
 </resources>

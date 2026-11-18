@@ -16,12 +16,14 @@ enum class QueueTier {
  * @property browseId The artist's own channel, so their page is the one that
  * opens. Null for the rare run that names an artist without linking one.
  */
+@kotlinx.serialization.Serializable
 data class ArtistRef(
     val name: String,
     val browseId: String? = null,
 )
 
 /** A playable YouTube Music track. */
+@kotlinx.serialization.Serializable
 data class Song(
     val videoId: String,
     val title: String,
@@ -147,6 +149,9 @@ data class Song(
      * means seen/added more recently. Null on non-playlist sources.
      */
     val playlistAddedOrdinal: Long? = null,
+    val localAlbumArtist: String? = null,
+    val localDiscNumber: Int? = null,
+    val localAlbumArtwork: String? = null,
 ) {
     /** Legacy derived property: true if and only if [queueTier] is [QueueTier.AUTOPLAY]. */
     val fromAutoplay: Boolean get() = queueTier == QueueTier.AUTOPLAY

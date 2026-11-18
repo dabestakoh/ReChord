@@ -1391,4 +1391,12 @@
     <string name="usb_software_volume">Âm lượng USB bằng phần mềm</string>
     <string name="usb_software_volume_subtitle">Dùng âm lượng ứng dụng khi không thể điều chỉnh bằng phần cứng</string>
     <string name="usb_volume_fixed_permission">Cho phép dùng âm lượng cố định thay thế</string>
+    <string name="bit_perfect_standard_output">Đầu ra âm thanh tiêu chuẩn</string>
+    <string name="local_album_artists">Nghệ sĩ album</string>
+    <string name="local_recently_added">Mới thêm gần đây</string>
+    <string name="local_existing_library">Thư viện hiện có</string>
+    <string name="local_singles_other">Đĩa đơn và các bài hát khác</string>
+    <string name="local_refresh_index">Làm mới thư viện nhạc</string>
+    <string name="local_scan_running">Đang cập nhật thư viện nhạc…</string>
+    <string name="local_scan_unavailable">Nguồn nhạc không khả dụng · Thử lại</string>
 </resources>

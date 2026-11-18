@@ -41,6 +41,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -143,7 +144,7 @@ fun ReplayStories(
     val scope = rememberCoroutineScope()
     var held by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
-    val current by remember { derivedStateOf { pagerState.settledPage } }
+    val current by remember(pages) { derivedStateOf { pagerState.settledPage.coerceIn(pages.indices) } }
 
     /**
      * Where a tap sends the story.
@@ -166,15 +167,17 @@ fun ReplayStories(
      *    starting a transition.
      */
     fun goTo(target: Int, animate: Boolean) {
-        val next = target.coerceIn(0, pages.lastIndex)
         scope.launch {
             progress.snapTo(0f)
+            val lastPage = pagerState.pageCount - 1
+            if (lastPage < 0) return@launch
+            val next = target.coerceIn(0, lastPage)
             if (animate) pagerState.animateScrollToPage(next) else pagerState.scrollToPage(next)
         }
     }
 
     fun step(forward: Boolean) {
-        val currentPage = pagerState.settledPage
+        val currentPage = current
         // On the last slide, forward tap closes the replay instead of staying put.
         if (forward && currentPage == pages.lastIndex) {
             scope.launch { onClose() }
@@ -183,8 +186,8 @@ fun ReplayStories(
         goTo(currentPage + if (forward) 1 else -1, animate = false)
     }
 
-    LaunchedEffect(current) { progress.snapTo(0f) }
-    LaunchedEffect(current, held, paused) {
+    LaunchedEffect(current, pages) { progress.snapTo(0f) }
+    LaunchedEffect(current, pages, held, paused) {
         if (held || paused) return@LaunchedEffect
         // On the final slide: animate progress to 1f then close the replay.
         if (current == pages.lastIndex) {
@@ -290,6 +293,8 @@ private fun Stage(
     artwork: String?,
     page: ReplayStoryPage,
 ) {
+    val latestStep by rememberUpdatedState(onStep)
+    val latestHold by rememberUpdatedState(onHold)
     Box(
         Modifier
             .fillMaxSize()
@@ -297,9 +302,12 @@ private fun Stage(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
-                        onHold(true)
-                        tryAwaitRelease()
-                        onHold(false)
+                        latestHold(true)
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            latestHold(false)
+                        }
                     },
                     // Supplied, and deliberately empty. Without an
                     // `onLongPress`, `detectTapGestures` has no notion of a long
@@ -311,7 +319,7 @@ private fun Stage(
                     onLongPress = {},
                     // Every tap is a step; where it lands is worked out in
                     // [ReplayStories.step], which owns the pager.
-                    onTap = { offset -> onStep(offset.x >= size.width * BACK_ZONE) },
+                    onTap = { offset -> latestStep(offset.x >= size.width * BACK_ZONE) },
                 )
             },
     ) {
@@ -340,8 +348,12 @@ private fun Stage(
                 ),
         )
 
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { index ->
-            StoryPage(page = pages[index], summary = summary, onShare = onShare)
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { index -> pages.getOrNull(index)?.name ?: index },
+        ) { index ->
+            pages.getOrNull(index)?.let { StoryPage(page = it, summary = summary, onShare = onShare) }
         }
 
         StoryChrome(

@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +43,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.music.bitchord.data.LocalLibraryIndex
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -61,8 +62,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.music.bitchord.R
 import com.music.bitchord.data.LocalGroup
@@ -147,12 +148,15 @@ class LocalFolder(
     val playlists: List<LocalGroup> = emptyList(),
     /** Puts "New playlist" at the head of the Playlists tab. */
     val onCreatePlaylist: (() -> Unit)? = null,
+    val onRefreshIndex: (() -> Unit)? = null,
 )
 
 enum class LocalFolderTab {
     SONGS,
-    ARTISTS,
     ALBUMS,
+    ARTISTS,
+    ALBUM_ARTISTS,
+    RECENTLY_ADDED,
 
     /** Playlists made on this device, of files on this device. */
     PLAYLISTS,
@@ -166,7 +170,7 @@ enum class LocalFolderTab {
         val BASIC = listOf(SONGS, ARTISTS, ALBUMS)
 
         /** Local Music's: the whole device, so its playlists and directories too. */
-        val DEVICE = entries.toList()
+        val DEVICE = listOf(SONGS, ALBUMS, ARTISTS, ALBUM_ARTISTS, FOLDERS, PLAYLISTS, RECENTLY_ADDED)
     }
 }
 
@@ -181,6 +185,7 @@ enum class LocalFolderTab {
 @Stable
 class LocalFolderState {
     var tab by mutableStateOf(LocalFolderTab.SONGS)
+    var recentAlphabetical by mutableStateOf(false)
 
     var selectedIds by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -234,16 +239,26 @@ fun rememberLocalFolderGroups(
     tab: LocalFolderTab,
     songs: List<Song>,
     query: String,
-): List<LocalGroup> = remember(browseId, tab, songs, folder.collections, folder.playlists, query) {
+): List<LocalGroup> {
+    val singlesTitle = if (LocalGroups.isArtist(browseId)) stringResource(R.string.local_singles_other) else null
+    return remember(browseId, tab, songs, folder.collections, folder.playlists, query, singlesTitle) {
     fun LocalGroup.matches() = query.isBlank() ||
         title.contains(query, ignoreCase = true) ||
         subtitle.contains(query, ignoreCase = true)
     when (tab) {
-        LocalFolderTab.SONGS -> emptyList()
+        LocalFolderTab.SONGS -> if (browseId == "local:all" && query.isNotBlank()) {
+            (LocalGroups.albumsOf(browseId, songs, folder.collections).filter { it.matches() }.take(4) +
+                LocalGroups.artistsOf(browseId, songs).filter { it.matches() }.take(4) +
+                LocalGroups.artistsOf(browseId, songs, albumArtists = true).filter { it.matches() }.take(4))
+                .distinctBy { it.browseId }
+        } else emptyList()
+        LocalFolderTab.RECENTLY_ADDED -> emptyList()
+        LocalFolderTab.ALBUM_ARTISTS -> LocalGroups.artistsOf(browseId, songs, albumArtists = true).filter { it.matches() }
         LocalFolderTab.ARTISTS -> LocalGroups.artistsOf(browseId, songs).filter { it.matches() }
-        LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(browseId, songs, folder.collections).filter { it.matches() }
-        LocalFolderTab.PLAYLISTS -> folder.playlists.filter { it.matches() }
+        LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(LocalGroups.folderOf(browseId) ?: browseId, songs, folder.collections, singlesTitle).filter { it.matches() }
+        LocalFolderTab.PLAYLISTS -> folder.playlists.filter { it.matches() }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
         LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, songs).filter { it.matches() }
+    }
     }
 }
 
@@ -262,6 +277,8 @@ internal fun LazyListScope.localFolderItems(
     groups: List<LocalGroup>,
     query: String,
     columns: Int,
+    indexGutter: Dp,
+    scanStatus: LocalLibraryIndex.ScanStatus,
     palette: ArtworkPalette,
     currentSong: Song?,
     isPlaying: Boolean,
@@ -270,13 +287,30 @@ internal fun LazyListScope.localFolderItems(
     onSongSwipe: (Song) -> Unit,
 ) {
     val tabs = folder.tabs
-    item(key = "folder-tabs") {
+    if (tabs.size > 1) item(key = "folder-tabs") {
         SegmentedControl(
             options = tabs.map { it.label() },
             selectedIndex = tabs.indexOf(state.tab).coerceAtLeast(0),
             onSelect = { state.tab = tabs[it] },
             modifier = Modifier.padding(start = PAGE_GUTTER, end = PAGE_GUTTER, bottom = 14.dp),
         )
+    }
+
+    if (scanStatus != LocalLibraryIndex.ScanStatus.IDLE) {
+        item(key = "local-scan-status") {
+            if (scanStatus == LocalLibraryIndex.ScanStatus.UNAVAILABLE && folder.onRefreshIndex != null) {
+                TextButton(onClick = folder.onRefreshIndex, modifier = Modifier.padding(horizontal = PAGE_GUTTER)) {
+                    Text(stringResource(R.string.local_scan_unavailable))
+                }
+            } else {
+                Text(
+                    stringResource(R.string.local_scan_running),
+                    Modifier.padding(horizontal = PAGE_GUTTER, vertical = 6.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.onBackgroundVariant,
+                )
+            }
+        }
     }
 
     // Ahead of the list rather than in the top bar: making a playlist is the
@@ -290,9 +324,20 @@ internal fun LazyListScope.localFolderItems(
         }
     }
 
+    if (state.tab == LocalFolderTab.SONGS && query.isNotBlank() && groups.isNotEmpty()) {
+        items(groups, key = { "local-search:${it.browseId}" }) { group ->
+            if (group.type == BrowseType.OTHER) {
+                ArtistRow(group, palette, onClick = { folder.onOpenGroup(group) }, onLongPress = { folder.onGroupLongPress(group) })
+            } else {
+                AlbumRow(group, palette, selected = false, onClick = folder.onOpenGroup, onLongPress = { folder.onGroupLongPress(group) })
+            }
+        }
+    }
+
     val grid = folder.viewType == LibraryViewType.GRID
     val empty = when (state.tab) {
-        LocalFolderTab.SONGS -> songs.isEmpty()
+        LocalFolderTab.SONGS -> songs.isEmpty() && groups.isEmpty()
+        LocalFolderTab.RECENTLY_ADDED -> songs.isEmpty()
         else -> groups.isEmpty()
     }
     if (empty) {
@@ -329,8 +374,8 @@ internal fun LazyListScope.localFolderItems(
 
     val isCurrentRow = playingRowMatcher(songs, currentSong)
     when (state.tab) {
-        LocalFolderTab.SONGS -> if (grid) {
-            gridRows(songs.indices.toList(), columns, key = { "song-${songs[it].videoId}-$it" }) { index ->
+        LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> if (grid) {
+            gridRows(songs.indices.toList(), columns, indexGutter, key = { "song-${songs[it].videoId}-$it" }) { index ->
                 val song = songs[index]
                 SongGridCard(
                     song = song,
@@ -343,43 +388,49 @@ internal fun LazyListScope.localFolderItems(
                 )
             }
         } else {
-            itemsIndexed(songs, key = { index, song -> "song-${song.videoId}-$index" }) { index, song ->
-                SongRow(
-                    song = song,
-                    selected = song.videoId in state.selectedIds,
-                    isCurrent = isCurrentRow(song),
-                    isPlaying = isCurrentRow(song) && isPlaying,
-                    searchPlayingStyle = true,
-                    activeTint = palette.accent,
-                    subtitleColor = palette.onBackgroundVariant,
-                    rowBackground = Color.Transparent,
-                    // Every row here is on the device already.
-                    downloadedTint = null,
-                    onClick = { songClick(index) },
-                    onLongPress = { songHold(song) },
-                    onMore = { onSongLongPress(song) },
-                    onSwipeToQueue = { onSongSwipe(song) },
-                    trailing = folder.onDownload?.let { download ->
-                        { RowDownloadButton(song, palette) { download(listOf(song)) } }
-                    },
-                )
-                if (index < songs.lastIndex) FolderDivider(palette)
+            val keys = com.music.bitchord.ui.components.uniqueKeys(songs) { "local-song:${it.videoId}" }
+            items(songs.size, key = { keys[it] }) { index ->
+                val song = songs[index]
+                Column(Modifier.fillMaxWidth().padding(end = indexGutter)) {
+                    SongRow(
+                        song = song,
+                        selected = song.videoId in state.selectedIds,
+                        isCurrent = isCurrentRow(song),
+                        isPlaying = isCurrentRow(song) && isPlaying,
+                        searchPlayingStyle = true,
+                        activeTint = palette.accent,
+                        subtitleColor = palette.onBackgroundVariant,
+                        rowBackground = Color.Transparent,
+                        // Every row here is on the device already.
+                        downloadedTint = null,
+                        onClick = { songClick(index) },
+                        onLongPress = { songHold(song) },
+                        onMore = { onSongLongPress(song) },
+                        onSwipeToQueue = { onSongSwipe(song) },
+                        trailing = folder.onDownload?.let { download ->
+                            { RowDownloadButton(song, palette) { download(listOf(song)) } }
+                        },
+                    )
+                    if (index < songs.lastIndex) FolderDivider(palette)
+                }
             }
         }
 
-        LocalFolderTab.ARTISTS -> if (grid) {
-            gridRows(groups, columns, key = { it.browseId }) { group ->
+        LocalFolderTab.ARTISTS, LocalFolderTab.ALBUM_ARTISTS -> if (grid) {
+            gridRows(groups, columns, indexGutter, key = { it.browseId }) { group ->
                 ArtistGridCard(group, palette, onClick = { groupClick(group) }, onLongPress = { groupHold(group) })
             }
         } else {
             items(groups, key = { it.browseId }) { group ->
-                ArtistRow(group, palette, onClick = { groupClick(group) }, onLongPress = { groupHold(group) })
-                FolderDivider(palette)
+                Column(Modifier.fillMaxWidth().padding(end = indexGutter)) {
+                    ArtistRow(group, palette, onClick = { groupClick(group) }, onLongPress = { groupHold(group) })
+                    FolderDivider(palette)
+                }
             }
         }
 
         LocalFolderTab.ALBUMS, LocalFolderTab.PLAYLISTS, LocalFolderTab.FOLDERS -> if (grid) {
-            gridRows(groups, columns, key = { it.browseId }) { group ->
+            gridRows(groups, columns, indexGutter, key = { it.browseId }) { group ->
                 AlbumGridCard(
                     group = group,
                     palette = palette,
@@ -390,14 +441,16 @@ internal fun LazyListScope.localFolderItems(
             }
         } else {
             items(groups, key = { it.browseId }) { group ->
-                AlbumRow(
-                    group = group,
-                    palette = palette,
-                    selected = group.browseId in state.selectedGroups,
-                    onClick = groupClick,
-                    onLongPress = { groupHold(group) },
-                )
-                FolderDivider(palette)
+                Column(Modifier.fillMaxWidth().padding(end = indexGutter)) {
+                    AlbumRow(
+                        group = group,
+                        palette = palette,
+                        selected = group.browseId in state.selectedGroups,
+                        onClick = groupClick,
+                        onLongPress = { groupHold(group) },
+                    )
+                    FolderDivider(palette)
+                }
             }
         }
     }
@@ -411,6 +464,8 @@ private fun LocalFolderTab.label(): String = stringResource(
         LocalFolderTab.ALBUMS -> R.string.albums
         LocalFolderTab.PLAYLISTS -> R.string.playlists
         LocalFolderTab.FOLDERS -> R.string.folders
+        LocalFolderTab.ALBUM_ARTISTS -> R.string.local_album_artists
+        LocalFolderTab.RECENTLY_ADDED -> R.string.local_recently_added
     },
 )
 
@@ -456,6 +511,7 @@ private fun NewPlaylistRow(palette: ArtworkPalette, onClick: () -> Unit) {
 private fun <T> LazyListScope.gridRows(
     items: List<T>,
     columns: Int,
+    indexGutter: Dp,
     key: (T) -> Any,
     card: @Composable (T) -> Unit,
 ) {
@@ -464,8 +520,7 @@ private fun <T> LazyListScope.gridRows(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = PAGE_GUTTER)
-                .padding(bottom = 16.dp),
+                .padding(start = PAGE_GUTTER, end = PAGE_GUTTER + indexGutter, bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(LIBRARY_GRID_SPACING),
         ) {
             rows[row].forEach { entry -> Box(Modifier.weight(1f)) { card(entry) } }

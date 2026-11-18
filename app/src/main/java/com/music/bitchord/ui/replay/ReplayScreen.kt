@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +62,7 @@ import com.music.bitchord.data.model.artworkAt
 import com.music.bitchord.data.stats.ArtistFacts
 import com.music.bitchord.data.stats.ReplayPeriod
 import com.music.bitchord.data.stats.ReplaySummary
+import com.music.bitchord.ui.components.uniqueKeys
 import com.music.bitchord.ui.components.PAGE_GUTTER
 import com.music.bitchord.ui.icons.BitChordIcons
 import com.music.bitchord.ui.player.MeshGradientBackground
@@ -450,7 +452,8 @@ private fun LazyListScope.chart(
 ) {
     if (rows.isEmpty()) return
     item("$key-title") { SectionTitle(title, dark) }
-    items(rows, key = { "$key-${it.key}" }) { row ->
+    val keys = uniqueKeys(rows) { "$key-${it.key}" }
+    itemsIndexed(rows, key = { index, _ -> keys[index] }) { _, row ->
         ReplayChartRow(row, circular, dark) { onClick(row.rank - 1) }
     }
     item("$key-gap") { Spacer(Modifier.height(20.dp)) }

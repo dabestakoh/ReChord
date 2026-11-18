@@ -61,6 +61,7 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
+import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -1233,6 +1234,7 @@ class PlaybackService : MediaLibraryService() {
                 sampleRateHz = audioTrackConfig.sampleRate,
                 bufferSize = audioTrackConfig.bufferSize,
                 channelCount = Integer.bitCount(audioTrackConfig.channelConfig),
+                mediaId = eventTime.mediaId(),
             )
             TrackLog.i(
                 "AUDIO_OUT",
@@ -1841,6 +1843,7 @@ class PlaybackService : MediaLibraryService() {
             MediaLibraryCallback(),
         )
             .setId(SESSION_ID)
+            .setBitmapLoader(CacheBitmapLoader(SessionArtworkLoader(this, scope)))
             .setSessionActivity(sessionActivity())
             .build()
         refreshCustomLayouts()
@@ -4847,7 +4850,10 @@ class PlaybackService : MediaLibraryService() {
         applySpatialAudioEnabled()
         applyOutputRoute()
         outputConfig?.let {
-            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize, Integer.bitCount(it.channelConfig))
+            AudioOutputStatus.publishAudioTrack(
+                it.encoding, it.sampleRate, it.bufferSize, Integer.bitCount(it.channelConfig),
+                mediaId = incoming.currentMediaItem?.mediaId,
+            )
         }
         incoming.volume = 1f
         outgoing.stop()
