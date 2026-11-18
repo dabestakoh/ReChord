@@ -1,8 +1,10 @@
 package com.music.bitchord.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import com.music.bitchord.data.AppleCatalogue
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.canvas.AppleArtistArtRepository
@@ -17,11 +19,15 @@ object AndroidAppUiHost : AppUiHost {
     override val pinnedPlaylists = AppSettings.pinnedPlaylists
     override val librarySort = AppSettings.librarySort
 
-    @Composable
-    override fun downloadedIds(): Set<String> {
-        val saved by Downloads.saved.collectAsStateWithLifecycle()
-        return saved.keys
+    // One process-lifetime observer, rather than a lifecycle collector for each visible row.
+    private val savedIds: State<Set<String>> by lazy(LazyThreadSafetyMode.NONE) {
+        val state = mutableStateOf(Downloads.saved.value.keys.toSet())
+        MainScope().launch { Downloads.saved.collect { state.value = it.keys.toSet() } }
+        state
     }
+
+    @Composable
+    override fun downloadedIds(): Set<String> = savedIds.value
 
     override suspend fun releaseMotion(album: String, artist: String): CanvasArtwork? {
         if (!AppSettings.animatedCanvas.value || album.isBlank() || artist.isBlank()) return null

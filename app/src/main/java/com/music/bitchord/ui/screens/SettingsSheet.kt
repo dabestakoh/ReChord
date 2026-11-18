@@ -241,7 +241,6 @@ fun SettingsScreen(
     val dolbyAtmosSupported = DeviceCodecs.playsDolbyAtmos
     val spatialAudio by AppSettings.spatialAudio.collectAsStateWithLifecycle()
     val nerdStats by AppSettings.showNerdStats.collectAsStateWithLifecycle()
-    val listenTogetherButton by AppSettings.showListenTogetherButton.collectAsStateWithLifecycle()
     val reduceAnimation by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val disableBlendEffects by AppSettings.disableBlendEffects.collectAsStateWithLifecycle()
@@ -669,14 +668,16 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = SfIcons.GraphicEq,
                     title = outputPrecisionTitle,
-                    subtitle = buildString {
-                        append(outputStatus.sink)
-                        append(" · ")
-                        append(outputStatus.deviceName)
-                        (outputStatus.actualSampleRateHz ?: outputStatus.sampleRatesHz.firstOrNull())
-                            ?.let { append(" · ${it / 1000.0} kHz") }
-                        append(" · ")
-                        append(AudioOutputStatus.encodingLabel(outputStatus))
+                    subtitle = when {
+                        bitPerfectStatus.dacOutputVerified -> "${bitPerfectStatus.outputBits}-bit PCM · " +
+                            "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
+                        !bitPerfectStatus.active && outputStatus.actualEncoding != null ->
+                            listOfNotNull(
+                                AudioOutputStatus.encodingLabel(outputStatus),
+                                outputStatus.actualSampleRateHz?.let { "${it / 1000.0} kHz" },
+                                outputStatus.deviceName,
+                            ).joinToString(" · ")
+                        else -> null
                     },
                 )
                 SegmentedControl(
@@ -1666,21 +1667,6 @@ fun SettingsScreen(
                     onClick = { AppSettings.setHideVolumeBar(!hideVolumeBar) },
                 )
             }
-            val listenTogetherButtonTitle = stringResource(R.string.show_listen_together_button)
-            row(listenTogetherButtonTitle, "party", "jam", "output", "headphones", "player") {
-                SettingsRow(
-                    icon = SfIcons.Groups,
-                    title = listenTogetherButtonTitle,
-                    subtitle = stringResource(R.string.show_listen_together_button_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = listenTogetherButton,
-                            onCheckedChange = AppSettings::setShowListenTogetherButton,
-                        )
-                    },
-                    onClick = { AppSettings.setShowListenTogetherButton(!listenTogetherButton) },
-                )
-            }
             val hideStatusBarTitle = stringResource(R.string.hide_status_bar_in_player)
             row(hideStatusBarTitle, "status bar", "immersive", "fullscreen", "player") {
                 SettingsRow(
@@ -2291,7 +2277,7 @@ private fun BitPerfectMode.description(): String = stringResource(
         this == BitPerfectMode.USB_ANDROID && !isSupported -> R.string.bit_perfect_requires_android_14
         this == BitPerfectMode.DAP_EXCLUSIVE && !isSupported -> R.string.bit_perfect_requires_android_8_1
         this == BitPerfectMode.OFF -> R.string.bit_perfect_mode_off_subtitle
-        this == BitPerfectMode.USB_ANDROID -> R.string.bit_perfect_mode_usb_android_subtitle
+        this == BitPerfectMode.USB_ANDROID -> R.string.bit_perfect_mode_usb_android_request
         this == BitPerfectMode.USB_DIRECT -> R.string.bit_perfect_mode_usb_direct_subtitle
         else -> R.string.bit_perfect_mode_dap_exclusive_subtitle
     },
@@ -2311,7 +2297,8 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         status.outputBits,
     )
     status.active && !status.exact -> stringResource(
-        R.string.bit_perfect_status_inexact,
+        if (mode == BitPerfectMode.USB_ANDROID) R.string.bit_perfect_status_usb_pcm_changed
+        else R.string.bit_perfect_status_inexact,
         status.deviceName.orEmpty(),
     )
     status.active -> stringResource(
@@ -2320,7 +2307,14 @@ private fun bitPerfectSubtitle(mode: BitPerfectMode, status: BitPerfectOutput.St
         "%.1f".format(status.sampleRateHz / 1000.0),
         status.outputBits,
     )
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE ->
+        stringResource(R.string.bit_perfect_usb_no_profiles)
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH ->
+        stringResource(R.string.bit_perfect_usb_format_mismatch)
+    mode == BitPerfectMode.USB_ANDROID && status.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED ->
+        stringResource(R.string.bit_perfect_usb_request_failed)
     status.fallbackReason != null -> stringResource(R.string.bit_perfect_status_unavailable, status.fallbackReason)
+    mode == BitPerfectMode.USB_ANDROID -> stringResource(R.string.bit_perfect_status_usb_waiting)
     else -> stringResource(R.string.bit_perfect_status_waiting)
 }
 

@@ -131,6 +131,7 @@ object OutputNegotiator {
         delegateSupportsFloat: Boolean = true,
         delegateSupportsPcm24: Boolean = true,
         knownSystemMixerRateHz: Int? = null,
+        processingEnabled: Boolean = false,
     ): OutputNegotiationResult {
         val decoder = DecoderDescriptor(
             name = decoderName,
@@ -168,6 +169,7 @@ object OutputNegotiator {
             delegateSupportsFloat = delegateSupportsFloat,
             delegateSupportsPcm24 = delegateSupportsPcm24,
             knownSystemMixerRateHz = knownSystemMixerRateHz,
+            processingEnabled = processingEnabled,
         )
 
         return OutputNegotiationResult(
@@ -192,6 +194,7 @@ object OutputNegotiator {
         delegateSupportsFloat: Boolean,
         delegateSupportsPcm24: Boolean,
         knownSystemMixerRateHz: Int?,
+        processingEnabled: Boolean,
     ): OutputDescriptor {
         val advertisesFloat = advertisedEncodings.contains(AudioFormat.ENCODING_PCM_FLOAT)
         val advertisesPcm24 = advertisedEncodings.contains(AudioFormat.ENCODING_PCM_24BIT_PACKED)
@@ -221,6 +224,32 @@ object OutputNegotiator {
         }
 
         // 2. Android DIRECT Playback Evaluation (API 33+)
+        if (requestedMode == OutputPcmMode.AUTO) {
+            // Select the boundary format for this decoder configuration. A direct
+            // capability is an input to selection, not evidence of an active path.
+            val needsPrecision = (source.bitDepth ?: 16) > 16 || processingEnabled
+            val native24 = needsPrecision && delegateSupportsPcm24 &&
+                source.bitDepth != 32 && (directSupport.supportsPcm24 || advertisesPcm24)
+            val float = needsPrecision && delegateSupportsFloat
+            return OutputDescriptor(
+                transport = TransportType.AUDIO_TRACK,
+                encoding = when {
+                    native24 && !processingEnabled -> PcmEncoding.PCM_24BIT_PACKED
+                    float -> PcmEncoding.PCM_FLOAT
+                    native24 -> PcmEncoding.PCM_24BIT_PACKED
+                    else -> PcmEncoding.PCM_16BIT
+                },
+                sampleRateHz = sampleRateHz,
+                channelCount = channelCount,
+                isDirect = false,
+                systemMixerRateHz = knownSystemMixerRateHz,
+                fallbackReason = if (needsPrecision && !native24 && !float) FallbackReason.ROUTE_LIMITATION
+                    else FallbackReason.NONE,
+                fallbackDetail = if (needsPrecision && !native24 && !float) "AudioTrack uses 16-bit PCM on this route"
+                    else null,
+            )
+        }
+
         // Priority 3A: Direct Float32
         if (requestedMode == OutputPcmMode.FLOAT_32 && directSupport.supportsFloat && delegateSupportsFloat) {
             return OutputDescriptor(

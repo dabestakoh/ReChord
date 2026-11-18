@@ -10,7 +10,7 @@
 
 // A mixer-free USB Audio Class output: Android grants permission and opens
 // the device; one worker thread here owns libusb, the claimed interfaces,
-// four isochronous OUT transfers and the explicit feedback transfer. No
+// six isochronous OUT transfers and the explicit feedback transfer. No
 // resampling or gain happens anywhere below the queue.
 //
 // Every raw libusb pointer belongs to the worker. Transfer buffers keep
@@ -23,9 +23,16 @@
 // (UsbDescriptors.kt); this side is handed the candidates in preference order
 // and opens the first one the device accepts.
 
+#include <android/log.h>
+#include <time.h>
 #include <jni.h>
 #include <libusb.h>
 #include <sys/resource.h>
+#include <poll.h>
+#include <pthread.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
+#include <cerrno>
 #include <sys/time.h>
 
 #include <algorithm>
@@ -88,6 +95,14 @@ struct ControlRequest {
 };
 
 struct State {
+    const int wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    State() { require(wakeFd >= 0, "USB wake descriptor failed"); }
+    ~State() { ::close(wakeFd); }
+    void wake() const {
+        const uint64_t signal = 1;
+        while (::write(wakeFd, &signal, sizeof(signal)) < 0 && errno == EINTR) {}
+    }
+
     std::mutex mutex;
     std::condition_variable changed;
     std::deque<uint8_t> bytes;
@@ -157,36 +172,45 @@ public:
     std::unique_ptr<Slot> feedbackSlot;
 
     Session(int fd, const std::vector<Candidate> &candidates) {
-        // NO_DEVICE_DISCOVERY is required on Android: the USB permission grant
-        // is the file descriptor, not a scan of /dev.
-        libusb_init_option option{};
-        option.option = LIBUSB_OPTION_NO_DEVICE_DISCOVERY;
-        check(libusb_init_context(&context, &option, 1));
-        check(libusb_wrap_sys_device(context, static_cast<intptr_t>(fd), &handle));
-        highSpeed = libusb_get_device_speed(libusb_get_device(handle)) >= LIBUSB_SPEED_HIGH;
-        check(libusb_set_auto_detach_kernel_driver(handle, 1));
-        std::string failure = "No supported USB endpoint";
-        for (size_t i = 0; i < candidates.size(); ++i) {
-            try {
-                configure(candidates[i]);
-            } catch (const std::exception &e) {
-                failure = e.what();
-                release();
-                continue;
+        try {
+            // NO_DEVICE_DISCOVERY is required on Android: the USB permission grant
+            // is the file descriptor, not a scan of /dev.
+            libusb_init_option option{};
+            option.option = LIBUSB_OPTION_NO_DEVICE_DISCOVERY;
+            check(libusb_init_context(&context, &option, 1));
+            check(libusb_wrap_sys_device(context, static_cast<intptr_t>(fd), &handle));
+            highSpeed = libusb_get_device_speed(libusb_get_device(handle)) >= LIBUSB_SPEED_HIGH;
+            check(libusb_set_auto_detach_kernel_driver(handle, 1));
+            std::string failure = "No supported USB endpoint";
+            for (size_t i = 0; i < candidates.size(); ++i) {
+                try {
+                    configure(candidates[i]);
+                } catch (const std::exception &e) {
+                    failure = e.what();
+                    release();
+                    continue;
+                }
+                chosenIndex = static_cast<int>(i);
+                const int packets = packetsPerTransfer();
+                for (int s = 0; s < 6; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
+                if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
+                return;
             }
-            chosenIndex = static_cast<int>(i);
-            const int packets = packetsPerTransfer();
-            for (int s = 0; s < 4; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
-            if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
-            return;
+            throw std::runtime_error(failure);
+        } catch (...) {
+            closeDevice();
+            throw;
         }
-        throw std::runtime_error(failure);
     }
 
     ~Session() {
         drain();
         slots.clear();
         feedbackSlot.reset();
+        closeDevice();
+    }
+
+    void closeDevice() {
         release();
         if (handle) libusb_close(handle);
         if (context) libusb_exit(context);
@@ -243,7 +267,7 @@ public:
     }
 
     void events() {
-        timeval timeout{0, 1000};
+        timeval timeout{};
         check(libusb_handle_events_timeout(context, &timeout));
     }
 
@@ -252,10 +276,11 @@ public:
     void drain() {
         auto any = [this] {
             for (auto &slot : slots) if (slot->pending) return true;
-            return feedbackSlot && feedbackSlot->pending;
+            return activeControl || (feedbackSlot && feedbackSlot->pending);
         };
         for (auto &slot : slots) if (slot->pending) libusb_cancel_transfer(slot->transfer);
         if (feedbackSlot && feedbackSlot->pending) libusb_cancel_transfer(feedbackSlot->transfer);
+        if (activeControl) libusb_cancel_transfer(controlTransfer.get());
         while (any()) {
             timeval timeout{0, 1000};
             libusb_handle_events_timeout(context, &timeout);
@@ -270,17 +295,40 @@ public:
         chosen = Candidate{};
     }
 
-    void serve(ControlRequest &request) {
-        if (std::chrono::steady_clock::now() > request.deadline) {
-            request.reply.set_exception(std::make_exception_ptr(std::runtime_error("USB control request expired")));
+    std::unique_ptr<ControlRequest> activeControl;
+    std::vector<uint8_t> controlBuffer;
+    std::unique_ptr<libusb_transfer, decltype(&libusb_free_transfer)> controlTransfer{nullptr, libusb_free_transfer};
+
+    static void LIBUSB_CALL controlComplete(libusb_transfer *transfer) {
+        auto &session = *static_cast<Session *>(transfer->user_data);
+        auto request = std::move(session.activeControl);
+        if (transfer->status != LIBUSB_TRANSFER_COMPLETED ||
+            static_cast<size_t>(transfer->actual_length) != request->data.size()) {
+            request->reply.set_exception(std::make_exception_ptr(std::runtime_error("USB control transfer failed")));
             return;
         }
+        if (request->input) {
+            std::copy_n(libusb_control_transfer_get_data(transfer), request->data.size(), request->data.begin());
+        }
+        request->reply.set_value(std::move(request->data));
+    }
+
+    void startControl(std::unique_ptr<ControlRequest> request) {
         try {
-            control(request.input, request.request, request.value, request.index, request.data.data(),
-                    static_cast<uint16_t>(request.data.size()), false);
-            request.reply.set_value(std::move(request.data));
+            require(std::chrono::steady_clock::now() < request->deadline, "USB control request expired");
+            if (!controlTransfer) controlTransfer.reset(libusb_alloc_transfer(0));
+            require(controlTransfer != nullptr, "USB control allocation failed");
+            controlBuffer.resize(LIBUSB_CONTROL_SETUP_SIZE + request->data.size());
+            libusb_fill_control_setup(controlBuffer.data(),
+                request->input ? 0xa1 : 0x21, request->request, request->value, request->index,
+                static_cast<uint16_t>(request->data.size()));
+            if (!request->input) std::copy(request->data.begin(), request->data.end(),
+                controlBuffer.begin() + LIBUSB_CONTROL_SETUP_SIZE);
+            libusb_fill_control_transfer(controlTransfer.get(), handle, controlBuffer.data(), controlComplete, this, 500);
+            check(libusb_submit_transfer(controlTransfer.get()));
+            activeControl = std::move(request);
         } catch (...) {
-            request.reply.set_exception(std::current_exception());
+            request->reply.set_exception(std::current_exception());
         }
     }
 
@@ -291,17 +339,17 @@ public:
         uint8_t marker = 0x05;
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
+        const auto descriptors = libusb_get_pollfds(context);
+        require(descriptors != nullptr, "USB poll descriptors unavailable");
+        std::unique_ptr<const libusb_pollfd *, decltype(&libusb_free_pollfds)> descriptorList(descriptors, libusb_free_pollfds);
+        std::vector<pollfd> pollFds{{state.wakeFd, POLLIN, 0}};
+        for (size_t i = 0; descriptors[i]; ++i) {
+            pollFds.push_back({descriptors[i]->fd, descriptors[i]->events, 0});
+        }
         for (;;) {
             events();
             std::unique_lock<std::mutex> lock(state.mutex);
             if (state.closed) break;
-            if (!state.controls.empty()) {
-                auto request = std::move(state.controls.front());
-                state.controls.pop_front();
-                lock.unlock();
-                serve(*request);
-                lock.lock();
-            }
             if (state.flush != state.flushed) {
                 lock.unlock();
                 drain();
@@ -322,51 +370,74 @@ public:
             // does not hold back the frame count by what was in flight.
             for (auto &slot : slots) {
                 if (slot->pending || !slot->submitted) continue;
-                require(slot->success(), "USB audio transfer failed");
+                if (!slot->success()) {
+                    __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "transfer failed status=%d queuedFrames=%zu",
+                                        static_cast<int>(slot->transfer->status), state.bytes.size() / frame);
+                    require(false, "USB audio transfer failed");
+                }
                 state.frames += slot->musicFrames;
                 slot->musicFrames = 0;
                 slot->submitted = false;
             }
-            if (!state.playing) {
-                // Resuming after a pause restarts the feedback watchdog.
-                started = false;
-                state.changed.wait_for(lock, std::chrono::milliseconds(20));
-                continue;
-            }
-            if (!started) {
-                lastFeedback = std::chrono::steady_clock::now();
-                started = true;
-            }
-            if (feedbackSlot) {
-                if (!feedbackSlot->pending) {
-                    const size_t got = std::min(feedbackSlot->actual(), feedbackSlot->bytes.size());
-                    if (feedbackSlot->submitted && got > 0 && feedbackSlot->success() &&
-                        clock.feedback(feedbackSlot->bytes.data(), got, highSpeed, interval)) {
-                        lastFeedback = std::chrono::steady_clock::now();
+            if (!state.playing) started = false;
+            if (state.playing) {
+                if (!started) {
+                    lastFeedback = std::chrono::steady_clock::now();
+                    started = true;
+                }
+                if (feedbackSlot) {
+                    if (!feedbackSlot->pending) {
+                        const size_t got = std::min(feedbackSlot->actual(), feedbackSlot->bytes.size());
+                        if (feedbackSlot->submitted && got > 0 && feedbackSlot->success() &&
+                            clock.feedback(feedbackSlot->bytes.data(), got, highSpeed, interval)) {
+                            lastFeedback = std::chrono::steady_clock::now();
+                        }
+                        const size_t length = chosen.feedback.maxPacket;
+                        feedbackSlot->submit(handle, chosen.feedback.address, &length, 1);
                     }
-                    const size_t length = chosen.feedback.maxPacket;
-                    feedbackSlot->submit(handle, chosen.feedback.address, &length, 1);
+                    require(std::chrono::steady_clock::now() - lastFeedback < std::chrono::seconds(2),
+                            "USB feedback stopped or invalid");
                 }
-                require(std::chrono::steady_clock::now() - lastFeedback < std::chrono::seconds(2),
-                        "USB feedback stopped or invalid");
+                for (auto &slot : slots) {
+                    if (slot->pending || slot->submitted) continue;
+                    size_t lengths[32];
+                    size_t total = 0;
+                    for (int i = 0; i < packets; ++i) {
+                        lengths[i] = clock.next() * frame;
+                        require(lengths[i] <= chosen.data.maxPacket, "USB feedback exceeded endpoint capacity");
+                        total += lengths[i];
+                    }
+                    const size_t available = std::min(total, state.bytes.size()) / frame * frame;
+                    std::copy(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available), slot->bytes.begin());
+                    state.bytes.erase(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available));
+                    finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
+                    slot->musicFrames = available / frame;
+                    slot->submit(handle, chosen.data.address, lengths, packets);
+                }
             }
-            for (auto &slot : slots) {
-                if (slot->pending || slot->submitted) continue;
-                size_t lengths[32];
-                size_t total = 0;
-                for (int i = 0; i < packets; ++i) {
-                    lengths[i] = clock.next() * frame;
-                    require(lengths[i] <= chosen.data.maxPacket, "USB feedback exceeded endpoint capacity");
-                    total += lengths[i];
-                }
-                const size_t available = std::min(total, state.bytes.size()) / frame * frame;
-                std::copy(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available), slot->bytes.begin());
-                state.bytes.erase(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available));
-                finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
-                slot->musicFrames = available / frame;
-                slot->submit(handle, chosen.data.address, lengths, packets);
+            if (!activeControl && !state.controls.empty()) {
+                auto request = std::move(state.controls.front());
+                state.controls.pop_front();
+                lock.unlock();
+                startControl(std::move(request));
+                lock.lock();
             }
             state.changed.notify_all();
+            const bool controlsReady = !activeControl && !state.controls.empty();
+            lock.unlock();
+            if (controlsReady) continue;
+            timeval next{};
+            const int hasDeadline = libusb_get_next_timeout(context, &next);
+            check(hasDeadline);
+            const int timeout = hasDeadline == 1
+                ? static_cast<int>(next.tv_sec * 1000 + (next.tv_usec + 999) / 1000) : -1;
+            const int ready = poll(pollFds.data(), pollFds.size(), timeout);
+            const int pollError = ready < 0 ? errno : 0;
+            require(ready >= 0 || pollError == EINTR, "USB poll failed");
+            if (ready > 0 && (pollFds.front().revents & POLLIN)) {
+                uint64_t signal;
+                while (::read(state.wakeFd, &signal, sizeof(signal)) < 0 && errno == EINTR) {}
+            }
         }
         drain();
     }
@@ -392,8 +463,10 @@ public:
         std::promise<std::pair<int, Format>> opened;
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
-            // Best effort; failure changes scheduling only, never audio data.
-            setpriority(PRIO_PROCESS, 0, -16);
+            pthread_setname_np(pthread_self(), "ReChordUsbOut");
+            if (setpriority(PRIO_PROCESS, 0, -16) != 0) {
+                __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "Could not raise USB worker priority: errno=%d", errno);
+            }
             std::unique_ptr<Session> session;
             try {
                 // Android owns the descriptor and keeps it open until this
@@ -450,6 +523,7 @@ public:
         std::lock_guard<std::mutex> lock(state.mutex);
         throwIfFailed();
         state.playing = playing;
+        state.wake();
         state.changed.notify_all();
     }
 
@@ -458,6 +532,7 @@ public:
         std::unique_lock<std::mutex> lock(state.mutex);
         state.playing = false;
         state.flush++;
+        state.wake();
         state.changed.notify_all();
         const bool done = state.changed.wait_for(lock, std::chrono::seconds(2), [this] {
             return state.flushed == state.flush || !state.error.empty() || state.closed;
@@ -487,6 +562,7 @@ public:
             throwIfFailed();
             require(state.controls.size() < 8, "USB control requests busy");
             state.controls.push_back(std::move(pending));
+            state.wake();
             state.changed.notify_all();
         }
         require(reply.wait_for(std::chrono::seconds(4)) == std::future_status::ready, "USB control request timed out");
@@ -497,6 +573,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(state.mutex);
             state.closed = true;
+            state.wake();
             state.changed.notify_all();
         }
         if (worker.joinable()) worker.join();

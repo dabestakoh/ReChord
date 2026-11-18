@@ -171,6 +171,7 @@ import com.music.bitchord.data.settings.LastPlayerScreen
 import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.PlaybackSourceType
+import com.music.bitchord.data.model.playerArtPx
 import com.music.bitchord.data.model.PLAYER_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.playback.BACK_RESTARTS_AFTER_MS
@@ -327,12 +328,13 @@ private val PortraitClipScrim = Brush.verticalGradient(
 @Composable
 private fun PlayerMeshBackdrop(
     trackKey: String,
+    artPx: Int,
     imageUrl: String?,
     canvasFrame: () -> ImageBitmap?,
     seamTarget: () -> Dp,
     alpha: () -> Float,
 ) {
-    val mesh = key(trackKey) { rememberArtworkMesh(imageUrl, canvasFrame(), ART_PX) }
+    val mesh = key(trackKey) { rememberArtworkMesh(imageUrl, canvasFrame(), artPx) }
     val currentSeamTarget by rememberUpdatedState(seamTarget)
     val seam = remember { Animatable(Snapshot.withoutReadObservation { seamTarget() }, Dp.VectorConverter) }
     // Glides to a clip's edge as the clip fades in, and is put straight where
@@ -873,6 +875,7 @@ fun NowPlayingScreen(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val artPx = remember(windowWidth, density.density) { playerArtPx(windowWidth.value, density.density) }
     val haptics = rememberHaptics()
 
     // Remote tracks whose art lives inside the file resolve it here, once —
@@ -883,7 +886,7 @@ fun NowPlayingScreen(
     // animate toward theme.primary or white during that gap: keep the last
     // RESOLVED artwork ink, then interpolate directly old -> new once ready.
     // The shared cache is reused, and reopening the player retains its ink.
-    val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = ART_PX)
+    val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = artPx)
     val resolvedAccent = artworkAnalysis.accent
     val accentTarget = when {
         resolvedAccent != null -> resolvedAccent
@@ -1441,7 +1444,7 @@ fun NowPlayingScreen(
     // had and never re-emits, so the `onState` that is the sole writer here
     // never fires again. Keyed on the cover there is nothing to reset: the
     // bitmap really is still loaded, so the state stays true.
-    val art = rememberPlayerArtwork(remoteArt)
+    val art = rememberPlayerArtwork(remoteArt, artPx)
     // Sticky, unlike [PlayerArtwork.loaded]: the banner is the shape of the player rather
     // than a property of the track in it. Waiting on each new cover would
     // collapse the banner into a card and blow it back out on every skip —
@@ -1697,8 +1700,6 @@ fun NowPlayingScreen(
             onCycleRepeat = onCycleRepeat,
             onToggleAutoplay = onToggleAutoplay,
             onOpenOutput = openAudioOutput,
-            onListenTogether = onListenTogether,
-            onOpenListenTogetherMembers = openListenTogetherMembers,
         )
         // Keep the current output caption visible in every state.
         Spacer(Modifier.height(18.dp))
@@ -1731,6 +1732,10 @@ fun NowPlayingScreen(
                 onDismiss = { showAudioOutput = false },
                 onOpenPipeline = { showAudioPipeline = true },
                 onOpenCast = { showCast = true },
+                onListenTogether = {
+                    showAudioOutput = false
+                    onListenTogether()
+                },
             )
         }
         if (showLyricsProviders) {
@@ -1800,7 +1805,7 @@ fun NowPlayingScreen(
     // effect.
     val fullArtworkBlurImage = rememberFullArtworkBlurImage(
         imageUrl = remoteArt,
-        artPx = ART_PX,
+        artPx = artPx,
         // Straight away when it is the main player's backdrop too: the decode
         // and blur run off the main thread, and the last cover's blur is held
         // on screen until this one is ready.
@@ -2425,6 +2430,7 @@ fun NowPlayingScreen(
                     // Stays mounted under a full-screen Spotify Canvas, undrawn, for
                     // a panel opening over it to find ready.
                     PlayerMeshBackdrop(
+                        artPx = artPx,
                         trackKey = song.videoId,
                         imageUrl = remoteArt,
                         canvasFrame = { canvasFrame },

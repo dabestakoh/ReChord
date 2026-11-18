@@ -502,9 +502,10 @@ class DirectAudioStreamingRegressionTest {
 
         val evaluated = AudioOutputStatus.evaluateActualPath(snapshot)
 
-        assertTrue("Direct playback must be actual", evaluated.directPlaybackActual)
+        assertTrue(evaluated.directPlaybackSupported)
+        assertFalse(evaluated.directPlaybackActual)
         assertFalse("Direct playback must not be rejected", evaluated.directPlaybackRejected)
-        assertEquals(TransportType.AUDIO_TRACK_DIRECT, evaluated.transportType)
+        assertEquals(TransportType.AUDIO_TRACK, evaluated.transportType)
         assertNull("System mixer must be bypassed", evaluated.systemMixerRateHz)
         assertNull("HAL format must be null on direct bypass", evaluated.halFormat)
         assertEquals("PCM24 / 96000 Hz", evaluated.usbEndpointFormat)
@@ -598,8 +599,9 @@ class DirectAudioStreamingRegressionTest {
         assertEquals(directSupport, snapshot.directSupport)
         assertTrue(snapshot.sampleRatesHz.contains(96000))
         assertTrue(snapshot.encodings.contains(AudioFormat.ENCODING_PCM_24BIT_PACKED))
-        assertTrue(snapshot.directPlaybackActual)
-        assertEquals(TransportType.AUDIO_TRACK_DIRECT, snapshot.transportType)
+        assertTrue(snapshot.directPlaybackSupported)
+        assertFalse(snapshot.directPlaybackActual)
+        assertEquals(TransportType.AUDIO_TRACK, snapshot.transportType)
     }
 
     // 17. evaluateActualPath honors negotiationResult route direct support when snapshot.directSupport is null
@@ -640,9 +642,10 @@ class DirectAudioStreamingRegressionTest {
 
         val evaluated = AudioOutputStatus.evaluateActualPath(snapshotWithNullDirectSupport)
 
-        assertTrue("Direct playback must be accepted via negotiation route directSupport", evaluated.directPlaybackActual)
+        assertTrue(evaluated.directPlaybackSupported)
+        assertFalse(evaluated.directPlaybackActual)
         assertFalse(evaluated.directPlaybackRejected)
-        assertEquals(TransportType.AUDIO_TRACK_DIRECT, evaluated.transportType)
+        assertEquals(TransportType.AUDIO_TRACK, evaluated.transportType)
     }
 
     // 18. Local playback behavior remains unchanged

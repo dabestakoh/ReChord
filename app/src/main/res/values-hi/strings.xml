@@ -1421,8 +1421,6 @@
     <string name="download_addon_left_out_title">%1$s के बिना डाउनलोड हो रहा है</string>
     <string name="download_addon_not_allowed">%1$s डाउनलोड की अनुमति नहीं देता, इसलिए आपके गाने आपके दूसरे सोर्स से सेव हो रहे हैं।</string>
     <string name="download_addon_needs_lossless_output">%1$s सिर्फ़ तभी संगीत देता है जब वायर्ड, USB या LDAC-क्लास हेडफ़ोन जुड़े हों। जब तक कोई न जुड़े, डाउनलोड इसे छोड़ देते हैं, इसलिए आपके गाने आपके दूसरे सोर्स से सेव हो रहे हैं।</string>
-    <string name="show_listen_together_button">साथ में सुनें बटन दिखाएँ</string>
-    <string name="show_listen_together_button_subtitle">बंद होने पर, प्लेयर लिरिक्स और कतार के बीच सिर्फ़ ऑडियो आउटपुट बटन दिखाता है</string>
     <string name="font">फ़ॉन्ट</string>
     <string name="font_default">डिफ़ॉल्ट</string>
     <string name="font_legacy">पुराना</string>
@@ -1434,6 +1432,14 @@
     <string name="bit_perfect_sheet_warning">ट्रैक को बिना बदलाव DAC पर भेजता है। इक्वलाइज़र, लाउडनेस नॉर्मलाइज़ेशन, क्रॉसफ़ेड, ऑटोमिक्स, प्लेबैक स्पीड और ReChord का वॉल्यूम बायपास हो जाते हैं।</string>
     <string name="bit_perfect_mode_off_subtitle">ऑडियो Android के मिक्सर और ReChord के इफ़ेक्ट से होकर जाता है।</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">जब Android और DAC डिकोड किए गए ऑडियो के PCM फ़ॉर्मैट का समर्थन करते हैं, तब बिट-परफ़ेक्ट प्लेबैक का अनुरोध करता है।</string>
+    <string name="bit_perfect_usb_no_profiles">मानक Android USB आउटपुट का उपयोग हो रहा है</string>
+    <string name="usb_standard_android">मानक Android USB</string>
+    <string name="pipeline_usb_mode">USB मोड</string>
+    <string name="bit_perfect_usb_format_mismatch">इस ट्रैक के लिए कोई भी Android बिट-परफ़ेक्ट फ़ॉर्मैट मेल नहीं खाता</string>
+    <string name="bit_perfect_usb_request_failed">Android बिट-परफ़ेक्ट USB आउटपुट सक्रिय नहीं कर सका</string>
+    <string name="bit_perfect_status_usb_waiting">Android से समर्थित USB आउटपुट की पुष्टि की प्रतीक्षा है</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB आउटपुट से पहले डिकोड किए गए PCM में बदलाव हुआ</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 हर ट्रैक के अपने रेट और बिट डेप्थ पर DAC खोलता है, बिना मिक्सिंग या रीसैंपलिंग के।</string>
     <string name="bit_perfect_requires_android_14">Android 14 या उसके बाद का वर्शन चाहिए</string>
     <string name="bit_perfect_mode_dap_exclusive">बिल्ट-इन DAC (AAudio एक्सक्लूसिव)</string>

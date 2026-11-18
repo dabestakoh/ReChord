@@ -202,8 +202,13 @@ private class DrawBackdropElement(
     }
 
     override fun update(node: DrawBackdropNode) {
+        val shapeChanged = node.shapeProvider != shapeProvider
+        val effectsChanged = node.effects !== effects
+        val scaleChanged = node.backdropScale != backdropScale
+        val captureChanged = node.backdrop !== backdrop || shapeChanged || effectsChanged ||
+            scaleChanged || node.layerBlock !== layerBlock || node.onDrawBackdrop !== onDrawBackdrop
         node.backdrop = backdrop
-        node.shapeProvider = shapeProvider
+        if (shapeChanged) node.shapeProvider = shapeProvider
         node.effects = effects
         node.layerBlock = layerBlock
         if (node.exportedBackdrop != exportedBackdrop) {
@@ -216,7 +221,9 @@ private class DrawBackdropElement(
         node.onDrawFront = onDrawFront
         node.backdropScale = backdropScale
         node.frozen = frozen
-        node.invalidateDrawCache()
+        if (captureChanged) node.invalidateCapture()
+        if (effectsChanged || shapeChanged || scaleChanged) node.invalidateDrawCache()
+        else node.invalidateDraw()
     }
 
     override fun InspectorInfo.inspectableProperties() {
@@ -246,6 +253,7 @@ private class DrawBackdropElement(
         if (onDrawSurface != other.onDrawSurface) return false
         if (onDrawFront != other.onDrawFront) return false
         if (backdropScale != other.backdropScale) return false
+        if (frozen != other.frozen) return false
 
         return true
     }
@@ -261,6 +269,7 @@ private class DrawBackdropElement(
         result = 31 * result + (onDrawSurface?.hashCode() ?: 0)
         result = 31 * result + (onDrawFront?.hashCode() ?: 0)
         result = 31 * result + backdropScale.hashCode()
+        result = 31 * result + frozen.hashCode()
         return result
     }
 }
@@ -436,6 +445,11 @@ private class DrawBackdropNode(
 
     override fun onObservedReadsChanged() {
         invalidateDrawCache()
+    }
+
+    fun invalidateCapture() {
+        recordedSize = IntSize.Zero
+        invalidateDraw()
     }
 
     fun invalidateDrawCache() {

@@ -37,7 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object AudioOutputStatus {
     data class Snapshot(
         val sink: String = "AudioTrack",
-        val requestedPcmMode: OutputPcmMode = OutputPcmMode.PCM_16,
+        val requestedPcmMode: OutputPcmMode = OutputPcmMode.AUTO,
         val deviceName: String = "System default",
         /**
          * The [AudioDeviceInfo.getId] of whatever [deviceName] names — the exact
@@ -55,6 +55,7 @@ object AudioOutputStatus {
         val transportType: TransportType = TransportType.AUDIO_TRACK,
         val actualEncoding: Int? = null,
         val actualSampleRateHz: Int? = null,
+        val actualChannelCount: Int? = null,
         val floatFallback: Boolean = false,
         val fallbackReason: FallbackReason = FallbackReason.NONE,
         val fallbackDetail: String? = null,
@@ -131,6 +132,7 @@ object AudioOutputStatus {
                 transportType == other.transportType &&
                 actualEncoding == other.actualEncoding &&
                 actualSampleRateHz == other.actualSampleRateHz &&
+                actualChannelCount == other.actualChannelCount &&
                 floatFallback == other.floatFallback &&
                 fallbackReason == other.fallbackReason &&
                 fallbackDetail == other.fallbackDetail &&
@@ -172,6 +174,7 @@ object AudioOutputStatus {
             result = 31 * result + transportType.hashCode()
             result = 31 * result + (actualEncoding ?: 0)
             result = 31 * result + (actualSampleRateHz ?: 0)
+            result = 31 * result + (actualChannelCount ?: 0)
             result = 31 * result + floatFallback.hashCode()
             result = 31 * result + fallbackReason.hashCode()
             result = 31 * result + (fallbackDetail?.hashCode() ?: 0)
@@ -289,7 +292,7 @@ object AudioOutputStatus {
             floatFallback = fallback,
             fallbackReason = reason,
             fallbackDetail = detail,
-            systemMixerRateHz = systemMixerRateHz ?: if (isUsbDevice && !isDirectAudioTrack) 48000 else null,
+            systemMixerRateHz = systemMixerRateHz,
             directSupport = directSupport,
             directPlaybackSupported = directSupport?.isDirectSupported == true,
             directPlaybackSelected = isDirectAudioTrack,
@@ -323,8 +326,8 @@ object AudioOutputStatus {
             },
             bluetoothProfile = if (result.route.kind == AudioRouting.Kind.BLUETOOTH) current.value.bluetoothProfile else null,
             bluetoothTelemetry = if (result.route.kind == AudioRouting.Kind.BLUETOOTH) result.route.bluetoothTelemetry else null,
-            fallbackReason = result.output.fallbackReason,
-            fallbackDetail = result.output.fallbackDetail,
+            fallbackReason = FallbackReason.NONE,
+            fallbackDetail = null,
             systemMixerRateHz = result.output.systemMixerRateHz,
             // decoderOutputEncoding and dspFormat are deliberately not taken from
             // the negotiation. The negotiator predicts a route; it never sees a
@@ -350,6 +353,8 @@ object AudioOutputStatus {
             outputExactDetail = null,
             loudnessGainDb = null,
             loudnessLufs = null,
+            fallbackReason = FallbackReason.NONE,
+            fallbackDetail = null,
         )
     }
 
@@ -392,186 +397,52 @@ object AudioOutputStatus {
         current.value = snapshot.copy(loudnessGainDb = gainDb, loudnessLufs = lufs)
     }
 
-    fun publishAudioTrack(encoding: Int, sampleRateHz: Int, bufferSize: Int? = null) {
+    fun publishAudioTrack(
+        encoding: Int,
+        sampleRateHz: Int,
+        bufferSize: Int? = null,
+        channelCount: Int? = null,
+    ) {
         val isFloat = encoding == AudioFormat.ENCODING_PCM_FLOAT
         val baseSnapshot = current.value.copy(
             actualEncoding = encoding,
             actualSampleRateHz = sampleRateHz,
+            actualChannelCount = channelCount?.takeIf { it > 0 },
             bufferSize = bufferSize ?: current.value.bufferSize,
             floatFallback = current.value.requestedPcmMode == OutputPcmMode.FLOAT_32 && !isFloat,
         )
         current.value = evaluateActualPath(baseSnapshot)
     }
 
-    /**
-     * Authoritative runtime verification of whether the active AudioTrack path is genuinely direct
-     * and bypassing AudioFlinger mixer, versus being rejected by AudioPolicy and placed on a MixerThread.
-     */
+    /** Android's format support queries report capabilities, independently of the active track. */
     internal fun evaluateActualPath(snapshot: Snapshot): Snapshot {
-        val directSupport = snapshot.directSupport
-            ?: snapshot.negotiationResult?.route?.directSupport
-
-        val directSupported = directSupport?.isDirectSupported == true
-
-        val requestedDirect = snapshot.requestedTransportType == TransportType.AUDIO_TRACK_DIRECT ||
-            snapshot.directPlaybackSelected ||
-            snapshot.negotiationResult?.output?.isDirect == true ||
-            (directSupported && snapshot.routeKind != AudioRouting.Kind.PHONE)
-
-        val sampleRate = snapshot.actualSampleRateHz
-            ?: snapshot.negotiationResult?.output?.sampleRateHz
-            ?: snapshot.negotiationResult?.source?.sampleRateHz
-
-        val encoding = snapshot.actualEncoding
-            ?: when (snapshot.negotiationResult?.output?.encoding) {
-                PcmEncoding.PCM_FLOAT -> AudioFormat.ENCODING_PCM_FLOAT
-                PcmEncoding.PCM_24BIT_PACKED -> AudioFormat.ENCODING_PCM_24BIT_PACKED
-                PcmEncoding.PCM_32BIT -> AudioFormat.ENCODING_PCM_32BIT
-                PcmEncoding.PCM_16BIT -> AudioFormat.ENCODING_PCM_16BIT
-                null -> null
-            }
-
-        val sampleRates = if (snapshot.sampleRatesHz.isNotEmpty()) {
-            snapshot.sampleRatesHz
-        } else {
-            snapshot.negotiationResult?.route?.advertisedSampleRates?.toIntArray() ?: intArrayOf()
-        }
-        val encodings = if (snapshot.encodings.isNotEmpty()) {
-            snapshot.encodings
-        } else {
-            snapshot.negotiationResult?.route?.advertisedEncodings?.toIntArray() ?: intArrayOf()
-        }
-
-        // An unresolved rate/encoding means "not measured yet", not "unsupported":
-        // vetoing direct playback here would flash a false rejection before the
-        // first AudioTrack publish lands.
-        val rateMatchesDescriptors = sampleRates.isEmpty() ||
-            sampleRate == null ||
-            sampleRates.contains(sampleRate)
-        val encodingMatchesDescriptors = encodings.isEmpty() ||
-            encoding == null ||
-            encodings.contains(encoding)
-
-        val defaultMixerRate = snapshot.systemMixerRateHz ?: 48000
-
-        return when (snapshot.routeKind) {
-            AudioRouting.Kind.PHONE -> {
-                snapshot.copy(
-                    transportType = TransportType.AUDIO_TRACK,
-                    directPlaybackRequested = false,
-                    directPlaybackActual = false,
-                    directPlaybackRejected = false,
-                    directPlaybackSelected = false,
-                    systemMixerRateHz = defaultMixerRate,
-                    halFormat = "PCM24 packed",
-                    usbEndpointFormat = null,
-                )
-            }
-            AudioRouting.Kind.USB -> {
-                // A runtime direct-support probe outranks the device's static USB
-                // descriptors: the descriptors cap what the device claims, the probe
-                // reports what AudioPolicy will actually accept.
-                val sampleRateSupported = rateMatchesDescriptors || directSupported
-                val encodingSupported = encodingMatchesDescriptors || directSupported
-                val isFloatPcm = encoding == AudioFormat.ENCODING_PCM_FLOAT
-
-                val maxUsbRate = sampleRates.maxOrNull() ?: 48000
-                val usbEnc = when {
-                    encodings.contains(AudioFormat.ENCODING_PCM_32BIT) -> "PCM32"
-                    encodings.contains(AudioFormat.ENCODING_PCM_24BIT_PACKED) -> "PCM24"
-                    encodings.contains(AudioFormat.ENCODING_PCM_FLOAT) -> "Float32"
-                    encodings.contains(AudioFormat.ENCODING_PCM_16BIT) -> "PCM16"
-                    else -> "PCM16"
-                }
-                val usbEndpointStr = "$usbEnc / $maxUsbRate Hz"
-
-                val isGenuineDirect = requestedDirect &&
-                    directSupported &&
-                    sampleRateSupported &&
-                    encodingSupported &&
-                    !isFloatPcm
-
-                if (isGenuineDirect) {
-                    snapshot.copy(
-                        transportType = TransportType.AUDIO_TRACK_DIRECT,
-                        directPlaybackRequested = true,
-                        directPlaybackActual = true,
-                        directPlaybackRejected = false,
-                        directPlaybackSelected = true,
-                        systemMixerRateHz = null,
-                        halFormat = null,
-                        usbEndpointFormat = usbEndpointStr,
-                    )
-                } else if (requestedDirect || directSupported) {
-                    snapshot.copy(
-                        transportType = TransportType.AUDIO_TRACK,
-                        directPlaybackRequested = true,
-                        directPlaybackActual = false,
-                        directPlaybackRejected = true,
-                        directPlaybackSelected = false,
-                        systemMixerRateHz = defaultMixerRate,
-                        halFormat = "PCM24 packed",
-                        usbEndpointFormat = usbEndpointStr,
-                        fallbackReason = FallbackReason.ROUTE_LIMITATION,
-                        fallbackDetail = "Direct playback unavailable for active USB device",
-                    )
-                } else {
-                    snapshot.copy(
-                        transportType = TransportType.AUDIO_TRACK,
-                        directPlaybackRequested = false,
-                        directPlaybackActual = false,
-                        directPlaybackRejected = false,
-                        directPlaybackSelected = false,
-                        systemMixerRateHz = defaultMixerRate,
-                        halFormat = "PCM24 packed",
-                        usbEndpointFormat = usbEndpointStr,
-                    )
+        val support = snapshot.directSupport ?: snapshot.negotiationResult?.route?.directSupport
+        val rates = snapshot.sampleRatesHz.takeIf { it.isNotEmpty() }
+            ?: snapshot.negotiationResult?.route?.advertisedSampleRates?.toIntArray()
+        val encodings = snapshot.encodings.takeIf { it.isNotEmpty() }
+            ?: snapshot.negotiationResult?.route?.advertisedEncodings?.toIntArray()
+        val usbCapability = if (snapshot.routeKind == AudioRouting.Kind.USB) {
+            val format = encodings?.let {
+                when {
+                    AudioFormat.ENCODING_PCM_32BIT in it -> "PCM32"
+                    AudioFormat.ENCODING_PCM_24BIT_PACKED in it -> "PCM24"
+                    AudioFormat.ENCODING_PCM_FLOAT in it -> "Float32"
+                    AudioFormat.ENCODING_PCM_16BIT in it -> "PCM16"
+                    else -> null
                 }
             }
-            AudioRouting.Kind.BLUETOOTH -> {
-                snapshot.copy(
-                    transportType = TransportType.AUDIO_TRACK,
-                    directPlaybackRequested = false,
-                    directPlaybackActual = false,
-                    directPlaybackRejected = false,
-                    directPlaybackSelected = false,
-                    systemMixerRateHz = defaultMixerRate,
-                    halFormat = "PCM24 packed",
-                    usbEndpointFormat = null,
-                )
-            }
-            else -> {
-                val isGenuineDirect = requestedDirect &&
-                    directSupported &&
-                    rateMatchesDescriptors
-
-                if (isGenuineDirect) {
-                    snapshot.copy(
-                        transportType = TransportType.AUDIO_TRACK_DIRECT,
-                        directPlaybackRequested = true,
-                        directPlaybackActual = true,
-                        directPlaybackRejected = false,
-                        directPlaybackSelected = true,
-                        systemMixerRateHz = null,
-                        halFormat = null,
-                        usbEndpointFormat = null,
-                    )
-                } else {
-                    snapshot.copy(
-                        transportType = TransportType.AUDIO_TRACK,
-                        directPlaybackRequested = requestedDirect,
-                        directPlaybackActual = false,
-                        directPlaybackRejected = requestedDirect,
-                        directPlaybackSelected = false,
-                        systemMixerRateHz = defaultMixerRate,
-                        halFormat = "PCM24 packed",
-                        usbEndpointFormat = null,
-                        fallbackReason = if (requestedDirect) FallbackReason.ROUTE_LIMITATION else snapshot.fallbackReason,
-                        fallbackDetail = if (requestedDirect) "Direct playback unavailable for active ${snapshot.routeKind.name} device" else snapshot.fallbackDetail,
-                    )
-                }
-            }
-        }
+            val rate = rates?.filter { it > 0 }?.maxOrNull()?.let { "$it Hz" }
+            listOfNotNull(format, rate).joinToString(" / ").ifBlank { null }
+        } else null
+        return snapshot.copy(
+            transportType = TransportType.AUDIO_TRACK,
+            directPlaybackSupported = support?.isDirectSupported == true,
+            directPlaybackActual = false,
+            directPlaybackRejected = false,
+            systemMixerRateHz = null,
+            halFormat = null,
+            usbEndpointFormat = usbCapability,
+        )
     }
 
     fun reset() {

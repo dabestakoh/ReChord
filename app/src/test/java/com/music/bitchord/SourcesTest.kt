@@ -19,6 +19,11 @@ import com.music.bitchord.data.sources.StreamFormat
 import com.music.bitchord.data.sources.StreamRequest
 import com.music.bitchord.data.sources.TrackMatcher
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -1146,6 +1151,10 @@ class SourcesTest {
         private val candidates: List<Song>? = null,
     ) : MusicSource {
         override val configId = displayName
+        var searchCalls = 0
+            private set
+        var streamCalls = 0
+            private set
         var asked = false
             private set
         var cancelled = false
@@ -1160,6 +1169,7 @@ class SourcesTest {
             request: StreamRequest?,
         ): List<Song> {
             asked = true
+            searchCalls++
             try {
                 delay(answerAfterMs)
             } catch (e: CancellationException) {
@@ -1178,8 +1188,51 @@ class SourcesTest {
             )
         }
 
-        override suspend fun stream(trackId: String, request: StreamRequest): SourceStream? =
-            format?.let { SourceStream(url = "https://$displayName/$trackId", format = it) }
+        override suspend fun stream(trackId: String, request: StreamRequest): SourceStream? {
+            streamCalls++
+            return format?.let { SourceStream(url = "https://$displayName/$trackId", format = it) }
+        }
+    }
+
+    @Test
+    fun `cold preparation shares its catalogue search with immediate playback`() = runBlocking {
+        val source = FakeSource("prepared", 30, StreamFormat("flac"), kind = SourceKind.ADDON)
+        val prepared = SourceResolver.prepareDirectSources(this, raceTarget(), listOf(source), StreamRequest.Lossless)
+        yield()
+        assertEquals(1, source.searchCalls)
+        assertEquals(0, source.streamCalls)
+        val playback = async {
+            SourceResolver.bestAcross(prepared, raceTarget(), StreamRequest.Lossless)
+        }
+        assertTrue(playback.await()!!.second.format.isLossless == true)
+        assertEquals(1, source.searchCalls)
+        assertEquals(1, source.streamCalls)
+    }
+
+    @Test
+    fun `prepared metadata still rejects a different recording before streaming`() = runBlocking {
+        val source = FakeSource(
+            "wrong-cut", 0, StreamFormat("flac"), kind = SourceKind.ADDON,
+            candidates = listOf(song(RACE_TITLE, RACE_ARTIST, "0:30")),
+        )
+        val prepared = SourceResolver.prepareDirectSources(this, raceTarget(), listOf(source), StreamRequest.Lossless)
+        assertNull(SourceResolver.bestAcross(
+            prepared, raceTarget(), StreamRequest.Lossless,
+            strictLength = true, requireSharedArtist = true,
+        ))
+        assertEquals(0, source.streamCalls)
+    }
+
+    @Test
+    fun `queue change cancels obsolete metadata preparation without requesting audio`() = runBlocking {
+        val source = FakeSource("cancelled", 10_000, StreamFormat("flac"), kind = SourceKind.ADDON)
+        val owner = CoroutineScope(coroutineContext + SupervisorJob())
+        SourceResolver.prepareDirectSources(owner, raceTarget(), listOf(source), StreamRequest.Lossless)
+        yield()
+        owner.cancel()
+        yield()
+        assertTrue(source.cancelled)
+        assertEquals(0, source.streamCalls)
     }
 
     private fun raceTarget() = TrackMatcher.Target(RACE_TITLE, RACE_ARTIST, durationSec = 120)

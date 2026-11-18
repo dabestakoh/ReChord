@@ -1398,8 +1398,6 @@
     <string name="download_addon_left_out_title">Mengunduh tanpa %1$s</string>
     <string name="download_addon_not_allowed">%1$s tidak mengizinkan unduhan, jadi lagu Anda disimpan dari sumber Anda yang lain.</string>
     <string name="download_addon_needs_lossless_output">%1$s hanya menyajikan musik saat headphone kabel, USB, atau kelas LDAC terhubung. Unduhan melewatinya sampai ada yang terhubung, jadi lagu Anda disimpan dari sumber Anda yang lain.</string>
-    <string name="show_listen_together_button">Tampilkan tombol Dengar bersama</string>
-    <string name="show_listen_together_button_subtitle">Jika nonaktif, pemutar hanya menampilkan tombol output audio di antara lirik dan antrean</string>
     <string name="font">Font</string>
     <string name="font_default">Default</string>
     <string name="font_legacy">Lama</string>
@@ -1411,6 +1409,14 @@
     <string name="bit_perfect_sheet_warning">Mengirim trek ke DAC tanpa perubahan. Equalizer, normalisasi kenyaringan, crossfade, Automix, kecepatan putar, dan volume ReChord dilewati.</string>
     <string name="bit_perfect_mode_off_subtitle">Audio melewati mixer Android dan efek ReChord.</string>
     <string name="bit_perfect_mode_usb_android">DAC USB</string>
+    <string name="bit_perfect_mode_usb_android_request">Meminta pemutaran bit-perfect untuk audio yang didekode jika Android dan DAC mendukung format PCM-nya.</string>
+    <string name="bit_perfect_usb_no_profiles">Menggunakan keluaran USB standar Android</string>
+    <string name="usb_standard_android">USB standar Android</string>
+    <string name="pipeline_usb_mode">Mode USB</string>
+    <string name="bit_perfect_usb_format_mismatch">Tidak ada format bit-perfect Android yang cocok dengan trek ini</string>
+    <string name="bit_perfect_usb_request_failed">Android tidak dapat mengaktifkan keluaran USB bit-perfect</string>
+    <string name="bit_perfect_status_usb_waiting">Menunggu Android mengonfirmasi keluaran USB yang didukung</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · PCM yang didekode diubah sebelum keluaran USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 membuka DAC pada rate dan kedalaman bit masing-masing trek, tanpa mixing atau resampling.</string>
     <string name="bit_perfect_requires_android_14">Memerlukan Android 14 atau lebih baru</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC bawaan (AAudio eksklusif)</string>

@@ -1399,8 +1399,6 @@
     <string name="download_addon_left_out_title">%1$sを使わずにダウンロード中</string>
     <string name="download_addon_not_allowed">%1$sはダウンロードを許可していないため、曲は他のソースから保存されます。</string>
     <string name="download_addon_needs_lossless_output">%1$sは有線、USB、またはLDACクラスのヘッドホンが接続されているときのみ音楽を提供します。接続されるまでダウンロードでは使用されないため、曲は他のソースから保存されます。</string>
-    <string name="show_listen_together_button">「一緒に聴く」ボタンを表示</string>
-    <string name="show_listen_together_button_subtitle">オフにすると、プレーヤーの歌詞と再生キューの間にはオーディオ出力ボタンだけが表示されます</string>
     <string name="font">フォント</string>
     <string name="font_default">デフォルト</string>
     <string name="font_legacy">従来</string>
@@ -1412,6 +1410,14 @@
     <string name="bit_perfect_sheet_warning">トラックを変更せずに DAC に送ります。イコライザー、音量の正規化、クロスフェード、オートミックス、再生速度、ReChord の音量はバイパスされます。</string>
     <string name="bit_perfect_mode_off_subtitle">音声は Android のミキサーと ReChord のエフェクトを通ります。</string>
     <string name="bit_perfect_mode_usb_android">USB DAC</string>
+    <string name="bit_perfect_mode_usb_android_request">Android と DAC が PCM 形式に対応している場合、デコード済み音声のビットパーフェクト再生を要求します。</string>
+    <string name="bit_perfect_usb_no_profiles">Android の標準 USB 出力を使用中</string>
+    <string name="usb_standard_android">Android 標準 USB</string>
+    <string name="pipeline_usb_mode">USB モード</string>
+    <string name="bit_perfect_usb_format_mismatch">この曲に一致する Android のビットパーフェクト形式がありません</string>
+    <string name="bit_perfect_usb_request_failed">Android はビットパーフェクト USB 出力を有効にできませんでした</string>
+    <string name="bit_perfect_status_usb_waiting">Android が対応する USB 出力を確認しています</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · USB 出力前にデコード済み PCM が変更されました</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 が各トラックのサンプルレートとビット深度で DAC を開きます。ミキシングやリサンプリングは行いません。</string>
     <string name="bit_perfect_requires_android_14">Android 14 以降が必要です</string>
     <string name="bit_perfect_mode_dap_exclusive">内蔵 DAC（AAudio 排他）</string>

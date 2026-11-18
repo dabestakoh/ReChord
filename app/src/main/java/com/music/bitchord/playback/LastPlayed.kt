@@ -3,119 +3,119 @@ package com.music.bitchord.playback
 import android.content.Context
 import android.content.SharedPreferences
 import com.music.bitchord.data.model.Song
+import java.util.concurrent.Executors
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/**
- * A bounded queue snapshot for restoring playback after process death.
- *
- * Queue contents are serialized only when Media3 reports that the playlist
- * changed. The frequently changing index and position are stored separately as
- * primitives, so progress sampling never walks or serializes the song list.
- */
+/** The latest bounded restart snapshot; routine disk writes are ordered and coalesced. */
 object LastPlayed {
-
     class Snapshot(val songs: List<Song>, val index: Int, val positionMs: Long)
-
     private lateinit var prefs: SharedPreferences
     private val json = Json { ignoreUnknownKeys = true }
+    private val writer = Executors.newSingleThreadExecutor { r -> Thread(r, "LastPlayed-writer").apply { isDaemon = true } }
+    private val lock = Any()
+    private var generation = 0L
+    private var latest: Snapshot? = null
+    private var loaded = false
+    private var pending: Pair<Long, Snapshot>? = null
+    private var scheduled = false
+    @Volatile private var queueEncoding: Pair<List<Song>, String>? = null
 
-    fun init(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun init(context: Context) { prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    internal fun initForTesting(testPrefs: SharedPreferences) {
+        writer.submit {}.get()
+        synchronized(lock) { generation++; pending = null; prefs = testPrefs; latest = null; loaded = false }
     }
+    internal fun awaitWritesForTesting() { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
 
     internal fun window(size: Int, index: Int): IntRange {
         if (size <= 0) return IntRange.EMPTY
-        val safeIndex = index.coerceIn(0, size - 1)
-        val start = (safeIndex - MAX_QUEUE_HISTORY).coerceAtLeast(0)
-        return start until (safeIndex + 1 + KEEP_AHEAD).coerceAtMost(size)
+        val safe = index.coerceIn(0, size - 1)
+        return (safe - MAX_QUEUE_HISTORY).coerceAtLeast(0) until (safe + 1 + KEEP_AHEAD).coerceAtMost(size)
     }
 
-    /** Persist at most 25 previous entries, the current one, and 50 upcoming entries. */
+    private fun bounded(songs: List<Song>, index: Int, positionMs: Long): Snapshot {
+        val safe = index.coerceIn(songs.indices)
+        val range = window(songs.size, safe)
+        return Snapshot(songs.subList(range.first, range.last + 1).toList(), safe - range.first, positionMs.coerceAtLeast(0))
+    }
+
+    private fun encode(snapshot: Snapshot): String {
+        queueEncoding?.takeIf { it.first === snapshot.songs }?.let { return it.second }
+        val encoded = json.encodeToString(StoredQueue.serializer(), StoredQueue(snapshot.songs.map(StoredTrack::from)))
+        queueEncoding = snapshot.songs to encoded
+        return encoded
+    }
+
+    private fun write(snapshot: Snapshot, encoded: String): SharedPreferences.Editor = prefs.edit()
+        .putString(KEY_QUEUE, encoded).putInt(KEY_INDEX, snapshot.index).putLong(KEY_POSITION, snapshot.positionMs)
+
+    private fun enqueue(snapshot: Snapshot) {
+        synchronized(lock) {
+            latest = snapshot
+            loaded = true
+            pending = ++generation to snapshot
+            if (scheduled) return
+            scheduled = true
+            writer.execute {
+                while (true) {
+                    val work = synchronized(lock) {
+                        pending?.also { pending = null } ?: run { scheduled = false; return@execute }
+                    }
+                    // An I/O failure must not escape a background thread and kill playback.
+                    runCatching {
+                        val encoded = encode(work.second)
+                        synchronized(lock) {
+                            if (generation == work.first) write(work.second, encoded).apply()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun saveQueue(songs: List<Song>, index: Int) {
-        if (songs.isEmpty()) {
-            clear()
-            return
-        }
-        val safeIndex = index.coerceIn(songs.indices)
-        val bounds = window(songs.size, safeIndex)
-        val stored = StoredQueue(
-            tracks = songs.subList(bounds.first, bounds.last + 1).map { StoredTrack.from(it) },
-        )
-        val encoded = runCatching {
-            json.encodeToString(StoredQueue.serializer(), stored)
-        }.getOrNull() ?: return
-        prefs.edit()
-            .putString(KEY_QUEUE, encoded)
-            .putInt(KEY_INDEX, safeIndex - bounds.first)
-            .apply()
+        if (songs.isEmpty()) { clear(); return }
+        enqueue(bounded(songs, index, load()?.positionMs ?: 0L))
     }
 
-    /**
-     * Atomically replaces the restart snapshot and waits until it reaches disk.
-     * Used at an explicit queue boundary, where restoring the queue from before
-     * that boundary would be worse than the small cost of a synchronous write.
-     */
-    fun saveQueueImmediately(songs: List<Song>, index: Int, positionMs: Long) {
-        if (songs.isEmpty()) {
-            clearImmediately()
-            return
-        }
-        val safeIndex = index.coerceIn(songs.indices)
-        val bounds = window(songs.size, safeIndex)
-        val stored = StoredQueue(
-            tracks = songs.subList(bounds.first, bounds.last + 1).map { StoredTrack.from(it) },
-        )
-        val encoded = runCatching {
-            json.encodeToString(StoredQueue.serializer(), stored)
-        }.getOrNull() ?: return
-        prefs.edit()
-            .putString(KEY_QUEUE, encoded)
-            .putInt(KEY_INDEX, safeIndex - bounds.first)
-            .putLong(KEY_POSITION, positionMs.coerceAtLeast(0L))
-            .commit()
-    }
-
-    /** Update only cheap scalar state; this performs no queue conversion or JSON work. */
     fun savePlaybackState(index: Int, positionMs: Long) {
-        if (!prefs.contains(KEY_QUEUE)) return
-        prefs.edit()
-            .putInt(KEY_INDEX, index.coerceAtLeast(0))
-            .putLong(KEY_POSITION, positionMs.coerceAtLeast(0L))
-            .apply()
+        val current = load() ?: return
+        enqueue(Snapshot(current.songs, index.coerceIn(current.songs.indices), positionMs.coerceAtLeast(0)))
     }
 
-    fun load(): Snapshot? {
-        val raw = prefs.getString(KEY_QUEUE, null) ?: return null
-        val stored = runCatching { json.decodeFromString<StoredQueue>(raw) }.getOrNull()
-            ?: return null
-        if (stored.tracks.isEmpty()) return null
-        val songs = stored.tracks.map(StoredTrack::toSong)
-        val index = if (prefs.contains(KEY_INDEX)) {
-            prefs.getInt(KEY_INDEX, 0)
-        } else {
-            stored.legacyIndex ?: 0
+    /** A lifecycle boundary supersedes pending saves and reaches disk before returning. */
+    fun saveQueueImmediately(songs: List<Song>, index: Int, positionMs: Long) {
+        if (songs.isEmpty()) { clearImmediately(); return }
+        val snapshot = bounded(songs, index, positionMs)
+        val encoded = encode(snapshot)
+        synchronized(lock) {
+            generation++; pending = null; latest = snapshot; loaded = true
+            write(snapshot, encoded).commit()
         }
-        val positionMs = if (prefs.contains(KEY_POSITION)) {
-            prefs.getLong(KEY_POSITION, 0L)
-        } else {
-            stored.legacyPositionMs ?: 0L
+    }
+
+    /** Never waits for queued encoding: reads the authoritative live snapshot first. */
+    fun load(): Snapshot? = synchronized(lock) {
+        if (loaded) return@synchronized latest
+        val raw = prefs.getString(KEY_QUEUE, null)
+        val stored = raw?.let { runCatching { json.decodeFromString<StoredQueue>(it) }.getOrNull() }
+        latest = stored?.takeIf { it.tracks.isNotEmpty() }?.let {
+            Snapshot(it.tracks.map(StoredTrack::toSong),
+                prefs.getInt(KEY_INDEX, it.legacyIndex ?: 0).coerceIn(it.tracks.indices),
+                prefs.getLong(KEY_POSITION, it.legacyPositionMs ?: 0).coerceAtLeast(0))
         }
-        return Snapshot(
-            songs = songs,
-            index = index.coerceIn(songs.indices),
-            positionMs = positionMs.coerceAtLeast(0L),
-        )
+        loaded = true
+        latest
     }
 
-    fun clear() {
-        prefs.edit().clear().apply()
+    private fun clear(durable: Boolean) = synchronized(lock) {
+        generation++; pending = null; latest = null; loaded = true
+        prefs.edit().clear().let { if (durable) it.commit() else it.apply() }
+        Unit
     }
-
-    /** Remove a stale queue before another one is installed. */
-    fun clearImmediately() {
-        prefs.edit().clear().commit()
-    }
+    fun clear() = clear(false)
+    fun clearImmediately() = clear(true)
 
     @Serializable
     private data class StoredQueue(

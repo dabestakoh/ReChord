@@ -1,5 +1,19 @@
 package com.music.bitchord.ui.screens
 
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import coil3.compose.LocalPlatformContext
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
+import com.music.bitchord.data.model.HEADER_ART_PX
+
+import com.music.bitchord.ui.components.uniqueKeys
+
 import com.music.bitchord.ui.components.trackArtSize
 import com.music.bitchord.ui.components.contextClick
 import com.music.bitchord.ui.AppUi
@@ -161,7 +175,38 @@ fun HomeScreen(
     artworkMotion: Boolean = true,
 ) {
     // Top Picks' pictures and motion wait for the feed — see LocalArtworkImages.
-    val feedReady = state !is UiState.Loading
+    val imageContext = LocalPlatformContext.current
+    var revealed by remember(signedIn) { mutableStateOf(false) }
+    var optionalWaitExpired by remember(signedIn) { mutableStateOf(false) }
+    LaunchedEffect(signedIn) { delay(2500); optionalWaitExpired = true }
+    val dataReady = state is UiState.Success && (!topPicksLoading || optionalWaitExpired)
+    LaunchedEffect(dataReady, signedIn) {
+        if (!dataReady || revealed) return@LaunchedEffect
+        // Warm only the visible opening cohort; failed images and slow optional requests cannot hold Home forever.
+        val urls = buildList {
+            topPicks.orEmpty().take(2).forEach { pick -> pick.images.firstOrNull()?.let {
+                add(it.croppedAt(HEADER_ART_PX))
+                add(it.croppedAt(HEADER_ART_PX * 3 / 4, HEADER_ART_PX))
+            } }
+            (state as? UiState.Success)?.data?.firstOrNull()?.items?.take(3)?.forEach {
+                add(it.thumbnailUrl?.artworkAt(CARD_ART_PX))
+            }
+        }.filterNotNull().distinct()
+        withTimeoutOrNull(2500) {
+            coroutineScope {
+                urls.map { url -> async {
+                    try {
+                        SingletonImageLoader.get(imageContext).execute(
+                            ImageRequest.Builder(imageContext).data(url).size(HEADER_ART_PX).build())
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                      catch (_: Exception) { /* The card's placeholder remains a valid fallback. */ }
+                } }.awaitAll()
+            }
+        }
+        revealed = true
+    }
+    val feedReady = revealed || state is UiState.Error
+    val displayState = if (feedReady) state else UiState.Loading
     CompositionLocalProvider(
         LocalArtworkMotion provides (artworkMotion && feedReady),
         LocalArtworkImages provides feedReady,
@@ -208,7 +253,7 @@ fun HomeScreen(
             }
             if (onTopPickClick != null) {
                 when {
-                    !topPicks.isNullOrEmpty() -> item(key = "top-picks") {
+                    feedReady && !topPicks.isNullOrEmpty() -> item(key = "top-picks") {
                         TopPicksShelf(
                             picks = topPicks,
                             listenerName = listenerName,
@@ -216,10 +261,10 @@ fun HomeScreen(
                             onLongPress = onTopPickLongPress,
                         )
                     }
-                    topPicks == null && topPicksLoading -> topPicksSkeleton()
+                    !feedReady || (topPicks == null && topPicksLoading) -> topPicksSkeleton()
                 }
             }
-            when (state) {
+            when (val state = displayState) {
                 is UiState.Loading -> {
                     if (recentlyPlayedLoading) {
                         recentlyPlayedSkeleton()
@@ -326,6 +371,11 @@ private fun RecentShelf(
         RecentSectionHeader(title = localizeShelfTitle(shelf.title), subtitle = localizeShelfSubtitle(shelf.subtitle))
         val isCurrentItem = remember(shelf.items, currentSong) { shelf.items.playingItemMatcher(currentSong) }
         val recentColumns = remember(shelf.items) { shelf.items.chunked(RECENT_TRACKS_PER_COLUMN) }
+        val columnKeys = remember(recentColumns) {
+            uniqueKeys(recentColumns) { column ->
+                column.firstOrNull()?.let { it.videoId ?: it.browseId ?: it.title }.orEmpty()
+            }
+        }
         BoxWithConstraints {
             val columnWidth = trackColumnWidth(maxWidth)
             ShelfRow(
@@ -334,7 +384,7 @@ private fun RecentShelf(
             ) {
                 itemsIndexed(
                     items = recentColumns,
-                    key = { index, column -> "recent-$index-${column.firstOrNull()?.videoId ?: column.firstOrNull()?.title.orEmpty()}" },
+                    key = { index, _ -> columnKeys[index] },
                     contentType = { _, _ -> "recent-column" },
                 ) { _, column ->
                     Column(Modifier.width(columnWidth)) {
@@ -752,11 +802,7 @@ internal fun Shelf(
         // Prefer a stable catalogue identity. Fall back to the original position
         // only when a shelf actually repeats the same item identifier.
         val cardKeys = remember(shelf.items) {
-            val ids = shelf.items.map { it.browseId ?: it.videoId ?: it.title }
-            val duplicates = ids.groupingBy { it }.eachCount()
-            ids.mapIndexed { index, id ->
-                if (duplicates[id] == 1) "card-$id" else "card-$id-$index"
-            }
+            uniqueKeys(shelf.items) { it.browseId ?: it.videoId ?: it.title }
         }
         ShelfRow(
             contentPadding = PaddingValues(horizontal = PAGE_GUTTER),

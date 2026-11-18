@@ -10,3 +10,10 @@
 HSPLcom/music/bitchord/**->**(**)**
 HSPLcom/my/kizzy/**->**(**)**
 Lcom/music/bitchord/**;
+
+# First-play and startup dependencies beyond the app package. These are static
+# candidate rules, not a device-recorded profile or a measured performance claim.
+HSPLandroidx/media3/exoplayer/**->**(**)**
+HSPLandroidx/media3/session/**->**(**)**
+HSPLokhttp3/**->**(**)**
+HSPLkotlinx/coroutines/**->**(**)**

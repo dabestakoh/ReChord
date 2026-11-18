@@ -342,7 +342,7 @@ class PrecisionAudioSinkTest {
 
         assertFalse(AudioOutputStatus.current.value.outputExact)
         assertTrue(
-            AudioOutputStatus.current.value.outputExactDetail.orEmpty().contains("8 bits lost"),
+            AudioOutputStatus.current.value.outputExactDetail.orEmpty().contains("precision reduced"),
         )
     }
 

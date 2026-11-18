@@ -42,7 +42,7 @@ internal object AudioOutputPolicy {
     ): Boolean {
         if (routeKind == AudioRouting.Kind.PHONE) return false
         if (routeKind == AudioRouting.Kind.BLUETOOTH && (bluetoothCodecBitDepth ?: 0) > 16) return true
-        if (requestedMode != OutputPcmMode.FLOAT_32) return false
+        if (requestedMode == OutputPcmMode.PCM_16) return false
         return advertisesPcmFloat
     }
 

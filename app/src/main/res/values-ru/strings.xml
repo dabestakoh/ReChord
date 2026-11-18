@@ -1453,8 +1453,6 @@
     <string name="download_addon_left_out_title">Загрузка без %1$s</string>
     <string name="download_addon_not_allowed">%1$s не разрешает загрузки, поэтому треки сохраняются из других ваших источников.</string>
     <string name="download_addon_needs_lossless_output">%1$s отдаёт музыку, только когда подключены проводные, USB или LDAC-наушники. Пока их нет, загрузки его пропускают, поэтому треки сохраняются из других ваших источников.</string>
-    <string name="show_listen_together_button">Показывать кнопку «Слушать вместе»</string>
-    <string name="show_listen_together_button_subtitle">Если выключено, плеер показывает между текстом песни и очередью только кнопку аудиовыхода</string>
     <string name="font">Шрифт</string>
     <string name="font_default">По умолчанию</string>
     <string name="font_legacy">Прежний</string>
@@ -1466,6 +1464,14 @@
     <string name="bit_perfect_sheet_warning">Отправляет трек на ЦАП без изменений. Эквалайзер, нормализация громкости, кроссфейд, автомикс, скорость воспроизведения и громкость ReChord не применяются.</string>
     <string name="bit_perfect_mode_off_subtitle">Звук проходит через микшер Android и эффекты ReChord.</string>
     <string name="bit_perfect_mode_usb_android">USB-ЦАП</string>
+    <string name="bit_perfect_mode_usb_android_request">Запрашивает побитово точное воспроизведение декодированного звука, если Android и ЦАП поддерживают его формат PCM.</string>
+    <string name="bit_perfect_usb_no_profiles">Используется стандартный USB-выход Android</string>
+    <string name="usb_standard_android">Стандартный USB Android</string>
+    <string name="pipeline_usb_mode">Режим USB</string>
+    <string name="bit_perfect_usb_format_mismatch">Ни один побитово точный формат Android не подходит для этой композиции</string>
+    <string name="bit_perfect_usb_request_failed">Не удалось включить побитово точный вывод USB в Android</string>
+    <string name="bit_perfect_status_usb_waiting">Ожидание подтверждения поддерживаемого выхода USB от Android</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · Декодированный PCM был изменён перед выводом через USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 открывает ЦАП с частотой и разрядностью каждого трека, без микширования и передискретизации.</string>
     <string name="bit_perfect_requires_android_14">Требуется Android 14 или новее</string>
     <string name="bit_perfect_mode_dap_exclusive">Встроенный ЦАП (AAudio, эксклюзивно)</string>

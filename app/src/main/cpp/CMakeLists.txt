@@ -105,8 +105,8 @@ set_property(TARGET bitchord_exclusive APPEND PROPERTY LINK_DEPENDS
 # config.h it ships for Android (android/jni/libusb.mk). The transport is
 # adapted from Mornye's Rust driver (LGPL-3.0).
 FetchContent_Declare(libusb
-    URL https://github.com/libusb/libusb/releases/download/v1.0.27/libusb-1.0.27.tar.bz2
-    URL_HASH SHA256=ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575)
+    URL https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2
+    URL_HASH SHA256=fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf)
 FetchContent_MakeAvailable(libusb)
 add_library(bitchord_libusb STATIC
     ${libusb_SOURCE_DIR}/libusb/core.c

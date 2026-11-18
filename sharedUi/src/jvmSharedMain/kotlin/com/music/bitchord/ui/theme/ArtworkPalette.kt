@@ -474,3 +474,6 @@ private fun Color.withHsl(
 
 /** Perceived brightness, used only to tell a dark theme from a light one. */
 private fun Color.luminance(): Float = ColorUtils.calculateLuminance(toArgb()).toFloat()
+
+/** Release only derived artwork data; active images and persistent caches remain intact. */
+fun clearArtworkAnalysisCache() { seedCache.clear() }

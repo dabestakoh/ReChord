@@ -9,6 +9,7 @@ import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.playback.StreamContainer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -321,6 +322,33 @@ object SourceResolver {
         return rankedAbove(youtube.configId, active).filter { it.kind == SourceKind.ADDON }
     }
 
+    /** Search metadata now and reuse it when the direct stream is requested. */
+    internal fun prepareDirectSources(
+        scope: CoroutineScope,
+        target: TrackMatcher.Target,
+        sources: List<MusicSource> = directAddons(),
+        request: StreamRequest = requestForNow(),
+    ): List<MusicSource> {
+        val expectedQuery = TrackMatcher.queries(target).firstOrNull() ?: return emptyList()
+        val expectedRequest = request
+        return sources.map { source ->
+            val search = scope.async {
+                attempt(source) { source.search(expectedQuery, limit = MATCH_CANDIDATES, request = expectedRequest) }
+            }
+            object : MusicSource by source {
+                override suspend fun search(
+                    query: String,
+                    limit: Int,
+                    waitForAll: Boolean,
+                    request: StreamRequest?,
+                ): List<Song> = if (query == expectedQuery && limit == MATCH_CANDIDATES &&
+                    !waitForAll && request == expectedRequest
+                ) search.await().orEmpty()
+                else source.search(query, limit, waitForAll, request)
+            }
+        }
+    }
+
     /**
      * The addon copy of a YouTube-queued track, for Direct Source Stream — or
      * null when no addon has it.
@@ -352,9 +380,10 @@ object SourceResolver {
     suspend fun directStream(
         target: TrackMatcher.Target,
         lengthOf: (suspend () -> Int?)? = null,
+        preparedSources: List<MusicSource>? = null,
     ): SourceStream? = coroutineScope {
         if (target.title.isBlank() || target.isVideo) return@coroutineScope null
-        val addons = directAddons()
+        val addons = preparedSources ?: directAddons()
         if (addons.isEmpty()) return@coroutineScope null
         // Never allowed to fail: a child of this scope that throws takes the
         // addon search down with it, and a missing runtime is not worth that.

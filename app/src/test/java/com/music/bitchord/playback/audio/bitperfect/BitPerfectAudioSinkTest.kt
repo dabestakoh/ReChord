@@ -64,6 +64,7 @@ class BitPerfectAudioSinkTest {
         var available = true
         var failOpen = false
         var failures = 0
+        val normalConfigurations = mutableListOf<Triple<Int, Int, Int>>()
 
         /** A DAC that stops here, as one on a capped USB-C dongle does. */
         var dacRate: Int? = null
@@ -83,6 +84,9 @@ class BitPerfectAudioSinkTest {
         override fun markFailed(sampleRate: Int, channels: Int, sourceBits: Int, reason: String) { failures++ }
         override fun publish(status: BitPerfectOutput.Status) { statuses += status }
         override fun publishIdle() = Unit
+        override fun reportAndroidMixerFallback(sampleRate: Int, channels: Int, sourceBits: Int) {
+            normalConfigurations.add(Triple(sampleRate, channels, sourceBits))
+        }
         var pendingNormal = false
         override fun normalOutputPending() = pendingNormal
     }
@@ -224,11 +228,22 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
-    fun lossyPrimedStreamsAreLeftToTheOrdinaryPath() {
-        val sink = BitPerfectAudioSink(FakeOutputs())
-        assertFalse(sink.canAccept(format(delay = 1105)))
-        assertEquals(AudioSink.SINK_FORMAT_UNSUPPORTED, sink.getFormatSupport(format(delay = 1105)))
-        assertTrue(sink.canAccept(format()))
+    fun primedPcmRequestsDedicatedOutputAndTrimsAcrossBuffers() {
+        val outputs = FakeOutputs().apply { dacBits = 16 }
+        val sink = BitPerfectAudioSink(outputs)
+        val decoded = format(rate = 48000, delay = 2).buildUpon().setEncoderPadding(1).build()
+        assertTrue(sink.canAccept(decoded))
+        sink.configure(config(decoded))
+        sink.play()
+
+        assertTrue(sink.handleBuffer(pcm16(1), 0, 1))
+        assertTrue(sink.handleBuffer(pcm16(4, start = 2), 21, 1))
+        sink.playToEndOfStream()
+
+        val transport = outputs.opened.single()
+        assertEquals(2L, transport.written)
+        val pcm = ByteBuffer.wrap(transport.bytes.toByteArray()).order(ByteOrder.LITTLE_ENDIAN)
+        for (sample in 4..7) assertEquals(sample, pcm.short.toInt())
     }
 
     @Test
@@ -241,6 +256,29 @@ class BitPerfectAudioSinkTest {
         buffer.flip()
         sink.handleBuffer(buffer, 0, 1)
         assertFalse(outputs.statuses.last().exact)
+    }
+
+    @Test
+    fun directUsbVerifiesNative32BitOnlyAfterFramesAdvance() {
+        val outputs = FakeOutputs().apply { driver = BitPerfectDriver.USB_DIRECT }
+        val sink = BitPerfectAudioSink(outputs)
+        sink.play()
+        sink.configure(config(format(rate = 96000, encoding = C.ENCODING_PCM_32BIT)))
+        val pcm = ByteBuffer.allocateDirect(8).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0x71234567).putInt(-0x71234567)
+        pcm.flip()
+        assertTrue(sink.handleBuffer(pcm, 0, 1))
+        val transport = outputs.opened.single()
+        assertFalse(outputs.statuses.last().dacOutputVerified)
+        transport.advance(1)
+        sink.getCurrentPositionUs(false)
+        val status = outputs.statuses.last()
+        assertTrue(status.dacOutputVerified)
+        assertTrue(status.exact)
+        assertEquals(32, status.validOutputBits)
+        assertEquals(96000, status.sampleRateHz)
+        assertEquals(2, status.channelCount)
+        assertEquals(0x71234567, ByteBuffer.wrap(transport.bytes.toByteArray()).order(ByteOrder.LITTLE_ENDIAN).int)
     }
 
     @Test
@@ -464,16 +502,32 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
+    fun routerReportsTheDecodedFallbackFormatOnceWhenNormalPlaybackBegins() {
+        val outputs = FakeOutputs().apply { available = false }
+        val router = BitPerfectRoutingSink(RecordingSink(), BitPerfectAudioSink(outputs))
+        router.configure(config(format(rate = 96000, encoding = C.ENCODING_PCM_24BIT)))
+        assertTrue(outputs.normalConfigurations.isEmpty())
+
+        router.play()
+        router.handleBuffer(ByteBuffer.allocate(12), 0, 1)
+        router.handleBuffer(ByteBuffer.allocate(12), 1_000, 1)
+        assertEquals(listOf(Triple(96000, 2, 24)), outputs.normalConfigurations)
+        assertFalse(router.isBitPerfect)
+    }
+
+    @Test
     fun routerLetsTheOutgoingSinkFinishBeforeSwitching() {
         val outputs = FakeOutputs()
         val normal = RecordingSink()
         val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
         router.play()
-        // A lossy stream on the normal path, still playing out its tail...
-        router.configure(config(format(delay = 1105)))
+        // The USB format was unavailable when the normal path was selected.
+        outputs.available = false
+        router.configure(config(format()))
         router.handleBuffer(pcm16(10), 0, 1)
         normal.pending = true
-        // ...when a lossless track arrives.
+        // The ordinary output still has audio when the USB format becomes available.
+        outputs.available = true
         router.configure(config(format()))
         assertFalse(router.handleBuffer(pcm16(10), 1_000, 1))
         assertTrue(outputs.opened.isEmpty())
@@ -504,6 +558,42 @@ class BitPerfectAudioSinkTest {
         assertTrue(router.handleBuffer(sixChannels, 1_000, 1))
         assertSame(surround, normal.configured)
         assertTrue(outputs.opened.single().released)
+    }
+
+    @Test
+    fun failedOpenWaitsForAndroidBeforeConsumingTheFallbackBuffer() {
+        val outputs = FakeOutputs().apply { failOpen = true; pendingNormal = true }
+        val normal = RecordingSink()
+        val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
+        router.configure(config(format()))
+        router.play()
+        val input = pcm16(10)
+        assertFalse(router.handleBuffer(input, 0, 1))
+        assertEquals(0, normal.buffers)
+        assertEquals(0, input.position())
+        assertFalse(router.isBitPerfect)
+        outputs.pendingNormal = false
+        assertTrue(router.handleBuffer(input, 0, 1))
+        assertEquals(1, normal.buffers)
+        assertTrue(normal.played)
+    }
+
+    @Test
+    fun failedWriteWaitsForAndroidBeforeHandingOverTheNextBuffer() {
+        val outputs = FakeOutputs()
+        val normal = RecordingSink()
+        val router = BitPerfectRoutingSink(normal, BitPerfectAudioSink(outputs))
+        router.configure(config(format()))
+        router.play()
+        assertTrue(router.handleBuffer(pcm16(10), 0, 1))
+        outputs.opened.single().failOnWrite = true
+        outputs.pendingNormal = true
+        val input = pcm16(10)
+        assertFalse(router.handleBuffer(input, 1_000, 1))
+        assertEquals(0, normal.buffers)
+        outputs.pendingNormal = false
+        assertTrue(router.handleBuffer(input, 1_000, 1))
+        assertEquals(1, normal.buffers)
     }
 
     @Test
