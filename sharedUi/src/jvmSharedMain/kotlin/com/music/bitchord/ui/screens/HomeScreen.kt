@@ -1,5 +1,7 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.components.uniqueKeys
+
 import com.music.bitchord.ui.components.trackArtSize
 import com.music.bitchord.ui.components.contextClick
 import com.music.bitchord.ui.AppUi
@@ -326,6 +328,11 @@ private fun RecentShelf(
         RecentSectionHeader(title = localizeShelfTitle(shelf.title), subtitle = localizeShelfSubtitle(shelf.subtitle))
         val isCurrentItem = remember(shelf.items, currentSong) { shelf.items.playingItemMatcher(currentSong) }
         val recentColumns = remember(shelf.items) { shelf.items.chunked(RECENT_TRACKS_PER_COLUMN) }
+        val columnKeys = remember(recentColumns) {
+            uniqueKeys(recentColumns) { column ->
+                column.firstOrNull()?.let { it.videoId ?: it.browseId ?: it.title }.orEmpty()
+            }
+        }
         BoxWithConstraints {
             val columnWidth = trackColumnWidth(maxWidth)
             ShelfRow(
@@ -334,7 +341,7 @@ private fun RecentShelf(
             ) {
                 itemsIndexed(
                     items = recentColumns,
-                    key = { index, column -> "recent-$index-${column.firstOrNull()?.videoId ?: column.firstOrNull()?.title.orEmpty()}" },
+                    key = { index, _ -> columnKeys[index] },
                     contentType = { _, _ -> "recent-column" },
                 ) { _, column ->
                     Column(Modifier.width(columnWidth)) {
@@ -752,11 +759,7 @@ internal fun Shelf(
         // Prefer a stable catalogue identity. Fall back to the original position
         // only when a shelf actually repeats the same item identifier.
         val cardKeys = remember(shelf.items) {
-            val ids = shelf.items.map { it.browseId ?: it.videoId ?: it.title }
-            val duplicates = ids.groupingBy { it }.eachCount()
-            ids.mapIndexed { index, id ->
-                if (duplicates[id] == 1) "card-$id" else "card-$id-$index"
-            }
+            uniqueKeys(shelf.items) { it.browseId ?: it.videoId ?: it.title }
         }
         ShelfRow(
             contentPadding = PaddingValues(horizontal = PAGE_GUTTER),

@@ -8,6 +8,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +40,7 @@ import com.music.bitchord.download.Downloads
 import com.music.bitchord.ui.rememberIsForeground
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -298,11 +302,35 @@ fun MediaController.setQueueDragActive(active: Boolean) {
     )
 }
 
+/** Independent field reads keep buffering changes out of pages that only read the song. */
+@Stable
+class PlayerReads internal constructor(private val snapshot: State<PlayerState>) {
+    val song by derivedStateOf { snapshot.value.song }
+    val isPlaying by derivedStateOf { snapshot.value.isPlaying }
+    val position by derivedStateOf { snapshot.value.position }
+    val durationMs by derivedStateOf { snapshot.value.durationMs }
+    val error by derivedStateOf { snapshot.value.error }
+    val isLoading by derivedStateOf { snapshot.value.isLoading }
+    val repeatMode by derivedStateOf { snapshot.value.repeatMode }
+    val queue by derivedStateOf { snapshot.value.queue }
+    val queueIndex by derivedStateOf { snapshot.value.queueIndex }
+    val hasPrevious by derivedStateOf { snapshot.value.hasPrevious }
+    val hasNext by derivedStateOf { snapshot.value.hasNext }
+    val isQualityUpgraded by derivedStateOf { snapshot.value.isQualityUpgraded }
+    internal val value: PlayerState get() = snapshot.value
+}
+
+/** Compatibility snapshot for clients such as Android TV. */
+@Composable
+fun rememberPlayerState(controller: MediaController?): PlayerState = rememberPlayerReads(controller).value
+
 /** Mirrors the controller into Compose state, polling position while playing. */
 @Composable
-fun rememberPlayerState(controller: MediaController?): PlayerState {
+fun rememberPlayerReads(controller: MediaController?): PlayerReads {
     val position = remember { PlaybackPosition() }
-    var state by remember { mutableStateOf(PlayerState(position = position)) }
+    val snapshot = remember { mutableStateOf(PlayerState(position = position)) }
+    var state by snapshot
+    val reads = remember(snapshot) { PlayerReads(snapshot) }
 
     DisposableEffect(controller) {
         val player = controller ?: return@DisposableEffect onDispose {}
@@ -336,9 +364,7 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
                     .map { player.getMediaItemAt(it).toSong() }
             } else if (refreshCurrentQueueItem && item != null) {
                 val index = player.currentMediaItemIndex
-                if (index in queueSnapshot.indices) {
-                    queueSnapshot = queueSnapshot.toMutableList().also { it[index] = item.toSong() }
-                }
+                queueSnapshot = refreshQueueItem(queueSnapshot, index, item.toSong())
             }
             // Synced here too, so seeking while paused or buffering still moves
             // the scrubber (the poll loop only runs on play).
@@ -421,15 +447,16 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
     // Nothing is lost by stopping: `sync` above runs on the controller's own
     // events, and the first thing that happens on the way back is a fresh read.
     val foreground = rememberIsForeground()
-    LaunchedEffect(controller, state.isPlaying, foreground) {
-        while (controller != null && state.isPlaying && foreground) {
+    // Watch play/pause inside the effect, so starting the poll does not invalidate the app root.
+    LaunchedEffect(controller, foreground) {
+        if (controller == null || !foreground) return@LaunchedEffect
+        pollWhilePlaying(isPlaying = { state.isPlaying }, intervalMs = 500) {
             position.report(controller.currentPosition.coerceAtLeast(0L))
             val duration = controller.duration.coerceAtLeast(0L)
             if (duration != state.durationMs) state = state.copy(durationMs = duration)
-            delay(500)
         }
     }
-    return state
+    return reads
 }
 
 /**
@@ -913,3 +940,19 @@ suspend fun MediaController.playSongs(songs: List<Song>, startIndex: Int) {
  */
 internal fun queueStartIndex(requestedIndex: Int, itemCount: Int, shuffled: Boolean): Int =
     if (shuffled) 0 else requestedIndex.coerceIn(0, itemCount - 1)
+
+/** Preserve the snapshot identity when a metadata event did not change its track. */
+internal fun refreshQueueItem(queue: List<Song>, index: Int, song: Song): List<Song> =
+    if (index !in queue.indices || queue[index] == song) queue
+    else queue.toMutableList().also { it[index] = song }
+
+internal suspend fun pollWhilePlaying(isPlaying: () -> Boolean, intervalMs: Long, poll: () -> Unit) {
+    snapshotFlow(isPlaying).collectLatest { playing ->
+        if (playing) {
+            while (true) {
+                poll()
+                delay(intervalMs)
+            }
+        }
+    }
+}

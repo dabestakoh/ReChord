@@ -1,5 +1,7 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.components.uniqueKeys
+
 import com.music.bitchord.ui.components.trackArtSize
 import androidx.compose.ui.layout.ContentScale
 import com.music.bitchord.data.model.toSong
@@ -170,6 +172,27 @@ fun SearchScreen(
      */
     sourceSwitcher: (@Composable () -> Unit)? = null,
 ) {
+    val sourceResults = if (searchingAddons) addonResults else libraryResults
+    val sourceKeys = remember(sourceResults) {
+        uniqueKeys((sourceResults as? UiState.Success)?.data.orEmpty()) { it.videoId }
+    }
+    val resultRows = (results as? UiState.Success)?.data.orEmpty()
+    val tracks = remember(resultRows) {
+        resultRows.mapNotNull { row -> when (row) {
+            is SearchResult.TopTrack -> row.song
+            is SearchResult.Track -> row.song
+            else -> null
+        } }
+    }
+    val topResult = remember(resultRows) { resultRows.filterIsInstance<SearchResult.TopTrack>().firstOrNull() }
+    val sections = remember(resultRows, filter) { searchSections(resultRows, filter) }
+    val sectionKeys = remember(sections) {
+        sections.map { section -> uniqueKeys(section.rows) { row -> when (row) {
+            is SearchResult.TopTrack -> "top:${row.song.videoId}"
+            is SearchResult.Track -> "track:${row.song.videoId}"
+            is SearchResult.Browse -> "browse:${row.item.browseId}"
+        } } }
+    }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -266,7 +289,8 @@ fun SearchScreen(
             when {
                 searchingLibrary || searchingAddons -> librarySearchResults(
                     query = query.trim(),
-                    results = if (searchingAddons) addonResults else libraryResults,
+                    results = sourceResults,
+                    keys = sourceKeys,
                     addons = searchingAddons,
                     addonHistory = addonHistory,
                     onAddonHistoryClick = onAddonHistoryClick,
@@ -321,15 +345,7 @@ fun SearchScreen(
                 results is UiState.Loading -> songListSkeleton(circular = filter == SearchFilter.ARTISTS)
                 results is UiState.Error -> item { MessageState(results.message) }
                 results is UiState.Success -> {
-                    val tracks = results.data
-                        .mapNotNull { row -> when (row) {
-                            is SearchResult.TopTrack -> row.song
-                            is SearchResult.Track -> row.song
-                            is SearchResult.Browse -> null
-                            else -> null
-                        } }
                     val isCurrentRow = playingRowMatcher(tracks, currentSong)
-                    val topResult = results.data.filterIsInstance<SearchResult.TopTrack>().firstOrNull()
                     if (filter == SearchFilter.ALL && topResult != null) {
                         item(key = "search:top-result:${topResult.song.videoId}") {
                             SwipeToQueueBox(
@@ -345,7 +361,7 @@ fun SearchScreen(
                             }
                         }
                     }
-                    searchSections(results.data, filter).forEach { section ->
+                    sections.forEachIndexed { sectionIndex, section ->
                         section.title?.let { title ->
                             item(key = "search-section:$title") {
                                 Text(
@@ -363,13 +379,12 @@ fun SearchScreen(
                         }
                         itemsIndexed(
                             items = section.rows,
-                            key = { index, row ->
-                                when (row) {
-                                    is SearchResult.TopTrack -> "top_${row.song.videoId}_$index"
-                                    is SearchResult.Track -> "track_${row.song.videoId}_$index"
-                                    is SearchResult.Browse -> "browse_${row.item.browseId}_$index"
-                                }
-                            },
+                            key = { index, _ -> "${section.title.orEmpty()}:${sectionKeys[sectionIndex][index]}" },
+                            contentType = { _, row -> when (row) {
+                                is SearchResult.TopTrack -> "top"
+                                is SearchResult.Track -> "track"
+                                is SearchResult.Browse -> "browse"
+                            } },
                         ) { index, row ->
                             when (row) {
                                 is SearchResult.TopTrack -> Unit
@@ -434,6 +449,7 @@ private fun searchSections(rows: List<SearchResult>, filter: SearchFilter): List
 private fun LazyListScope.librarySearchResults(
     query: String,
     results: UiState<List<Song>>?,
+    keys: List<String>,
     addons: Boolean,
     addonHistory: List<String>,
     onAddonHistoryClick: (String) -> Unit,
@@ -470,7 +486,8 @@ private fun LazyListScope.librarySearchResults(
         } else {
             val tracks = results.data
             val isCurrentRow = playingRowMatcher(tracks, currentSong)
-            itemsIndexed(tracks, key = { index, song -> "${if (addons) "addon" else "library"}_${song.videoId}_$index" }) { index, song ->
+            itemsIndexed(tracks, key = { index, _ -> "${if (addons) "addon" else "library"}:${keys[index]}" },
+                contentType = { _, _ -> "track" }) { index, song ->
                 val blocked = isBlocked(song)
                 SongRow(
                     song = song,
