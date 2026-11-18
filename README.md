@@ -49,6 +49,8 @@ Download a published build from [Releases](https://github.com/dabestakoh/ReChord
 
 Preview and Release use separate application data. APK upgrades require a matching signing certificate; do not uninstall a build containing important unbacked-up data merely to replace it.
 
+For implementation and testing conventions, see the [ReChord engineering standards](docs/RECHORD-STANDARDS.md).
+
 ## Build from source
 
 1. Clone this repository and open the Android project in Android Studio.
