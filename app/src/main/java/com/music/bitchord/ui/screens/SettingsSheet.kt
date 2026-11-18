@@ -173,7 +173,10 @@ import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
+import com.music.bitchord.data.AppDiagnostics
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.util.Locale
 
@@ -1564,6 +1567,52 @@ fun SettingsScreen(
             }
         }
 
+        if (shows(SettingsCategory.DIAGNOSTICS)) {
+            val sendTitle = stringResource(R.string.send_diagnostic_report)
+            val exportTitle = stringResource(R.string.export_diagnostic_log)
+            val reportError = stringResource(R.string.diagnostic_report_error)
+            val diagnosticsScope = rememberCoroutineScope()
+            val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                if (uri != null) diagnosticsScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            checkNotNull(context.contentResolver.openOutputStream(uri, "wt")).bufferedWriter().use {
+                                it.write(AppDiagnostics.report(context))
+                            }
+                        }
+                    }
+                    if (result.isFailure) Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show()
+                }
+            }
+            SearchableSettingsGroup(search, header = stringResource(R.string.diagnostics)) {
+                row(sendTitle, "crash", "github") {
+                    SettingsRow(
+                        icon = SfIcons.Miscellaneous,
+                        title = sendTitle,
+                        subtitle = stringResource(R.string.diagnostic_report_github),
+                        onClick = {
+                            diagnosticsScope.launch {
+                                val report = withContext(Dispatchers.IO) { AppDiagnostics.report(context) }
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, AppDiagnostics.issueUri(report)))
+                                }.onFailure { Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show() }
+                            }
+                        },
+                    )
+                }
+                row(exportTitle, "crash", "logs") {
+                    SettingsRow(
+                        icon = SfIcons.Download,
+                        title = exportTitle,
+                        onClick = {
+                            runCatching { export.launch("rechord-diagnostics.txt") }
+                                .onFailure { Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show() }
+                        },
+                    )
+                }
+            }
+        }
+
         // No footer: it only restated the stop-on-close row's own subtitle,
         // which sits four rows above it and says the same thing in fewer words.
         if (shows(SettingsCategory.MISCELLANEOUS)) SearchableSettingsGroup(search, header = stringResource(R.string.miscellaneous)) {
@@ -2770,6 +2819,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
     STORAGE(R.string.storage),
     YOUR_DATA(R.string.your_data),
     MISCELLANEOUS(R.string.miscellaneous),
+    DIAGNOSTICS(R.string.diagnostics),
     LANGUAGE(R.string.language),
     ;
 
@@ -2784,6 +2834,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
             STORAGE -> SfIcons.Storage
             YOUR_DATA -> SfIcons.YourData
             MISCELLANEOUS -> SfIcons.Miscellaneous
+            DIAGNOSTICS -> SfIcons.Miscellaneous
             LANGUAGE -> SfIcons.Language
         }
 }

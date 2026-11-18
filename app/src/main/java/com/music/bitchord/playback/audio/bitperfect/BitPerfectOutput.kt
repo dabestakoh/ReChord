@@ -86,6 +86,8 @@ internal object BitPerfectOutput {
         val dacLimited: Boolean = false,
         /** Why the last attempt fell back to normal output, if it did. */
         val fallbackReason: String? = null,
+        val openingUsb: Boolean = false,
+        val androidMixerOutputVerified: Boolean = false,
     )
 
     private val _status = MutableStateFlow(Status())
@@ -303,6 +305,10 @@ internal object BitPerfectOutput {
 
     @Volatile private var directReleasedAtMs = 0L
 
+    val directHandbackRecent: Boolean
+        get() = directReleasedAtMs != 0L &&
+            android.os.SystemClock.elapsedRealtime() - directReleasedAtMs <= DIRECT_HANDBACK_MS
+
     /**
      * Whether a track meant for normal output should wait: the direct driver
      * has just handed the DAC back, and Android's own USB audio driver has
@@ -321,7 +327,6 @@ internal object BitPerfectOutput {
         }
         val usbOutput = context.getSystemService(AudioManager::class.java)
             ?.let(MixerTransport::usbDevice) != null
-        if (usbOutput) directReleasedAtMs = 0L
         return !usbOutput
     }
     private val failed = HashSet<String>()
@@ -349,6 +354,8 @@ internal object BitPerfectOutput {
             // Permission is asked for by the service when the mode is chosen or a
             // DAC is attached; until it is granted, tracks use normal output.
             BitPerfectMode.USB_DIRECT -> {
+                val direct = active as? UsbDirectTransport
+                if (owner === requester && direct?.accepts(sampleRate, channels, sourceBits) == true) return true
                 val usb = UsbDirectDevices.manager(context) ?: return false
                 val device = UsbDirectDevices.audioDevice(usb) ?: return false
                 if (!usb.hasPermission(device)) return false
@@ -513,7 +520,7 @@ internal object BitPerfectOutput {
 
     /** Clears an active status, leaving a fallback reason in place for the settings row. */
     fun publishIdle() {
-        if (_status.value.active) _status.value = Status()
+        if (_status.value.active || _status.value.openingUsb) _status.value = Status()
         recomputeReady()
     }
 

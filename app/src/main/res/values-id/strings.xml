@@ -1468,4 +1468,9 @@
     <string name="home_shelves">Bagian Beranda</string>
     <string name="home_recently_played">Baru diputar</string>
     <string name="home_trending">Sedang tren</string>
+    <string name="diagnostics">Diagnostik</string>
+    <string name="send_diagnostic_report">Kirim laporan diagnostik</string>
+    <string name="diagnostic_report_github">Membuka draf publik di GitHub untuk ditinjau dan dikirim.</string>
+    <string name="export_diagnostic_log">Ekspor log diagnostik</string>
+    <string name="diagnostic_report_error">Laporan diagnostik tidak dapat dibuka atau diekspor.</string>
 </resources>

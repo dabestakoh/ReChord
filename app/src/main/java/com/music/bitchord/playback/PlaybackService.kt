@@ -546,6 +546,7 @@ class PlaybackService : MediaLibraryService() {
     @Volatile private var measuredOutputSource: Pair<String, Format>? = null
     private val outputDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
+            if (foldUsbHandoffCallback(addedDevices)) return
             // Plugging something in moves the music to it. Always — a choice
             // made an hour ago about the speaker is not a standing instruction
             // to ignore the headphones now going in, and there is no row in the
@@ -555,6 +556,7 @@ class PlaybackService : MediaLibraryService() {
             requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(addedDevices))
         }
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
+            if (foldUsbHandoffCallback(removedDevices)) return
             // A chosen output that has been unplugged is no longer a choice.
             // Left set, its id matches nothing — and ids are reused, so it
             // would eventually match whatever device the framework hands that
@@ -563,6 +565,18 @@ class PlaybackService : MediaLibraryService() {
                 AudioRouting.forget()
             }
             requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(removedDevices))
+        }
+
+        private fun foldUsbHandoffCallback(devices: Array<AudioDeviceInfo>): Boolean {
+            if (devices.isEmpty() || devices.any { AudioRouting.kindOf(it.type) != AudioRouting.Kind.USB }) return false
+            val mode = AppSettings.bitPerfectMode.value
+            // Direct claims/releases the kernel interface itself. Physical USB
+            // attach/detach and permissions are handled by UsbDirectDevices.
+            if (mode != BitPerfectMode.USB_DIRECT &&
+                !(mode == BitPerfectMode.USB_ANDROID && BitPerfectOutput.directHandbackRecent)
+            ) return false
+            applyOutputRoute()
+            return true
         }
 
         private fun shouldRebuildAndroidUsb(devices: Array<AudioDeviceInfo>): Boolean =
@@ -595,6 +609,7 @@ class PlaybackService : MediaLibraryService() {
      * a running renderer. Moving the setting therefore rebuilds both players.
      */
     private var configuredFloatOutput = false
+    private var configuredBitPerfectMode = BitPerfectMode.OFF
     private var outputReconfigureJob: Job? = null
 
     /**
@@ -1061,6 +1076,7 @@ class PlaybackService : MediaLibraryService() {
          * broken app looks like from the outside.
          */
         override fun onPlayerError(error: PlaybackException) {
+            com.music.bitchord.data.AppDiagnostics.record("Playback error ${error.errorCode}", error)
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
             val exoPlayer = player ?: return
@@ -1736,6 +1752,7 @@ class PlaybackService : MediaLibraryService() {
         WearBridge.attachStreams(AudioCache.playbackFactory(defaultDataSourceFactory))
 
         configuredFloatOutput = shouldEnableFloatOutput()
+        configuredBitPerfectMode = AppSettings.bitPerfectMode.value
         val exoPlayer = buildPlayer(
             spatialAudioProcessorA,
             equalizerProcessorA,
@@ -7458,6 +7475,9 @@ class PlaybackService : MediaLibraryService() {
         oldActive.removeListener(playbackListener)
         oldActive.removeAnalyticsListener(formatListener)
 
+        val nextMode = AppSettings.bitPerfectMode.value
+        val fromDirect = configuredBitPerfectMode == BitPerfectMode.USB_DIRECT && nextMode != BitPerfectMode.USB_DIRECT
+        configuredBitPerfectMode = nextMode
         configuredFloatOutput = enableFloat
         activeFilter = transitionFilterA
         spareFilter = transitionFilterB
@@ -7500,12 +7520,29 @@ class PlaybackService : MediaLibraryService() {
         crossfade = newCrossfade
         newCrossfade.start()
         mediaSession?.player = newSessionPlayer(newActive, newCrossfade)
+        if (fromDirect) {
+            oldActive.release()
+            oldSpare.release()
+        }
         applyOutputRoute()
-        if (items.isNotEmpty()) newActive.prepare()
         newActive.playWhenReady = playWhenReady
-
-        oldActive.release()
-        oldSpare.release()
+        if (items.isNotEmpty()) {
+            if (fromDirect && BitPerfectOutput.normalOutputPending(this)) {
+                scope.launch {
+                    while (player === newActive && BitPerfectOutput.normalOutputPending(this@PlaybackService)) delay(50)
+                    if (player === newActive && newActive.playbackState == Player.STATE_IDLE) {
+                        applyOutputRoute()
+                        newActive.prepare()
+                    }
+                }
+            } else {
+                newActive.prepare()
+            }
+        }
+        if (!fromDirect) {
+            oldActive.release()
+            oldSpare.release()
+        }
         TrackLog.i(
             "AUDIO_OUT",
             "live output switch: ${if (enableFloat) "PCM_FLOAT" else "PCM_16BIT"}",

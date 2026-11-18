@@ -1491,4 +1491,9 @@
     <string name="home_shelves">Startseitenbereiche</string>
     <string name="home_recently_played">Kürzlich gehört</string>
     <string name="home_trending">Im Trend</string>
+    <string name="diagnostics">Diagnose</string>
+    <string name="send_diagnostic_report">Diagnosebericht senden</string>
+    <string name="diagnostic_report_github">Öffnet einen öffentlichen GitHub-Entwurf zum Prüfen und Absenden.</string>
+    <string name="export_diagnostic_log">Diagnoseprotokoll exportieren</string>
+    <string name="diagnostic_report_error">Der Diagnosebericht konnte nicht geöffnet oder exportiert werden.</string>
 </resources>

@@ -43,7 +43,7 @@ class AudioFidelityTest {
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
         assertEquals("PCM Preserved", a.grade)
-        assertEquals("Bit-perfect", a.outputLabel)
+        assertEquals("Bit-perfect output", a.outputLabel)
         assertTrue(a.bitPerfectVerified)
     }
 
@@ -53,6 +53,13 @@ class AudioFidelityTest {
         )
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
+    }
+
+    @Test fun openingUsbDoesNotUseStaleNormalOutputFormat() {
+        val a = AudioFidelity.assess(input(exact = false, outputRate = 44_100).copy(usbOpening = true))
+        assertEquals("USB output pending", a.outputLabel)
+        assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
+        assertTrue(a.deductions.isEmpty())
     }
 
     @Test fun ordinaryMixerCanBe100ButUnverified() {

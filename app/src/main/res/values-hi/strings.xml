@@ -1491,4 +1491,9 @@
     <string name="home_shelves">होम के सेक्शन</string>
     <string name="home_recently_played">हाल में सुने गए</string>
     <string name="home_trending">चर्चित</string>
+    <string name="diagnostics">निदान</string>
+    <string name="send_diagnostic_report">निदान रिपोर्ट भेजें</string>
+    <string name="diagnostic_report_github">समीक्षा और सबमिट करने के लिए GitHub पर सार्वजनिक ड्राफ़्ट खोलता है।</string>
+    <string name="export_diagnostic_log">निदान लॉग निर्यात करें</string>
+    <string name="diagnostic_report_error">निदान रिपोर्ट खोली या निर्यात नहीं की जा सकी।</string>
 </resources>

@@ -1469,4 +1469,9 @@
     <string name="home_shelves">ホームのセクション</string>
     <string name="home_recently_played">最近再生した曲</string>
     <string name="home_trending">急上昇</string>
+    <string name="diagnostics">診断</string>
+    <string name="send_diagnostic_report">診断レポートを送信</string>
+    <string name="diagnostic_report_github">GitHub で公開用の下書きを開き、確認して送信できます。</string>
+    <string name="export_diagnostic_log">診断ログをエクスポート</string>
+    <string name="diagnostic_report_error">診断レポートを開くかエクスポートできませんでした。</string>
 </resources>

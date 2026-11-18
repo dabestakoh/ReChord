@@ -1341,4 +1341,9 @@
     <string name="home_shelves">홈 섹션</string>
     <string name="home_recently_played">최근 재생</string>
     <string name="home_trending">인기 급상승</string>
+    <string name="diagnostics">진단</string>
+    <string name="send_diagnostic_report">진단 보고서 보내기</string>
+    <string name="diagnostic_report_github">검토 후 제출할 수 있도록 GitHub 공개 초안을 엽니다.</string>
+    <string name="export_diagnostic_log">진단 로그 내보내기</string>
+    <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
 </resources>

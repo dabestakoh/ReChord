@@ -1496,4 +1496,9 @@
     <string name="home_shelves">מדורים בדף הבית</string>
     <string name="home_recently_played">הושמעו לאחרונה</string>
     <string name="home_trending">פופולרי עכשיו</string>
+    <string name="diagnostics">אבחון</string>
+    <string name="send_diagnostic_report">שליחת דוח אבחון</string>
+    <string name="diagnostic_report_github">פתיחת טיוטה ציבורית ב-GitHub לבדיקה ולשליחה.</string>
+    <string name="export_diagnostic_log">ייצוא יומן אבחון</string>
+    <string name="diagnostic_report_error">לא ניתן לפתוח או לייצא את דוח האבחון.</string>
 </resources>

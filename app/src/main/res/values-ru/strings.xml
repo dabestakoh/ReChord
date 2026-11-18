@@ -1523,4 +1523,9 @@
     <string name="home_shelves">Разделы главной страницы</string>
     <string name="home_recently_played">Недавно прослушанные</string>
     <string name="home_trending">В тренде</string>
+    <string name="diagnostics">Диагностика</string>
+    <string name="send_diagnostic_report">Отправить отчёт о диагностике</string>
+    <string name="diagnostic_report_github">Открывает публичный черновик на GitHub для проверки и отправки.</string>
+    <string name="export_diagnostic_log">Экспортировать журнал диагностики</string>
+    <string name="diagnostic_report_error">Не удалось открыть или экспортировать отчёт о диагностике.</string>
 </resources>
