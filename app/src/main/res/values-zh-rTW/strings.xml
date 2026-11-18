@@ -1451,4 +1451,12 @@
     <string name="usb_software_volume">USB 軟體音量</string>
     <string name="usb_software_volume_subtitle">硬體音量無法使用時，改用應用程式音量</string>
     <string name="usb_volume_fixed_permission">允許改用固定音量</string>
+    <string name="bit_perfect_standard_output">標準音訊輸出</string>
+    <string name="local_album_artists">專輯演出者</string>
+    <string name="local_recently_added">最近新增</string>
+    <string name="local_existing_library">現有音樂庫</string>
+    <string name="local_singles_other">單曲及其他曲目</string>
+    <string name="local_refresh_index">重新整理音樂庫</string>
+    <string name="local_scan_running">正在更新音樂庫…</string>
+    <string name="local_scan_unavailable">音樂來源無法使用 · 重試</string>
 </resources>

@@ -1446,4 +1446,12 @@
     <string name="usb_software_volume">Volumen USB por software</string>
     <string name="usb_software_volume_subtitle">Usar el volumen de la app si el control del DAC no está disponible</string>
     <string name="usb_volume_fixed_permission">Permitir volumen fijo como alternativa</string>
+    <string name="bit_perfect_standard_output">Salida de audio estándar</string>
+    <string name="local_album_artists">Artistas del álbum</string>
+    <string name="local_recently_added">Añadidos recientemente</string>
+    <string name="local_existing_library">Biblioteca existente</string>
+    <string name="local_singles_other">Sencillos y otras pistas</string>
+    <string name="local_refresh_index">Actualizar biblioteca musical</string>
+    <string name="local_scan_running">Actualizando la biblioteca musical…</string>
+    <string name="local_scan_unavailable">Fuente de música no disponible · Reintentar</string>
 </resources>
