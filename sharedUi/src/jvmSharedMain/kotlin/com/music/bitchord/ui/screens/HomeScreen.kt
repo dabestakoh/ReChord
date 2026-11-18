@@ -198,15 +198,27 @@ fun HomeScreen(
                     images = listOfNotNull(currentSong.thumbnailUrl),
                 ))
             }
-            listOf(
-                HomeSections.RELEASE to TopPickKind.LATEST_RELEASE,
-                HomeSections.SONG to TopPickKind.RELATED_SONG,
-                HomeSections.ARTIST to TopPickKind.ARTIST_AND_SIMILAR,
-            ).forEach { (key, kind) ->
-                if (HomeSections.visible(key, homeSections)) {
-                    topPicks?.firstOrNull { it.kind == kind }?.let(::add)
-                }
+            val picks = topPicks.orEmpty()
+            if (HomeSections.visible(HomeSections.RELEASE, homeSections)) {
+                picks.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }?.let(::add)
             }
+            val songs = picks.filter { it.kind == TopPickKind.RELATED_SONG }
+                .take(3).takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }.orEmpty()
+            val artists = picks.filter { it.kind == TopPickKind.ARTIST_AND_SIMILAR }
+                .take(2).takeIf { HomeSections.visible(HomeSections.ARTIST, homeSections) }.orEmpty()
+            for (index in 0 until maxOf(songs.size, artists.size)) {
+                songs.getOrNull(index)?.let(::add)
+                artists.getOrNull(index)?.let(::add)
+            }
+        }
+    }
+    val visibleFeed = remember(state, featured, carouselVisible) {
+        val pickedIds = if (carouselVisible) featured.flatMap { it.recommendations }.mapTo(HashSet()) { it.videoId }
+            else emptySet()
+        (state as? UiState.Success)?.data.orEmpty().mapNotNull { shelf ->
+            if (HomeSections.key(shelf) != "feed:your daily discover" || pickedIds.isEmpty()) return@mapNotNull shelf
+            val remaining = shelf.items.filterNot { it.videoId in pickedIds }
+            if (remaining.isEmpty()) null else shelf.copy(items = remaining)
         }
     }
     val dataReady = state is UiState.Success && (!carouselLoading || optionalWaitExpired)
@@ -311,7 +323,7 @@ fun HomeScreen(
                         recentlyPlayedSkeleton()
                     }
                     itemsIndexedShelves(
-                        shelves = state.data,
+                        shelves = visibleFeed,
                         onMoodClick = onMoodClick,
                         onMoodsShowAll = onMoodsShowAll,
                         onItemClick = onItemClick,

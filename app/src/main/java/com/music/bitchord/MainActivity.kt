@@ -893,7 +893,7 @@ private fun BitChordApp(
     }
     LaunchedEffect(homeState) {
         val shelves = (homeState as? UiState.Success)?.data.orEmpty()
-        AppSettings.rememberHomeShelves(shelves.associate { HomeSections.key(it) to it.title })
+        AppSettings.rememberHomeShelves(shelves.filter(HomeSections::isRecurring).associate { HomeSections.key(it) to it.title })
     }
     val homeLoadingMore by viewModel.homeLoadingMore.collectAsStateWithLifecycle()
     val homeRecentlyPlayedLoading by viewModel.homeRecentlyPlayedLoading.collectAsStateWithLifecycle()
@@ -924,6 +924,7 @@ private fun BitChordApp(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
     val exploreState by viewModel.explore.collectAsStateWithLifecycle()
+    val exploreReleases by viewModel.exploreReleases.collectAsStateWithLifecycle()
     val selectedMoodGenre by viewModel.selectedMoodGenre.collectAsStateWithLifecycle()
     val moodGenreShelves by viewModel.moodGenreShelves.collectAsStateWithLifecycle()
     val libraryState by viewModel.library.collectAsStateWithLifecycle()
@@ -3549,6 +3550,10 @@ private fun BitChordApp(
                                 )
                             } ?: ExploreScreen(
                                 state = exploreState,
+                                newReleases = exploreReleases,
+                                onReleaseClick = { release ->
+                                    release.browseId?.let { viewModel.openDetail(it, release.title, release.subtitle, release.thumbnailUrl) }
+                                },
                                 listState = exploreListState,
                                 onCategoryClick = viewModel::openMoodGenre,
                                 onRetry = viewModel::loadExplore,

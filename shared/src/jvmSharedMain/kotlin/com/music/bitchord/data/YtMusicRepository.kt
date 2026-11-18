@@ -95,7 +95,6 @@ object YtMusicRepository {
     }
 
     val HOME_SUPPLEMENT_BROWSE_IDS = listOf(
-        "FEmusic_new_releases",
         "FEmusic_explore",
     )
 
@@ -1186,6 +1185,23 @@ object YtMusicRepository {
      * Mix or Shuffle button. Music videos are dropped, as everywhere a queue is
      * built for the listener rather than picked by them.
      */
+    suspend fun relatedSongs(videoId: String): Result<List<Song>> = call("related:$videoId") {
+        val browseId = InnertubeParser.relatedBrowseId(Innertube.next(videoId)) ?: return@call emptyList()
+        val related = Innertube.browse(browseId)
+        val songs = InnertubeParser.collectSongsDeep(related)
+        val cards = InnertubeParser.parseHome(related).flatMap { it.items }.mapNotNull { card ->
+            val id = card.videoId ?: return@mapNotNull null
+            Song(id, card.title, card.subtitle, card.thumbnailUrl, isVideo = card.isVideo)
+        }
+        (songs + cards).distinctBy { it.videoId }.filterNot { it.isVideo }
+    }
+
+    suspend fun newReleases(): Result<List<ShelfItem>> = call("explore:new-releases") {
+        shelvesOf("FEmusic_new_releases").flatMap { it.items }
+            .filter { it.browseId?.startsWith("MPRE") == true }
+            .distinctBy { it.browseId }
+    }
+
     suspend fun watchQueue(target: WatchTarget): Result<List<Song>> = call("watch:${target.playlistId}") {
         InnertubeParser.parseWatchQueue(
             Innertube.nextPlaylist(target.playlistId, target.videoId, target.params),

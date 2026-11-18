@@ -196,6 +196,11 @@ object InnertubeParser {
 
     // ---- Home feed ----------------------------------------------------------
 
+    fun relatedBrowseId(response: JsonObject): String? = response
+        .o("contents").o("singleColumnMusicWatchNextResultsRenderer").o("tabbedRenderer")
+        .o("watchNextTabbedResultsRenderer").a("tabs").orEmpty()
+        .getOrNull(2).o("tabRenderer").o("endpoint").o("browseEndpoint").s("browseId")
+
     fun parseHome(response: JsonObject): List<HomeShelf> {
         val sections = response.o("contents")
             .o("singleColumnBrowseResultsRenderer").a("tabs")?.firstOrNull()

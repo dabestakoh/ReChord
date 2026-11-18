@@ -68,6 +68,8 @@ fun ExploreScreen(
     modifier: Modifier = Modifier,
     /** The big "Explore" heading; the desktop's pages carry none. */
     showTitle: Boolean = true,
+    newReleases: List<ShelfItem> = emptyList(),
+    onReleaseClick: (ShelfItem) -> Unit = {},
 ) {
     PullToRefresh(
         refreshing = refreshing,
@@ -96,6 +98,14 @@ fun ExploreScreen(
                                 top = 8.dp,
                                 bottom = 14.dp,
                             ),
+                        )
+                    }
+                }
+                if (newReleases.isNotEmpty()) {
+                    item(key = "explore-new-releases") {
+                        Shelf(
+                            shelf = HomeShelf(stringResource(Res.string.shelf_new_releases), newReleases),
+                            onItemClick = onReleaseClick,
                         )
                     }
                 }

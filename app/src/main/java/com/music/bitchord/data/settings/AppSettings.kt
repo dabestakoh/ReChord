@@ -1045,6 +1045,16 @@ object AppSettings {
             val json = org.json.JSONObject(prefs.getString("home_shelf_catalog", "{}").orEmpty())
             json.keys().asSequence().associateWith { json.getString(it) }
         }.getOrDefault(emptyMap())
+        val retiredHomeKeys = homeShelfCatalog.value.filterValues(com.music.bitchord.data.model.HomeSections::removed).keys
+        if (retiredHomeKeys.isNotEmpty()) {
+            homeShelfCatalog.value = homeShelfCatalog.value - retiredHomeKeys
+            homeSectionOverrides.value = homeSectionOverrides.value - retiredHomeKeys
+            prefs.edit()
+                .putString("home_shelf_catalog", org.json.JSONObject(homeShelfCatalog.value).toString())
+                .putStringSet("home_section_overrides", homeSectionOverrides.value.mapTo(mutableSetOf()) {
+                    (if (it.value) "+" else "-") + it.key
+                }).apply()
+        }
         squareVideoThumbnails.value = prefs.getBoolean(KEY_SQUARE_VIDEO_THUMBNAILS, false)
         VideoThumbnails.square = squareVideoThumbnails.value
         smartVersionAlignment.value = prefs.getBoolean(KEY_SMART_VERSION_ALIGNMENT, true)

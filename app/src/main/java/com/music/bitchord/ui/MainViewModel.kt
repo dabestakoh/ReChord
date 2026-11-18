@@ -78,6 +78,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -1734,7 +1735,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!exploreRequested) loadExplore()
     }
 
-    private suspend fun fetchExplore() {
+    private val _exploreReleases = MutableStateFlow<List<ShelfItem>>(emptyList())
+    val exploreReleases = _exploreReleases.asStateFlow()
+
+    private suspend fun fetchExplore() = coroutineScope {
+        val identity = listenerKey()
+        launch {
+            val releases = YtMusicRepository.newReleases().getOrNull() ?: return@launch
+            val history = YtMusicRepository.recentHistory().getOrNull().orEmpty()
+            val ranked = TopPicks.rankReleases(releases, history, localTaste())
+            if (identity == listenerKey()) _exploreReleases.value = ranked
+        }
         val state = YtMusicRepository.moodAndGenres().fold(
             onSuccess = { sections ->
                 if (sections.isEmpty()) {
@@ -1888,7 +1899,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot) {
+            if (!rebuild && stored?.day == slot && stored.revision == 1) {
                 _topPicksLoading.value = false
                 return@launch
             }
@@ -1904,7 +1915,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot())))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 1)))
                 }
             }
         }
@@ -1934,7 +1945,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val shelves = withTimeoutOrNull(8_000L) { _home.first { it !is UiState.Loading } }
             .let { (it as? UiState.Success)?.data.orEmpty() }
         return try {
-            TopPicks.build(shelves, localTaste())
+            TopPicks.build(shelves, localTaste(includePlaylists = true))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1953,15 +1964,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         else Result.failure(IllegalStateException("Listener changed while loading recommendations"))
     }
 
-    /** This app's own Replay chart for the month — Top Picks' second opinion, and all it has signed out. */
-    private suspend fun localTaste(): TopPicks.LocalTaste {
-        val month = runCatching { ListeningStats.summary(ReplayPeriod.THIS_MONTH) }.getOrNull()
+    private suspend fun localTaste(includePlaylists: Boolean = false): TopPicks.LocalTaste = coroutineScope {
+        val recent = async { ListeningStats.summary(ReplayPeriod.THIS_WEEK) }
+        val lifetime = async { ListeningStats.summary(ReplayPeriod.ALL_TIME) }
+        val remote = async {
+            if (!includePlaylists || !_signedIn.value) return@async emptyList()
+            withTimeoutOrNull(2200) {
+                val playlists = _playlists.value.ifEmpty { YtMusicRepository.userPlaylists().getOrNull().orEmpty() }
+                playlists.filterNot { it.playlistId == "LM" }.take(3).map { playlist ->
+                    async { YtMusicRepository.browseSongs(playlist.browseId).getOrNull()?.songs.orEmpty().take(8) }
+                }.awaitAll().flatten()
+            }.orEmpty()
+        }
+        val localPlaylists = if (includePlaylists) {
+            OfflinePlaylists.playlists.value.filterNot { OfflinePlaylists.isLikedPage(it.browseId) }
+                .take(3).flatMap { it.songs.take(8) } +
+                com.music.bitchord.data.spotify.LocalPlaylistStore.playlists.value.take(3).flatMap { it.songs.take(8) }
+        } else emptyList()
+        val all = lifetime.await()
+        val week = recent.await()
         val liked = (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
-        return TopPicks.LocalTaste(
-            artists = month?.artists.orEmpty().take(10).map { ArtistRef(name = it.title, browseId = it.browseId) },
-            songs = month?.songs.orEmpty().take(5).map { it.song },
-            genres = month?.genres.orEmpty().take(3).map { it.title },
+        TopPicks.LocalTaste(
+            artists = (week.artists.take(10) + all.artists.take(15)).distinctBy { it.browseId ?: it.title }
+                .map { ArtistRef(name = it.title, browseId = it.browseId) },
+            songs = all.songs.take(60).map { it.song },
+            recent = week.songs.take(25).map { it.song },
+            genres = all.genres.take(3).map { it.title },
             liked = liked,
+            albumIds = (week.albums.take(5) + all.albums.take(10)).mapNotNull { it.browseId }.toSet(),
+            playlistSongs = (localPlaylists + remote.await()).distinctBy { it.videoId },
         )
     }
 
@@ -1997,9 +2028,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Refreshes the core feed without blanking the current Play page first. */
     private suspend fun refreshHome(identity: String?) = coroutineScope {
         val recent = if (_signedIn.value) async { YtMusicRepository.homeRecentlyPlayed() } else null
-        // Top Picks keeps to its hour; a pull refreshes the feed, not the
-        // picks, unless the hour has already turned over.
-        if (topPicksJob?.isActive != true) loadTopPicks(identity, rebuild = false)
+        if (topPicksJob?.isActive != true) loadTopPicks(identity, rebuild = true)
         YtMusicRepository.home().onSuccess { feed ->
             if (identity != listenerKey()) return@onSuccess
             homeContinuation = feed.continuation
@@ -3750,6 +3779,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun clearListenerState(restoreCached: Boolean = false) {
+        _exploreReleases.value = emptyList()
         _account.value = null
         likedSyncJob?.cancel()
         LikeState.clear()
@@ -3781,6 +3811,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun reloadForAccount() {
         viewModelScope.launch {
             Innertube.ensureSessionScope()
+            if (exploreRequested) loadExplore()
             loadHome()
             loadLibrary()
             loadAccount()
