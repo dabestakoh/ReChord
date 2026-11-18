@@ -55,6 +55,7 @@ object AudioOutputStatus {
         val transportType: TransportType = TransportType.AUDIO_TRACK,
         val actualEncoding: Int? = null,
         val actualSampleRateHz: Int? = null,
+        val audioTrackMediaId: String? = null,
         val actualChannelCount: Int? = null,
         val floatFallback: Boolean = false,
         val fallbackReason: FallbackReason = FallbackReason.NONE,
@@ -132,6 +133,7 @@ object AudioOutputStatus {
                 transportType == other.transportType &&
                 actualEncoding == other.actualEncoding &&
                 actualSampleRateHz == other.actualSampleRateHz &&
+                audioTrackMediaId == other.audioTrackMediaId &&
                 actualChannelCount == other.actualChannelCount &&
                 floatFallback == other.floatFallback &&
                 fallbackReason == other.fallbackReason &&
@@ -174,6 +176,7 @@ object AudioOutputStatus {
             result = 31 * result + transportType.hashCode()
             result = 31 * result + (actualEncoding ?: 0)
             result = 31 * result + (actualSampleRateHz ?: 0)
+            result = 31 * result + (audioTrackMediaId?.hashCode() ?: 0)
             result = 31 * result + (actualChannelCount ?: 0)
             result = 31 * result + floatFallback.hashCode()
             result = 31 * result + fallbackReason.hashCode()
@@ -402,11 +405,13 @@ object AudioOutputStatus {
         sampleRateHz: Int,
         bufferSize: Int? = null,
         channelCount: Int? = null,
+        mediaId: String? = null,
     ) {
         val isFloat = encoding == AudioFormat.ENCODING_PCM_FLOAT
         val baseSnapshot = current.value.copy(
             actualEncoding = encoding,
             actualSampleRateHz = sampleRateHz,
+            audioTrackMediaId = mediaId,
             actualChannelCount = channelCount?.takeIf { it > 0 },
             bufferSize = bufferSize ?: current.value.bufferSize,
             floatFallback = current.value.requestedPcmMode == OutputPcmMode.FLOAT_32 && !isFloat,

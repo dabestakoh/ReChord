@@ -1233,6 +1233,7 @@ class PlaybackService : MediaLibraryService() {
                 sampleRateHz = audioTrackConfig.sampleRate,
                 bufferSize = audioTrackConfig.bufferSize,
                 channelCount = Integer.bitCount(audioTrackConfig.channelConfig),
+                mediaId = eventTime.mediaId(),
             )
             TrackLog.i(
                 "AUDIO_OUT",
@@ -4847,7 +4848,10 @@ class PlaybackService : MediaLibraryService() {
         applySpatialAudioEnabled()
         applyOutputRoute()
         outputConfig?.let {
-            AudioOutputStatus.publishAudioTrack(it.encoding, it.sampleRate, it.bufferSize, Integer.bitCount(it.channelConfig))
+            AudioOutputStatus.publishAudioTrack(
+                it.encoding, it.sampleRate, it.bufferSize, Integer.bitCount(it.channelConfig),
+                mediaId = incoming.currentMediaItem?.mediaId,
+            )
         }
         incoming.volume = 1f
         outgoing.stop()
