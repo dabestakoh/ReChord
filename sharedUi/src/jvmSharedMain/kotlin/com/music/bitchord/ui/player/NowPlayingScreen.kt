@@ -1697,8 +1697,6 @@ fun NowPlayingScreen(
             onCycleRepeat = onCycleRepeat,
             onToggleAutoplay = onToggleAutoplay,
             onOpenOutput = openAudioOutput,
-            onListenTogether = onListenTogether,
-            onOpenListenTogetherMembers = openListenTogetherMembers,
         )
         // Keep the current output caption visible in every state.
         Spacer(Modifier.height(18.dp))
@@ -1731,6 +1729,10 @@ fun NowPlayingScreen(
                 onDismiss = { showAudioOutput = false },
                 onOpenPipeline = { showAudioPipeline = true },
                 onOpenCast = { showCast = true },
+                onListenTogether = {
+                    showAudioOutput = false
+                    onListenTogether()
+                },
             )
         }
         if (showLyricsProviders) {

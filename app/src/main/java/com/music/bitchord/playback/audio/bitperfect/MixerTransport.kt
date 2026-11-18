@@ -53,11 +53,15 @@ internal class MixerTransport private constructor(
 
     @Volatile private var failure: String? = null
     private var nextRouteCheck = 0L
+    private var routeDeadline = 0L
+    private var matchedRoute = false
+    val routeVerified: Boolean get() = matchedRoute && failure == null
     private var previousHead = 0L
     private var headWrap = 0L
 
     private val routing = AudioRouting.OnRoutingChangedListener {
-        if (track.routedDevice?.id != device.id) failure = "USB route changed"
+        val routed = track.routedDevice
+        if (routed != null && routed.id != device.id) failure = "USB route changed"
     }
     private val mixerListener = AudioManager.OnPreferredMixerAttributesChangedListener { attr, changed, value ->
         if (attr.usage == AudioAttributes.USAGE_MEDIA && changed.id == device.id && value != mixer) {
@@ -80,13 +84,12 @@ internal class MixerTransport private constructor(
     override fun play() {
         failure?.let { throw BitPerfectTransportException(it) }
         track.play()
-        // No samples may be written until the route actually resolves to our DAC.
-        if (!verifiedRoute()) {
-            track.pause()
-            failure = "USB route could not be verified"
-            throw BitPerfectTransportException(failure!!)
-        }
-        nextRouteCheck = SystemClock.elapsedRealtime() + ROUTE_CHECK_MS
+        // AudioTrack can report no route until playback starts consuming its
+        // prebuffer. Keep the status unverified while Android resolves it.
+        matchedRoute = false
+        nextRouteCheck = 0L
+        routeDeadline = SystemClock.elapsedRealtime() + ROUTE_CHECK_MS
+        checkRoute()
     }
 
     override fun pause() {
@@ -122,15 +125,16 @@ internal class MixerTransport private constructor(
         failure?.let { throw BitPerfectTransportException(it) }
         val now = SystemClock.elapsedRealtime()
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING || now < nextRouteCheck) return
-        if (!verifiedRoute()) {
-            failure = "USB route changed"
+        val routed = track.routedDevice
+        if (routed == null && now < routeDeadline) return
+        val preferred = runCatching { manager.getPreferredMixerAttributes(ATTRIBUTES, device) }.getOrNull()
+        if (routed?.id != device.id || preferred != mixer) {
+            failure = BitPerfectOutput.ANDROID_MIXER_REJECTED
             throw BitPerfectTransportException(failure!!)
         }
+        matchedRoute = true
         nextRouteCheck = now + ROUTE_CHECK_MS
     }
-
-    private fun verifiedRoute(): Boolean = track.routedDevice?.id == device.id &&
-        manager.getPreferredMixerAttributes(ATTRIBUTES, device) == mixer
 
     companion object {
         private const val ROUTE_CHECK_MS = 250L
@@ -150,18 +154,21 @@ internal class MixerTransport private constructor(
          * Failing that, with [convert] the best it has, by [BitPerfectPcm.rankRates]
          * and [BitPerfectPcm.dacBits]; without it, null.
          */
+        fun bitPerfectProfiles(manager: AudioManager, device: AudioDeviceInfo): List<AudioMixerAttributes>? =
+            runCatching { manager.getSupportedMixerAttributes(device) }.getOrNull()?.filter {
+                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
+            }
+
         fun bestFormat(
-            manager: AudioManager,
-            device: AudioDeviceInfo,
+            profiles: List<AudioMixerAttributes>,
             rate: Int,
             channels: Int,
             sourceBits: Int,
             convert: Boolean,
         ): AudioMixerAttributes? {
             val mask = channelMask(channels)
-            val offered = runCatching { manager.getSupportedMixerAttributes(device) }.getOrDefault(emptyList()).filter {
-                it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
-                    it.format.channelMask == mask && bits(it.format.encoding) > 0
+            val offered = profiles.filter {
+                it.format.channelMask == mask && bits(it.format.encoding) > 0
             }
             val bestRate = if (convert) {
                 BitPerfectPcm.rankRates(rate, offered.map { it.format.sampleRate }).firstOrNull() ?: return null
@@ -178,15 +185,18 @@ internal class MixerTransport private constructor(
         /** Opens the DAC at [bestFormat], or explains why not. */
         fun open(manager: AudioManager, rate: Int, channels: Int, sourceBits: Int, convert: Boolean): MixerTransport {
             val usb = usbDevice(manager) ?: throw BitPerfectTransportException("no_usb")
-            val selected = bestFormat(manager, usb, rate, channels, sourceBits, convert)
-                ?: throw BitPerfectTransportException("unsupported")
+            val profiles = bitPerfectProfiles(manager, usb)
+                ?: throw BitPerfectTransportException(BitPerfectOutput.ANDROID_MIXER_REJECTED)
+            if (profiles.isEmpty()) throw BitPerfectTransportException(BitPerfectOutput.NO_ANDROID_MIXER_PROFILE)
+            val selected = bestFormat(profiles, rate, channels, sourceBits, convert)
+                ?: throw BitPerfectTransportException(BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH)
             val outputBits = bits(selected.format.encoding)
             val openedRate = selected.format.sampleRate
-            if (!manager.setPreferredMixerAttributes(ATTRIBUTES, usb, selected)) {
-                throw BitPerfectTransportException("unsupported")
-            }
             var track: AudioTrack? = null
+            var mixerSet = false
             try {
+                mixerSet = manager.setPreferredMixerAttributes(ATTRIBUTES, usb, selected)
+                if (!mixerSet) throw BitPerfectTransportException(BitPerfectOutput.ANDROID_MIXER_REJECTED)
                 val mask = channelMask(channels)
                 val minimum = AudioTrack.getMinBufferSize(openedRate, mask, selected.format.encoding)
                 if (minimum <= 0) throw BitPerfectTransportException("format")
@@ -218,8 +228,8 @@ internal class MixerTransport private constructor(
                 )
             } catch (error: Exception) {
                 runCatching { track?.release() }
-                runCatching { manager.clearPreferredMixerAttributes(ATTRIBUTES, usb) }
-                throw error as? BitPerfectTransportException ?: BitPerfectTransportException("format", error)
+                if (mixerSet) runCatching { manager.clearPreferredMixerAttributes(ATTRIBUTES, usb) }
+                throw BitPerfectTransportException(BitPerfectOutput.ANDROID_MIXER_REJECTED, error)
             }
         }
 

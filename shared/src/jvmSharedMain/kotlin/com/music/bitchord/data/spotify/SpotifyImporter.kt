@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
 data class SpotifyImportTrack(
     val title: String,
     val artist: String,
+    val durationMs: Long? = null,
 )
 
 /** The result of fetching and resolving a Spotify playlist's tracks. */
@@ -239,6 +240,7 @@ object SpotifyImporter {
     suspend fun resolveToSongs(
         tracks: List<SpotifyImportTrack>,
         language: String? = null,
+        allowLooseMatches: Boolean = true,
         onProgress: (completed: Int, total: Int) -> Unit,
     ): Pair<List<Song>, List<SpotifyImportTrack>> = coroutineScope {
         val total = tracks.size
@@ -271,8 +273,9 @@ object SpotifyImporter {
                     val target = TrackMatcher.Target(
                         title = track.title,
                         artist = track.artist,
+                        durationSec = track.durationMs?.div(1000)?.toInt(),
                     )
-                    val bestMatch = TrackMatcher.best(candidates, target) ?: candidates.firstOrNull()
+                    val bestMatch = TrackMatcher.best(candidates, target) ?: candidates.firstOrNull().takeIf { allowLooseMatches }
 
                     val matchedSong = if (cleanLang != null && candidates.isNotEmpty()) {
                         val conflictingLangs = knownLanguages.filter { !it.equals(cleanLang, ignoreCase = true) }
@@ -285,7 +288,7 @@ object SpotifyImporter {
                             }
                         }
                         TrackMatcher.best(nonConflictingCandidates, target)
-                            ?: nonConflictingCandidates.firstOrNull()
+                            ?: nonConflictingCandidates.firstOrNull().takeIf { allowLooseMatches }
                             ?: bestMatch
                     } else {
                         bestMatch

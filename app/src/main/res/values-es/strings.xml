@@ -1393,8 +1393,6 @@
     <string name="download_addon_left_out_title">Descargando sin %1$s</string>
     <string name="download_addon_not_allowed">%1$s no permite descargas, así que tus canciones se guardan desde tus otras fuentes.</string>
     <string name="download_addon_needs_lossless_output">%1$s solo sirve música con auriculares con cable, USB o de clase LDAC conectados. Las descargas lo omiten hasta que conectes unos, así que tus canciones se guardan desde tus otras fuentes.</string>
-    <string name="show_listen_together_button">Mostrar botón de Escuchar juntos</string>
-    <string name="show_listen_together_button_subtitle">Si está desactivado, el reproductor solo muestra el botón de salida de audio entre la letra y la cola</string>
     <string name="font">Fuente</string>
     <string name="font_default">Predeterminada</string>
     <string name="font_legacy">Clásica</string>
@@ -1406,6 +1404,14 @@
     <string name="bit_perfect_sheet_warning">Envía la pista al DAC sin cambios. Se omiten el ecualizador, la normalización de volumen, el fundido cruzado, la mezcla automática, la velocidad de reproducción y el volumen de ReChord.</string>
     <string name="bit_perfect_mode_off_subtitle">El audio pasa por el mezclador de Android y los efectos de ReChord.</string>
     <string name="bit_perfect_mode_usb_android">DAC USB</string>
+    <string name="bit_perfect_mode_usb_android_request">Solicita la reproducción bit a bit del audio decodificado cuando Android y el DAC admiten su formato PCM.</string>
+    <string name="bit_perfect_usb_no_profiles">Usando la salida USB estándar de Android</string>
+    <string name="usb_standard_android">USB estándar de Android</string>
+    <string name="pipeline_usb_mode">Modo USB</string>
+    <string name="bit_perfect_usb_format_mismatch">Ningún formato bit a bit de Android coincide con esta pista</string>
+    <string name="bit_perfect_usb_request_failed">Android no pudo activar la salida USB bit a bit</string>
+    <string name="bit_perfect_status_usb_waiting">Esperando a que Android confirme una salida USB compatible</string>
+    <string name="bit_perfect_status_usb_pcm_changed">%1$s · El PCM decodificado se modificó antes de la salida USB</string>
     <string name="bit_perfect_mode_usb_android_subtitle">Android 14 abre el DAC con la frecuencia y la profundidad de bits de cada pista, sin mezclar ni remuestrear.</string>
     <string name="bit_perfect_requires_android_14">Requiere Android 14 o posterior</string>
     <string name="bit_perfect_mode_dap_exclusive">DAC integrado (AAudio exclusivo)</string>

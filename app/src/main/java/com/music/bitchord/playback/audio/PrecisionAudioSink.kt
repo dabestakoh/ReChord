@@ -63,7 +63,7 @@ class PrecisionAudioSink(
     private val delegate: AudioSink,
     val dspChain: DspChain,
     private val enableFloatOutput: Boolean,
-    private val preferredOutputEncodingProvider: ((Format) -> PcmEncoding?)? = null,
+    private val preferredOutputEncodingProvider: ((AudioSink.AudioSinkConfig) -> PcmEncoding?)? = null,
     /**
      * Whether this sink is the one the listener can currently hear.
      *
@@ -128,6 +128,7 @@ class PrecisionAudioSink(
      * "next track" the one actually starting.
      */
     private var streaming = false
+    private var floatTo16Exact: Boolean? = null
 
     /**
      * End of the last block the DSP chain processed, in the renderer's
@@ -167,6 +168,7 @@ class PrecisionAudioSink(
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         activeFormat = format
+        floatTo16Exact = null
 
         if (shouldActivatePrecision(format)) {
             val encoding = mapToPcmEncoding(format.pcmEncoding)
@@ -190,7 +192,7 @@ class PrecisionAudioSink(
                     .build()
 
                 val targetEncoding = resolveTargetEncoding(
-                    preferred = preferredOutputEncodingProvider?.invoke(format),
+                    preferred = preferredOutputEncodingProvider?.invoke(audioSinkConfig),
                     floatFormat = floatFormat,
                 )
 
@@ -406,6 +408,19 @@ class PrecisionAudioSink(
                 tookOverHere = spliceLoop(outArm, loopBlockUs, decodedFrames)
             } else if (inArm != null) {
                 silenceUntilHandover(inArm, loopBlockUs, decodedFrames)
+            }
+
+            if (inEncoding == PcmEncoding.PCM_FLOAT && outEncoding == PcmEncoding.PCM_16BIT &&
+                floatTo16Exact != false
+            ) {
+                val fits = (0 until decodedFrames * channelCount).all { index ->
+                    val sample = audioBlock.samples[index]
+                    PcmBoundary.clamp16FromFloat(sample).toInt() / 32768f == sample
+                }
+                if (floatTo16Exact != fits) {
+                    floatTo16Exact = fits
+                    if (isAudible()) publishOutputExactness(inEncoding, outEncoding)
+                }
             }
 
             // Process normalized Float32 samples through custom DSP chain
@@ -883,10 +898,14 @@ class PrecisionAudioSink(
      * that while [DefaultAudioSink] is doing the writing.
      */
     private fun publishOutputExactness(source: PcmEncoding, target: PcmEncoding) {
+        if (source == PcmEncoding.PCM_FLOAT && target == PcmEncoding.PCM_16BIT && floatTo16Exact == null) {
+            AudioOutputStatus.publishOutputExactness(exact = false, detail = null)
+            return
+        }
         val exact = when (source) {
-            PcmEncoding.PCM_16BIT -> target == PcmEncoding.PCM_16BIT
+            PcmEncoding.PCM_16BIT -> target == PcmEncoding.PCM_16BIT || target == PcmEncoding.PCM_FLOAT
             PcmEncoding.PCM_24BIT_PACKED -> target == PcmEncoding.PCM_FLOAT
-            PcmEncoding.PCM_FLOAT -> target == PcmEncoding.PCM_FLOAT
+            PcmEncoding.PCM_FLOAT -> target == PcmEncoding.PCM_FLOAT || floatTo16Exact == true
             // 24 bits of significand cannot hold 32.
             PcmEncoding.PCM_32BIT -> false
         }
@@ -894,8 +913,8 @@ class PrecisionAudioSink(
         val detail = when {
             exact -> "$sourceLabel → ${encodingLabel(mapFromPcmEncoding(target))}"
             source == PcmEncoding.PCM_32BIT ->
-                "32-bit PCM exceeds what AudioTrack can carry; 8 bits lost"
-            else -> "$sourceLabel → 16-bit; this route cannot open a float track"
+                "32-bit integer PCM → ${encodingLabel(mapFromPcmEncoding(target))}; precision reduced"
+            else -> "$sourceLabel → 16-bit PCM; precision reduced"
         }
         AudioOutputStatus.publishOutputExactness(exact = exact, detail = detail)
     }

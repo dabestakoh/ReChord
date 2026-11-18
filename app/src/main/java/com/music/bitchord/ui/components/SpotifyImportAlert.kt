@@ -39,8 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.music.bitchord.R
 import com.music.bitchord.data.model.PlaylistPrivacy
 import com.music.bitchord.data.model.Song
-import com.music.bitchord.data.spotify.SpotifyImportTrack
-import com.music.bitchord.data.spotify.SpotifyImporter
+import com.music.bitchord.data.spotify.PlaylistLinkImporter
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import kotlinx.coroutines.CancellationException
@@ -59,13 +58,12 @@ private val IMPORT_LANGUAGES = listOf(
 )
 
 /**
- * Paste a Spotify playlist link, match its songs on YouTube Music, keep the result.
+ * Preview tracks from a supported playlist link before saving.
  *
  * The same frosted card as the addon editor, rather than a Material dialog.
  * The "who can see it" row exists only for [signedIn]: it is a YouTube Music
  * setting, and a playlist kept on this device has no audience to choose.
- * Songs that matched nothing are listed once the playlist is made, instead of
- * being dropped without a word.
+ * Songs that matched nothing are listed in the preview.
  */
 @OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
@@ -85,15 +83,9 @@ fun SpotifyImportAlert(
     var working by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var failed by remember { mutableStateOf(false) }
-    var unmatched by remember { mutableStateOf<List<SpotifyImportTrack>?>(null) }
+    var preview by remember { mutableStateOf<PlaylistLinkImporter.Preview?>(null) }
 
     fun start() {
-        val id = SpotifyImporter.extractPlaylistId(link)
-        if (id == null) {
-            status = context.getString(R.string.spotify_import_invalid)
-            failed = true
-            return
-        }
         val effectiveLanguage = if (selectedLanguage == "Manual / Other") {
             customLanguageInput.trim().ifBlank { null }
         } else {
@@ -101,16 +93,14 @@ fun SpotifyImportAlert(
         }
         working = true
         failed = false
-        status = context.getString(R.string.spotify_import_fetching)
+        status = context.getString(R.string.playlist_link_fetching)
         scope.launch {
             try {
-                val (name, tracks) = SpotifyImporter.fetchPlaylistTracks(id)
-                val (songs, missed) = SpotifyImporter.resolveToSongs(tracks, effectiveLanguage) { done, total ->
+                val result = PlaylistLinkImporter.load(link, effectiveLanguage) { done, total ->
                     status = context.getString(R.string.spotify_import_matching, done, total)
                 }
-                if (songs.isEmpty()) error(context.getString(R.string.spotify_import_none))
-                onImported(name, privacy, songs)
-                if (missed.isEmpty()) onDismiss() else unmatched = missed
+                if (result.songs.isEmpty()) error(context.getString(R.string.spotify_import_none))
+                preview = result
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -131,44 +121,47 @@ fun SpotifyImportAlert(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = stringResource(R.string.spotify_import_title),
+                text = stringResource(R.string.playlist_link_title),
                 style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, fontWeight = FontWeight.W600),
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            val missed = unmatched
-            if (missed != null) {
-                Text(
-                    text = stringResource(R.string.spotify_import_unmatched, missed.size),
-                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 200.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    missed.forEach { track ->
-                        Text(
-                            text = if (track.artist.isBlank()) track.title else "${track.title} · ${track.artist}",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            val result = preview
+            if (result != null) {
+                val missed = result.missed
+                Text(result.title, style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.playlist_link_track_count, result.songs.size))
+                if (result.partial) Text(stringResource(R.string.playlist_link_partial))
+                if (missed.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.spotify_import_unmatched, missed.size),
+                        modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        missed.forEach { track ->
+                            Text(
+                                text = if (track.artist.isBlank()) track.title else "${track.title} · ${track.artist}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             } else {
                 Text(
-                    text = status ?: stringResource(
-                        if (signedIn) R.string.spotify_import_description
-                        else R.string.spotify_import_description_local,
-                    ),
+                    text = status ?: "Apple Music · Spotify · YouTube Music",
                     modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 17.sp),
                     color = when {
@@ -187,7 +180,7 @@ fun SpotifyImportAlert(
                             failed = false
                         }
                     },
-                    placeholder = stringResource(R.string.spotify_import_hint),
+                    placeholder = "https://",
                     enabled = !working,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (link.isNotBlank() && !working) start() }),
@@ -279,11 +272,17 @@ fun SpotifyImportAlert(
             }
         }
         AlertRule()
-        if (unmatched != null) {
-            AlertAction(label = stringResource(R.string.done), emphasised = true, onClick = onDismiss)
+        val result = preview
+        if (result != null) {
+            AlertAction(label = stringResource(R.string.spotify_import_button), emphasised = true, onClick = {
+                onImported(result.title, privacy, result.songs)
+                onDismiss()
+            })
+            AlertRule()
+            AlertAction(label = stringResource(R.string.cancel), emphasised = false, onClick = onDismiss)
         } else {
             AlertAction(
-                label = stringResource(R.string.spotify_import_button),
+                label = stringResource(R.string.playlist_link_preview),
                 emphasised = true,
                 onClick = ::start,
                 enabled = link.isNotBlank() && !working,

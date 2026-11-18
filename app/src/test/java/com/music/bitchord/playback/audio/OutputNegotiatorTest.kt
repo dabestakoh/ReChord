@@ -22,6 +22,36 @@ import org.junit.Test
 
 class OutputNegotiatorTest {
 
+    @Test
+    fun autoSelectsByDecodedPrecisionAndRouteWithoutClaimingDirectPlayback() {
+        fun select(bits: Int, supportsFloat: Boolean, supportsNative24: Boolean, processing: Boolean = false) =
+            OutputNegotiator.negotiate(
+                source = SourceDescriptor("audio/raw", 96_000, 2, bits),
+                decoderName = null,
+                sampleRateHz = 96_000,
+                channelCount = 2,
+                routeKind = AudioRouting.Kind.USB,
+                deviceName = "USB DAC",
+                advertisedEncodings = listOf(AudioFormat.ENCODING_PCM_24BIT_PACKED),
+                advertisedSampleRates = listOf(96_000),
+                requestedMode = OutputPcmMode.AUTO,
+                delegateSupportsFloat = supportsFloat,
+                delegateSupportsPcm24 = supportsNative24,
+                processingEnabled = processing,
+            ).output
+
+        assertEquals(PcmEncoding.PCM_16BIT, select(16, true, true).encoding)
+        assertEquals(PcmEncoding.PCM_24BIT_PACKED, select(24, true, true).encoding)
+        assertEquals(PcmEncoding.PCM_FLOAT, select(24, true, false).encoding)
+        assertEquals(PcmEncoding.PCM_FLOAT, select(32, true, true).encoding)
+        assertEquals(PcmEncoding.PCM_FLOAT, select(16, true, false, processing = true).encoding)
+        val fallback = select(24, false, false)
+        assertEquals(PcmEncoding.PCM_16BIT, fallback.encoding)
+        assertEquals(96_000, fallback.sampleRateHz)
+        assertFalse(fallback.isDirect)
+    }
+
+
     private val flac96kHz24BitSource = SourceDescriptor(
         encoding = "FLAC",
         sampleRateHz = 96000,

@@ -56,6 +56,7 @@ fun AudioQuality.permits(kind: SourceKind): Boolean = when (this) {
  * output device, which is why the player exposes the negotiated format.
  */
 enum class OutputPcmMode(val label: String) {
+    AUTO("Auto"),
     PCM_16("16-bit PCM"),
     FLOAT_32("32-bit float"),
 }
@@ -281,7 +282,7 @@ object AppSettings {
     val skipSilence = MutableStateFlow(false)
 
     /** Requested PCM representation at the Android AudioTrack boundary. */
-    val outputPcmMode = MutableStateFlow(OutputPcmMode.PCM_16)
+    val outputPcmMode = MutableStateFlow(OutputPcmMode.AUTO)
 
     /** Prefer an attached USB audio output over the system's normal route. */
     val preferUsbDac = MutableStateFlow(true)
@@ -348,15 +349,7 @@ object AppSettings {
      */
     val dolbyAtmos = MutableStateFlow(true)
 
-    /**
-     * Play a YouTube-queued track straight from an addon ranked above YouTube,
-     * rather than starting it on YouTube and swapping up mid-song.
-     *
-     * Also narrows read-ahead to the next track only, and only once the
-     * playing one is within [DirectSourceGate.WINDOW_MS][com.music.bitchord.playback.DirectSourceGate.WINDOW_MS]
-     * of its transition — see [DirectSourceGate][com.music.bitchord.playback.DirectSourceGate].
-     * Automix analysis is untouched: it keeps reading its own YouTube Opus copy.
-     */
+    /** Resolve addons before playback; prepare only the current and next queued tracks. */
     val directSourceStream = MutableStateFlow(false)
 
     /** Opt-in seamless mid-track rendition handoff; disabled for existing installs. */
@@ -423,9 +416,6 @@ object AppSettings {
 
     /** Put the playing track's codec, bitrate and sample rate on the player. */
     val showNerdStats = MutableStateFlow(false)
-
-    /** Show the output / Listen Together pill under the player's transport. */
-    val showListenTogetherButton = MutableStateFlow(false)
 
     /** Freezes the main player's mesh gradient instead of letting it drift/crossfade. */
     val reduceAnimation = MutableStateFlow(false)
@@ -982,10 +972,10 @@ object AppSettings {
         skipSilence.value = prefs.getBoolean(KEY_SKIP_SILENCE, false)
         outputPcmMode.value = runCatching {
             OutputPcmMode.valueOf(
-                prefs.getString(KEY_OUTPUT_PCM_MODE, OutputPcmMode.PCM_16.name)
-                    ?: OutputPcmMode.PCM_16.name,
+                prefs.getString(KEY_OUTPUT_PCM_MODE, OutputPcmMode.AUTO.name)
+                    ?: OutputPcmMode.AUTO.name,
             )
-        }.getOrDefault(OutputPcmMode.PCM_16)
+        }.getOrDefault(OutputPcmMode.AUTO)
         preferUsbDac.value = prefs.getBoolean(KEY_PREFER_USB_DAC, true)
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
@@ -1024,7 +1014,6 @@ object AppSettings {
         shuffleEnabled.value = prefs.getBoolean(KEY_SHUFFLE_ENABLED, false)
         repeatMode.value = prefs.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
         showNerdStats.value = prefs.getBoolean(KEY_NERD_STATS, false)
-        showListenTogetherButton.value = prefs.getBoolean(KEY_LISTEN_TOGETHER_BUTTON, false)
         reduceAnimation.value = prefs.getBoolean(KEY_REDUCE_ANIMATION, false)
         onboardingComplete.value = prefs.getBoolean(KEY_ONBOARDING_COMPLETE, false)
         diwaliGreetingShown.value = prefs.getBoolean(KEY_DIWALI_GREETING_SHOWN, false)
@@ -1417,10 +1406,6 @@ object AppSettings {
         prefs.edit().putBoolean(KEY_NERD_STATS, value).apply()
     }
 
-    fun setShowListenTogetherButton(value: Boolean) {
-        showListenTogetherButton.value = value
-        prefs.edit().putBoolean(KEY_LISTEN_TOGETHER_BUTTON, value).apply()
-    }
 
     fun setThemeMode(value: ThemeMode) {
         themeMode.value = value
@@ -2311,7 +2296,6 @@ object AppSettings {
     private const val KEY_SHUFFLE_ENABLED = "shuffle_enabled"
     private const val KEY_REPEAT_MODE = "repeat_mode"
     private const val KEY_NERD_STATS = "show_nerd_stats"
-    private const val KEY_LISTEN_TOGETHER_BUTTON = "show_listen_together_button"
     private const val KEY_CACHE_LIMIT = "audio_cache_limit_bytes"
     private const val KEY_REDUCE_ANIMATION = "reduce_animation"
     private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"

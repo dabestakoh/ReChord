@@ -1178,6 +1178,8 @@ object AudioCache {
     fun isReplayingCachedFlac(mediaId: String): Boolean =
         replayingFlac.containsKey(mediaId)
 
+    internal fun hasReusableFlac(uri: Uri): Boolean = reusableFlacKey(uri) != null
+
     private fun reusableFlacKey(uri: Uri): String? {
         if (!::cache.isInitialized || uri.scheme != "bitchord" ||
             uri.authority != "watch" || uri.getQueryParameter("q") != null ||
@@ -1266,6 +1268,7 @@ object AudioCache {
             .setCacheKeyFactory(keyFactory).createDataSource()
         object : DataSource {
             private var activeDs: DataSource = cacheDs
+            private var directEntryChecked = false
 
             override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {
                 cacheDs.addTransferListener(transferListener)
@@ -1306,7 +1309,12 @@ object AudioCache {
                 activeDs = if (scheme == "file" || scheme == "content") {
                     upstreamDs
                 } else {
-                    settleDirectEntry(dataSpec.uri)
+                    if (!directEntryChecked) {
+                        // A byte-range reopen belongs to the extractor's existing
+                        // file. Source changes must precede the initial header read.
+                        if (dataSpec.position == 0L) settleDirectEntry(dataSpec.uri)
+                        directEntryChecked = true
+                    }
                     cacheDs
                 }
                 return activeDs.open(dataSpec)
@@ -1359,9 +1367,13 @@ object AudioCache {
         ) {
             return
         }
-        if (!DirectSourceGate.isActive() || StreamChoice.of(videoId) != null) return
+        if (!DirectSourceGate.isActive() || OriginalVersion.isPinned(videoId) ||
+            StreamChoice.substitutesRefused(videoId)
+        ) return
+        val previous = StreamChoice.of(videoId)
+        if (previous != null && !StreamChoice.isYouTube(videoId)) return
         val key = keyFactory.buildCacheKey(DataSpec(uri))
-        if (!heldByYouTube(key) || isOffline()) return
+        if ((!heldByYouTube(key) && previous == null) || isOffline()) return
         try {
             runBlocking<Unit>(TrackLog.about(videoId)) {
                 // The same hold the resolver applies, so a track prepared early
@@ -1371,7 +1383,7 @@ object AudioCache {
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                     .getOrNull()
                 // Read-ahead may have settled it while this waited.
-                if (StreamChoice.of(videoId) != null) return@runBlocking
+                if (StreamChoice.of(videoId) !== previous) return@runBlocking
                 if (addon != null) {
                     dropYouTubeEntry(key, videoId)
                     // Pinned only once the Opus is really gone. Otherwise the
@@ -1623,12 +1635,14 @@ object AudioCache {
         val id = upcoming.mediaId
         // A source-backed row resolves through its own source when opened, and
         // a downloaded or reverted track never reads this entry at all.
-        if (SourceRegistry.parseTrackKey(id) != null || id in Downloads.saved.value || OriginalVersion.isPinned(id)) {
+        if (SourceRegistry.parseTrackKey(id) != null || id in Downloads.saved.value || OriginalVersion.isPinned(id) ||
+            StreamChoice.substitutesRefused(id)) {
             directJob = null
             return
         }
         directJob = scope.launch(TrackLog.about(id)) {
-            if (StreamChoice.of(id) == null) {
+            val previous = StreamChoice.of(id)
+            if (previous == null || StreamChoice.isYouTube(id)) {
                 val addon = runCatching { DirectSourceGate.lookup(id, upcoming.target) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                     .getOrNull()
@@ -1642,7 +1656,7 @@ object AudioCache {
                     }
                     .getOrNull()
                     ?: return@launch
-                if (StreamChoice.of(id) == null) {
+                if (StreamChoice.of(id) === previous) {
                     // An addon pinned over YouTube's Opus from an earlier play
                     // would have its head read straight off that Opus and its
                     // rest streamed after it — see [settleDirectEntry]. The

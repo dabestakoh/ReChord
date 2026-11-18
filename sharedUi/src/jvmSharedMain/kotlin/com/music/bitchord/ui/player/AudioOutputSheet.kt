@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Earbuds
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import org.jetbrains.compose.resources.stringResource
@@ -87,11 +89,13 @@ internal fun AudioOutputSheet(
     onDismiss: () -> Unit,
     onOpenPipeline: () -> Unit,
     onOpenCast: () -> Unit,
+    onListenTogether: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val outputs = rememberAudioOutputs()
     val cast by PlayerPlatform.host.castState.collectAsStateWithLifecycle()
     val watch by PlayerPlatform.host.watchOutput.collectAsStateWithLifecycle()
+    val party by PlayerPlatform.host.party.collectAsStateWithLifecycle()
     // A watch comes and goes; ask again each time the drawer opens.
     LaunchedEffect(Unit) { PlayerPlatform.host.refreshWatchOutput() }
 
@@ -125,6 +129,15 @@ internal fun AudioOutputSheet(
                 WatchRow(watch = watch, onClick = { PlayerPlatform.host.selectWatchOutput() })
             }
             if (cast.supported) CastRow(cast = cast, onClick = onOpenCast)
+            AudioOutputOptionRow(
+                icon = Icons.Rounded.Groups,
+                title = stringResource(Res.string.listen_together),
+                subtitle = party.code?.takeIf { party.inParty }?.let {
+                    stringResource(Res.string.listen_together_in_party, it)
+                } ?: stringResource(Res.string.listen_together_subtitle),
+                onClick = onListenTogether,
+            )
+            PlayerPlatform.host.SpatialAudioControl()
         }
 
         Spacer(Modifier.height(10.dp))
@@ -143,16 +156,34 @@ internal fun AudioOutputSheet(
  */
 @Composable
 private fun AudioPipelineRow(onClick: () -> Unit) {
-    val haptics = rememberHaptics()
     val outputFormat by PlayerPlatform.host.outputFormat.collectAsStateWithLifecycle()
-    val subtitle = outputFormat.summary
+    AudioOutputOptionRow(
+        icon = Icons.Rounded.GraphicEq,
+        title = stringResource(Res.string.audio_pipeline),
+        subtitle = outputFormat.summary,
+        onClick = onClick,
+    )
+}
 
+/** Shared output-drawer styling for the pipeline and its existing playback options. */
+@Composable
+fun AudioOutputOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val haptics = rememberHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.38f)
             .clip(ROW_SHAPE)
             .background(Color.White.copy(alpha = 0.05f))
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) {
@@ -170,7 +201,7 @@ private fun AudioPipelineRow(onClick: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Rounded.GraphicEq,
+                imageVector = icon,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.size(20.dp),
@@ -179,7 +210,7 @@ private fun AudioPipelineRow(onClick: () -> Unit) {
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                text = stringResource(Res.string.audio_pipeline),
+                text = title,
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.85f),
                 maxLines = 1,
@@ -190,11 +221,11 @@ private fun AudioPipelineRow(onClick: () -> Unit) {
                 text = subtitle,
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White.copy(alpha = 0.55f),
-                maxLines = 1,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(
+        if (trailing != null) trailing() else Icon(
             imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             contentDescription = null,
             tint = Color.White.copy(alpha = 0.35f),
