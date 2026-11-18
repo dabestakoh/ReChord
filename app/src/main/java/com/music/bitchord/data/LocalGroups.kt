@@ -243,13 +243,13 @@ object LocalGroups {
     private fun Song.albumCredit() = localAlbumArtist ?: artist
 
     private fun Song.releaseKey(): String {
-        if (albumName == null) return "untagged"
+        val title = albumName ?: return "untagged"
         val root = directory()?.let { path ->
             if (Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""").matches(path.substringAfterLast('/'))) {
                 path.substringBeforeLast('/', path)
             } else path
         }.orEmpty()
-        return listOf(albumName, albumCredit(), root).joinToString("") { "${it.length}:$it" }
+        return listOf(title, albumCredit(), root).joinToString("") { "${it.length}:$it" }
     }
 
     /** The directory a device file sits in, or null when its path isn't known. */
