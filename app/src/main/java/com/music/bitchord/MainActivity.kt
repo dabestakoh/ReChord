@@ -95,6 +95,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -829,6 +830,15 @@ private fun BitChordApp(
     // [AppNavigator]. Whatever was opened last is what is on screen, and back
     // (the gesture or the bar's button alike) undoes exactly that.
     val navigator = viewModel.navigator
+    var listenTogetherAfterPlayer by remember { mutableStateOf(false) }
+    LaunchedEffect(listenTogetherAfterPlayer, showNowPlaying) {
+        if (listenTogetherAfterPlayer && !showNowPlaying) {
+            // Let the player window leave composition before the destination's fade starts.
+            withFrameNanos { }
+            navigator.pushAll(AppRoute.Settings, AppRoute.ListenTogether)
+            listenTogetherAfterPlayer = false
+        }
+    }
     val detailStack by viewModel.detailStack.collectAsStateWithLifecycle()
     val topEntry = navigator.visibleEntry(detailStack.size)
     // An artist's open shelf is drawn by the artist page itself, so it is not a
@@ -2786,10 +2796,8 @@ private fun BitChordApp(
             lyricsOffsetOpen = showLyricsOffset,
             onDismissLyricsOffset = { showLyricsOffset = false },
             onListenTogether = {
-                // The player is a sheet over the page, so it has to come down
-                // for the page to be read at all.
+                listenTogetherAfterPlayer = true
                 dismissPlayer()
-                navigator.pushAll(AppRoute.Settings, AppRoute.ListenTogether)
             },
             onClearQueue = {
                 // Keep what's playing and context/autoplay; drop user-queued tracks.
