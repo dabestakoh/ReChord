@@ -269,6 +269,6 @@ fun Modifier.liquidGlass(
         onDrawSurface = surface,
         exportedBackdrop = exportedBackdrop,
         backdropScale = resolutionScale,
-        frozen = { GlassMotion.nav.frozen() },
+        frozen = { GlassMotion.nav.frozen() || GlassMotion.scroll.frozen() },
     )
 }

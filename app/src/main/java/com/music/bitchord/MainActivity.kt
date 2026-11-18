@@ -371,7 +371,6 @@ import com.music.bitchord.data.canvas.AppleArtistArtRepository
 import com.music.bitchord.data.canvas.keyColors
 import com.music.bitchord.ui.theme.SystemBarIcons
 import com.music.bitchord.ui.utils.guardSheetFromContentTouches
-import com.music.bitchord.ui.components.feedSkeleton
 import com.music.bitchord.ui.utils.rememberIosOverscrollFactory
 import com.music.bitchord.ui.performance.resolvePerformanceRefreshRate
 import dev.chrisbanes.haze.HazeState
@@ -460,18 +459,7 @@ class MainActivity : AppCompatActivity() {
                 // A measured constraint cannot be stale — it is the very width
                 // the split is about to be laid out in.
                 BoxWithConstraints(Modifier.fillMaxSize()) {
-                    var shellDrawn by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        withFrameNanos { }
-                        withFrameNanos { }
-                        shellDrawn = true
-                    }
-                    if (!shellDrawn) {
-                        androidx.compose.foundation.lazy.LazyColumn(
-                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-                            contentPadding = PaddingValues(top = 90.dp, bottom = 100.dp),
-                        ) { feedSkeleton() }
-                    } else BitChordApp(
+                    BitChordApp(
                         darkTheme = darkTheme,
                         windowWidth = maxWidth,
                         windowHeight = maxHeight,
