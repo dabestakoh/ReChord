@@ -9,17 +9,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -27,30 +25,37 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
-import java.text.Normalizer
+import java.util.Locale
+import com.music.bitchord.data.LocalAlphabet
 import kotlinx.coroutines.launch
 
-internal fun localLetterPositions(names: List<String>, start: Int, columns: Int): Map<Char, Int> =
-    buildMap {
-        names.forEachIndexed { index, name ->
-            val letter = Normalizer.normalize(name.trimStart(), Normalizer.Form.NFD)
-                .firstOrNull()?.uppercaseChar()?.takeIf { it in 'A'..'Z' } ?: '#'
-            if (letter !in this) put(letter, start + index / columns)
-        }
+internal fun localLetterPositions(
+    names: List<String>,
+    start: Int,
+    columns: Int,
+    alphabet: LocalAlphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = false),
+): Map<String, Int> = buildMap {
+    names.forEachIndexed { index, name ->
+        val label = alphabet.label(name)
+        if (label !in this) put(label, start + index / columns)
     }
+}
 
 @Composable
 internal fun LocalLetterIndex(
-    positions: Map<Char, Int>,
+    positions: Map<String, Int>,
     list: LazyListState,
     firstRowIndex: Int,
     topInset: Dp,
     bottomInset: Dp,
+    onPreview: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val updatePreview by rememberUpdatedState(onPreview)
+    DisposableEffect(positions, list) { onDispose { updatePreview(null) } }
     val scope = rememberCoroutineScope()
-    val letters = remember(positions) { positions.keys.sortedWith(compareBy { if (it == '#') '[' else it }) }
-    var preview by remember(positions) { mutableStateOf<Char?>(null) }
+    val letters = remember(positions) { positions.keys.toList() }
+    var preview by remember(positions) { mutableStateOf<String?>(null) }
     fun jump(index: Int) {
         val row = letters.getOrNull(index)?.let(positions::get) ?: return
         scope.launch { if (row < list.layoutInfo.totalItemsCount) list.scrollToItem(row) }
@@ -87,13 +92,20 @@ internal fun LocalLetterIndex(
                 val index = (y / size.height * letters.size).toInt().coerceIn(letters.indices)
                 if (preview != letters[index]) {
                     preview = letters[index]
+                    updatePreview(preview)
                     jump(index)
                 }
             }
             detectDragGestures(
                 onDragStart = { select(it.y) },
-                onDragEnd = { preview = null },
-                onDragCancel = { preview = null },
+                onDragEnd = {
+                    preview = null
+                    updatePreview(null)
+                },
+                onDragCancel = {
+                    preview = null
+                    updatePreview(null)
+                },
             ) { change, _ ->
                 change.consume()
                 select(change.position.y)
@@ -105,16 +117,7 @@ internal fun LocalLetterIndex(
                 }
             }
         }
-        preview?.let { letter ->
-            Surface(
-                modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-28).dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.inverseSurface,
-            ) {
-                Text(letter.toString(), Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.inverseOnSurface)
-            }
-        }
+
     }
 }
 

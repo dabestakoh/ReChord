@@ -61,6 +61,7 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.CommandButton
+import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -1842,6 +1843,7 @@ class PlaybackService : MediaLibraryService() {
             MediaLibraryCallback(),
         )
             .setId(SESSION_ID)
+            .setBitmapLoader(CacheBitmapLoader(SessionArtworkLoader(this, scope)))
             .setSessionActivity(sessionActivity())
             .build()
         refreshCustomLayouts()

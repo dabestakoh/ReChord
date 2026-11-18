@@ -5,13 +5,33 @@ import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.model.Song
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import com.music.bitchord.data.LocalAlphabet
+import java.util.Locale
 
 class LocalLibraryBrowsingTest {
     @Test fun letterJumpsTargetTheFirstMatchingGridRow() {
         assertEquals(
-            mapOf('A' to 3, 'B' to 4, '#' to 5),
+            mapOf("A" to 3, "B" to 4, "#" to 5),
             localLetterPositions(listOf("Álbum", "Another", "Beta", "Bravo", "1989"), 3, 2),
         )
+    }
+
+    @Test fun artistSortAndRailShareTheSameArticleRules() {
+        val alphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = true)
+        val titles = listOf("The Beatles", "A Tribe Called Quest", "Theatre")
+            .sortedWith(alphabet::compare)
+        assertEquals(listOf("A Tribe Called Quest", "The Beatles", "Theatre"), titles)
+        assertEquals(mapOf("A" to 0, "B" to 1, "T" to 2), localLetterPositions(titles, 0, 1, alphabet))
+    }
+
+    @Test fun railKeepsSwedishLettersAndLabelsOtherScripts() {
+        val alphabet = LocalAlphabet(Locale.forLanguageTag("sv"), ignoreThe = false)
+        assertEquals("Å", alphabet.label("A\u030Ar"))
+        assertEquals("Ä", alphabet.label("Ängel"))
+        assertEquals("Ö", alphabet.label("Öga"))
+        assertEquals("漢", alphabet.label("東京"))
+        assertEquals("한", alphabet.label("한국"))
+        assertEquals("#", alphabet.label("1989"))
     }
 
     @Test fun recentlyAddedSelectsOnlyTheNewestHundredDatedTracks() {

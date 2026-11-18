@@ -129,6 +129,10 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material3.Surface
+import com.music.bitchord.data.LocalAlphabet
+import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.OfflinePlaylists
 import com.music.bitchord.data.matchesSearch
@@ -374,6 +378,33 @@ fun DetailScreen(
     reorder: (@Composable (ArtworkPalette) -> Unit)? = null,
 ) {
     val rawSongs = (page.songs as? UiState.Success)?.data.orEmpty()
+    val localRoot = LocalGroups.folderOf(page.browseId)
+    val localArtistPage = localRoot == "local:all" && LocalGroups.isArtist(page.browseId)
+    val localPage = page.browseId == "local:all" || localRoot == "local:all" ||
+        page.browseId.startsWith(OfflinePlaylists.PREFIX)
+    val locale = LocalConfiguration.current.locales[0]
+    val trackAlphabet = remember(locale) { LocalAlphabet(locale, ignoreThe = false) }
+    val groupAlphabet = remember(locale, folder?.state?.tab) {
+        LocalAlphabet(locale, ignoreThe = folder?.state?.tab in setOf(
+            LocalFolderTab.ALBUMS, LocalFolderTab.ARTISTS, LocalFolderTab.ALBUM_ARTISTS,
+        ))
+    }
+    val artistId = remember(localArtistPage, rawSongs, page.title) {
+        if (!localArtistPage) null else rawSongs.asSequence()
+            .flatMap { song ->
+                val refs = song.artists.asSequence().filter { it.name.equals(page.title, ignoreCase = true) }
+                    .mapNotNull { it.browseId }
+                if (song.artist.equals(page.title, ignoreCase = true)) refs + listOfNotNull(song.artistId).asSequence() else refs
+            }
+            .filter { it.startsWith("UC") }.distinct().take(2).toList().singleOrNull()
+    }
+    var localArtistPhoto by remember(artistId, page.title) { mutableStateOf<String?>(null) }
+    LaunchedEffect(artistId, page.title) {
+        val id = artistId ?: return@LaunchedEffect
+        localArtistPhoto = YtMusicRepository.artistLanding(id).getOrNull()
+            ?.takeIf { it.name?.equals(page.title, ignoreCase = true) == true }
+            ?.thumbnailUrl
+    }
     // A folder keeps its own sort — the one its top bar menu sets — rather
     // than the per-page one a release takes.
     val folderSort = if (folder != null && folder.state.tab == LocalFolderTab.RECENTLY_ADDED) {
@@ -383,8 +414,13 @@ fun DetailScreen(
     val recentSongs = remember(rawSongs, recent) {
         if (recent) recentlyAddedTracks(rawSongs) else rawSongs
     }
-    val songs = remember(recentSongs, songSort, folderSort, recent) {
-        if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
+    val songs = remember(recentSongs, songSort, folderSort, recent, localPage, trackAlphabet) {
+        val ascending = folderSort == LocalMusicSort.TITLE_ASC || (folderSort == null && songSort == SongSort.TITLE_ASC)
+        val descending = folderSort == LocalMusicSort.TITLE_DESC || (folderSort == null && songSort == SongSort.TITLE_DESC)
+        if (localPage && (ascending || descending)) recentSongs.sortedWith { a, b ->
+            if (ascending) trackAlphabet.compare(a.title, b.title) else trackAlphabet.compare(b.title, a.title)
+        }
+        else if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
         else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
     }
     val scanStatus = if (folder?.onRefreshIndex != null) {
@@ -492,10 +528,15 @@ fun DetailScreen(
     // Back before the search does: it is registered after it, so it is asked
     // first while it is on.
     val folderState = folder?.state
-    val folderGroups = if (folder != null && folderState != null) {
+    val rawFolderGroups = if (folder != null && folderState != null) {
         rememberLocalFolderGroups(page.browseId, folder, folderState.tab, rawSongs, query)
     } else {
         emptyList()
+    }
+    val folderGroups = remember(rawFolderGroups, localPage, groupAlphabet, folderState?.tab) {
+        if (localPage && folderState?.tab != LocalFolderTab.SONGS) {
+            rawFolderGroups.sortedWith { a, b -> groupAlphabet.compare(a.title, b.title) }
+        } else rawFolderGroups
     }
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
@@ -579,16 +620,15 @@ fun DetailScreen(
                 // "Show all" grids reach at this width.
                 val tab = folderState?.tab
                 val grouped = tab != null && tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED
-                val localPage = page.browseId == "local:all" ||
-                    com.music.bitchord.data.LocalGroups.folderOf(page.browseId) == "local:all" ||
-                    page.browseId.startsWith(com.music.bitchord.data.OfflinePlaylists.PREFIX)
                 val alphabetic = grouped || folderSort == LocalMusicSort.TITLE_ASC || folderSort == LocalMusicSort.TITLE_DESC ||
                     (folderSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
                 val names = remember(alphabetic, grouped, folderGroups, queue) {
                     if (!alphabetic) emptyList()
                     else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
                 }
-                val sections = remember(names) { localLetterPositions(names, 0, 1).size }
+                val indexAlphabet = if (grouped) groupAlphabet else trackAlphabet
+                val sections = remember(names, indexAlphabet) { localLetterPositions(names, 0, 1, indexAlphabet).size }
+                var letterPreview by remember(page.browseId, tab) { mutableStateOf<String?>(null) }
                 val scrollable by remember(listState) {
                     derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
                 }
@@ -629,7 +669,11 @@ fun DetailScreen(
                         palette = palette,
                         sleeveSize = sleeveSize,
                         fullBleed = fullBleedSleeve,
-                        showSleeve = page.browseId != "local:all",
+                        showSleeve = page.browseId != "local:all" && !localArtistPage,
+                        localArtistPhoto = localArtistPhoto,
+                        artistAlbumCount = if (localArtistPage && !searching) {
+                            folderGroups.count { it.songs.firstOrNull()?.albumName != null }
+                        } else null,
                         canvas = canvas,
                         songs = songs,
                         onPlay = { onSongClick(songs, 0) },
@@ -933,15 +977,30 @@ fun DetailScreen(
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0) +
                         (if (tab == LocalFolderTab.SONGS && query.isNotBlank()) folderGroups.size else 0)
                     val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
-                    val positions = remember(names, start, columns) { localLetterPositions(names, start, columns) }
+                    val positions = remember(names, start, columns, indexAlphabet) {
+                        localLetterPositions(names, start, columns, indexAlphabet)
+                    }
                     LocalLetterIndex(
                         positions = positions,
                         list = listState,
                         firstRowIndex = start,
                         topInset = topBarContentPadding(),
                         bottomInset = contentPadding.calculateBottomPadding(),
+                        onPreview = { letterPreview = it },
                         modifier = Modifier.align(Alignment.TopEnd).width(gutter),
                     )
+                }
+
+                letterPreview?.takeIf { gutter > 0.dp }?.let { label ->
+                    Surface(
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = gutter + 12.dp),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    ) {
+                        Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.titleLarge)
+                    }
                 }
 
                 if (folder != null && folderState != null && folderState.selecting) {
@@ -990,6 +1049,8 @@ private fun ReleaseHeader(
      */
     fullBleed: Boolean,
     showSleeve: Boolean,
+    localArtistPhoto: String?,
+    artistAlbumCount: Int?,
     canvas: CanvasArtwork?,
     songs: List<Song>,
     onPlay: () -> Unit,
@@ -999,12 +1060,16 @@ private fun ReleaseHeader(
     /** The Cached songs folder's: saves every track on it to Downloads. Null hides it. */
     onDownloadAll: (() -> Unit)? = null,
 ) {
-    val (credit, meta) = page.headerLines(songs.size, songs.playtime())
+    val (credit, details) = page.headerLines(songs.size, songs.playtime())
+    val meta = artistAlbumCount?.let { count ->
+        listOf(pluralStringResource(R.plurals.album_count, count, count), details)
+            .filter { it.isNotBlank() }.joinToString(" · ")
+    } ?: details
     // Every row on a release carries the same credit — see [pageCredit] — so
     // the first one speaks for the whole page, the same source the rows'
     // own long-press "Open artist" already reads from.
     val artist = songs.firstOrNull()
-    var artFailed by remember(page.thumbnailUrl) { mutableStateOf(false) }
+    var artFailed by remember(page.thumbnailUrl, localArtistPhoto) { mutableStateOf(false) }
     // A placeholder is a sleeve or it is nothing, as on the player: blown out
     // to the page's width it would only tint the top of the screen.
     val bleed = showSleeve && fullBleed && page.thumbnailUrl != null && !artFailed
@@ -1108,6 +1173,15 @@ private fun ReleaseHeader(
             }
         }
 
+        if (!showSleeve && localArtistPhoto != null && !artFailed) {
+            AsyncImage(
+                model = localArtistPhoto.artworkAt(HEADER_ART_PX),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                onState = { artFailed = it is AsyncImagePainter.State.Error },
+                modifier = Modifier.size(64.dp).clip(CircleShape),
+            )
+        }
         Spacer(Modifier.height(if (showSleeve) 20.dp else 8.dp))
         Text(
             text = page.title,
