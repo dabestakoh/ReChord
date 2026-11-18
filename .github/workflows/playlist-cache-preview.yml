@@ -1,8 +1,6 @@
 name: ReChord Preview APK
 
 on:
-  push:
-    branches: [feature/1.9.2.3-safe-optimizations]
   workflow_dispatch:
 
 concurrency:
