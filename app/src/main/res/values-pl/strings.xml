@@ -1461,8 +1461,6 @@
     <string name="download_addon_left_out_title">Pobieranie bez %1$s</string>
     <string name="download_addon_not_allowed">%1$s nie pozwala na pobieranie, więc utwory są zapisywane z innych źródeł.</string>
     <string name="download_addon_needs_lossless_output">%1$s udostępnia muzykę tylko przy podłączonych słuchawkach przewodowych, USB lub klasy LDAC. Pobieranie je pomija, dopóki takich nie podłączysz, więc utwory są zapisywane z innych źródeł.</string>
-    <string name="show_listen_together_button">Pokaż przycisk Słuchajcie razem</string>
-    <string name="show_listen_together_button_subtitle">Gdy wyłączone, odtwarzacz pokazuje między tekstem a kolejką tylko przycisk wyjścia audio</string>
     <string name="font">Czcionka</string>
     <string name="font_default">Domyślna</string>
     <string name="font_legacy">Klasyczna</string>

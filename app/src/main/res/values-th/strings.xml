@@ -1404,8 +1404,6 @@
     <string name="download_addon_left_out_title">กำลังดาวน์โหลดโดยไม่ใช้ %1$s</string>
     <string name="download_addon_not_allowed">%1$s ไม่อนุญาตให้ดาวน์โหลด เพลงของคุณจึงถูกบันทึกจากแหล่งอื่นแทน</string>
     <string name="download_addon_needs_lossless_output">%1$s ให้บริการเพลงเฉพาะเมื่อเชื่อมต่อหูฟังแบบมีสาย USB หรือระดับ LDAC เท่านั้น การดาวน์โหลดจะข้ามไปจนกว่าจะเชื่อมต่อ เพลงของคุณจึงถูกบันทึกจากแหล่งอื่นแทน</string>
-    <string name="show_listen_together_button">แสดงปุ่มฟังด้วยกัน</string>
-    <string name="show_listen_together_button_subtitle">เมื่อปิด เครื่องเล่นจะแสดงเฉพาะปุ่มเอาต์พุตเสียงระหว่างเนื้อเพลงกับคิว</string>
     <string name="font">ฟอนต์</string>
     <string name="font_default">ค่าเริ่มต้น</string>
     <string name="font_legacy">แบบเดิม</string>

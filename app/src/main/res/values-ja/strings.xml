@@ -1399,8 +1399,6 @@
     <string name="download_addon_left_out_title">%1$sを使わずにダウンロード中</string>
     <string name="download_addon_not_allowed">%1$sはダウンロードを許可していないため、曲は他のソースから保存されます。</string>
     <string name="download_addon_needs_lossless_output">%1$sは有線、USB、またはLDACクラスのヘッドホンが接続されているときのみ音楽を提供します。接続されるまでダウンロードでは使用されないため、曲は他のソースから保存されます。</string>
-    <string name="show_listen_together_button">「一緒に聴く」ボタンを表示</string>
-    <string name="show_listen_together_button_subtitle">オフにすると、プレーヤーの歌詞と再生キューの間にはオーディオ出力ボタンだけが表示されます</string>
     <string name="font">フォント</string>
     <string name="font_default">デフォルト</string>
     <string name="font_legacy">従来</string>

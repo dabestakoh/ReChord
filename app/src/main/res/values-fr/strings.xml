@@ -1422,8 +1422,6 @@
     <string name="download_addon_left_out_title">Téléchargement sans %1$s</string>
     <string name="download_addon_not_allowed">%1$s n\'autorise pas les téléchargements : vos titres sont donc enregistrés depuis vos autres sources.</string>
     <string name="download_addon_needs_lossless_output">%1$s ne diffuse de la musique que lorsqu\'un casque filaire, USB ou de classe LDAC est connecté. Les téléchargements l\'ignorent tant qu\'aucun ne l\'est : vos titres sont donc enregistrés depuis vos autres sources.</string>
-    <string name="show_listen_together_button">Afficher le bouton Écouter ensemble</string>
-    <string name="show_listen_together_button_subtitle">Si désactivé, le lecteur n\'affiche que le bouton de sortie audio entre les paroles et la file d\'attente</string>
     <string name="font">Police</string>
     <string name="font_default">Par défaut</string>
     <string name="font_legacy">Classique</string>

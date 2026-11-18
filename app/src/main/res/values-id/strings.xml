@@ -1398,8 +1398,6 @@
     <string name="download_addon_left_out_title">Mengunduh tanpa %1$s</string>
     <string name="download_addon_not_allowed">%1$s tidak mengizinkan unduhan, jadi lagu Anda disimpan dari sumber Anda yang lain.</string>
     <string name="download_addon_needs_lossless_output">%1$s hanya menyajikan musik saat headphone kabel, USB, atau kelas LDAC terhubung. Unduhan melewatinya sampai ada yang terhubung, jadi lagu Anda disimpan dari sumber Anda yang lain.</string>
-    <string name="show_listen_together_button">Tampilkan tombol Dengar bersama</string>
-    <string name="show_listen_together_button_subtitle">Jika nonaktif, pemutar hanya menampilkan tombol output audio di antara lirik dan antrean</string>
     <string name="font">Font</string>
     <string name="font_default">Default</string>
     <string name="font_legacy">Lama</string>

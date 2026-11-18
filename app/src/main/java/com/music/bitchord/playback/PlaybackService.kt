@@ -6946,7 +6946,7 @@ class PlaybackService : MediaLibraryService() {
             AudioCache.hasReusableFlac(uri)
         ) return
         if (StreamChoice.of(item.mediaId)?.format?.isLossless == true) return
-        DirectSourceGate.prepare(item.mediaId, TrackMatcher.targetOf(item.toSong()))
+        DirectSourceGate.prepare(item.mediaId, SourceResolver.targetIn(uri))
     }
 
     private fun driveDirectWindow() {
@@ -6966,7 +6966,9 @@ class PlaybackService : MediaLibraryService() {
         if (!DirectSourceGate.openNext(next.mediaId)) return
         val song = next.toSong()
         AudioCache.noteSongs(listOf(song))
-        AudioCache.prefetchDirect(AudioCache.Upcoming(song.videoId, TrackMatcher.targetOf(song)))
+        AudioCache.prefetchDirect(AudioCache.Upcoming(
+            song.videoId, next.localConfiguration?.uri?.let(SourceResolver::targetIn) ?: TrackMatcher.targetOf(song),
+        ))
     }
 
     /** Stops both rendition selection and byte read-ahead, and makes resume retry. */

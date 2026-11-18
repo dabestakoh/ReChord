@@ -1360,8 +1360,6 @@
     <string name="download_addon_left_out_title">Download senza %1$s</string>
     <string name="download_addon_not_allowed">%1$s non consente i download, quindi i tuoi brani vengono salvati dalle altre fonti.</string>
     <string name="download_addon_needs_lossless_output">%1$s fornisce musica solo con cuffie cablate, USB o di classe LDAC collegate. I download lo saltano finché non ne colleghi una, quindi i tuoi brani vengono salvati dalle altre fonti.</string>
-    <string name="show_listen_together_button">Mostra il pulsante Ascoltare insieme</string>
-    <string name="show_listen_together_button_subtitle">Se disattivato, il lettore mostra solo il pulsante dell\'uscita audio tra il testo e la coda</string>
     <string name="font">Carattere</string>
     <string name="font_default">Predefinito</string>
     <string name="font_legacy">Classico</string>

@@ -1271,8 +1271,6 @@
     <string name="download_addon_left_out_title">%1$s 없이 다운로드 중</string>
     <string name="download_addon_not_allowed">%1$s에서 다운로드를 허용하지 않아 다른 소스에서 노래를 저장합니다.</string>
     <string name="download_addon_needs_lossless_output">%1$s은(는) 유선, USB 또는 LDAC급 헤드폰이 연결된 경우에만 음악을 제공합니다. 연결될 때까지 다운로드에서 제외되므로 다른 소스에서 노래를 저장합니다.</string>
-    <string name="show_listen_together_button">함께 듣기 버튼 표시</string>
-    <string name="show_listen_together_button_subtitle">끄면 플레이어의 가사와 대기열 사이에 오디오 출력 버튼만 표시됩니다</string>
     <string name="font">글꼴</string>
     <string name="font_default">기본</string>
     <string name="font_legacy">이전</string>

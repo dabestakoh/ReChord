@@ -1338,8 +1338,6 @@
     <string name="download_addon_left_out_title">Đang tải xuống không dùng %1$s</string>
     <string name="download_addon_not_allowed">%1$s không cho phép tải xuống, nên bài hát của bạn được lưu từ các nguồn khác.</string>
     <string name="download_addon_needs_lossless_output">%1$s chỉ phát nhạc khi có tai nghe có dây, USB hoặc chuẩn LDAC được kết nối. Lượt tải xuống sẽ bỏ qua nó cho đến khi có tai nghe như vậy, nên bài hát của bạn được lưu từ các nguồn khác.</string>
-    <string name="show_listen_together_button">Hiện nút Listen together</string>
-    <string name="show_listen_together_button_subtitle">Khi tắt, trình phát chỉ hiện nút đầu ra âm thanh giữa lời bài hát và hàng đợi</string>
     <string name="font">Phông chữ</string>
     <string name="font_default">Mặc định</string>
     <string name="font_legacy">Cổ điển</string>

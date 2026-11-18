@@ -12,6 +12,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.music.bitchord.R
+import com.music.bitchord.data.NerdStats
+import com.music.bitchord.ui.components.IosSwitch
+import com.music.bitchord.ui.icons.SfIcons
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,7 +87,6 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val reduceDynamicBlur get() = AppSettings.reduceDynamicBlur
         override val disableBlendEffects get() = AppSettings.disableBlendEffects
         override val showNerdStats get() = AppSettings.showNerdStats
-        override val showListenTogetherButton get() = AppSettings.showListenTogetherButton
         override val smartAnalysis get() = AppSettings.smartAnalysis
         override val automixDetail get() = AppSettings.automixDetail
         override val smartFadeEnabled get() = AppSettings.smartFadeEnabled
@@ -209,6 +213,29 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
 
     override fun showMessage(message: String) {
         main.post { Toast.makeText(app, message, Toast.LENGTH_SHORT).show() }
+    }
+
+    @Composable
+    override fun SpatialAudioControl() {
+        val spatial by AppSettings.spatialAudio.collectAsStateWithLifecycle()
+        val bypassed by BitPerfectOutput.ready.collectAsStateWithLifecycle()
+        val format by NerdStats.current.collectAsStateWithLifecycle()
+        AudioOutputOptionRow(
+            icon = SfIcons.SurroundSound,
+            title = stringResource(R.string.spatial_audio),
+            subtitle = stringResource(if (format?.isDolbyAtmos == true) {
+                R.string.spatial_audio_atmos_subtitle
+            } else R.string.spatial_audio_subtitle),
+            enabled = !bypassed,
+            onClick = { AppSettings.setSpatialAudio(!spatial) },
+            trailing = {
+                IosSwitch(
+                    checked = spatial,
+                    enabled = !bypassed,
+                    onCheckedChange = AppSettings::setSpatialAudio,
+                )
+            },
+        )
     }
 
     override val castState: StateFlow<CastUi> by lazy {

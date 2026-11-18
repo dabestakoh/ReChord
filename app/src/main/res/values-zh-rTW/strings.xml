@@ -1398,8 +1398,6 @@
     <string name="download_addon_left_out_title">正在下載（不使用 %1$s）</string>
     <string name="download_addon_not_allowed">%1$s 不允許下載，因此你的歌曲將從其他來源儲存。</string>
     <string name="download_addon_needs_lossless_output">%1$s 僅在連接有線、USB 或 LDAC 等級耳機時提供音樂。在連接此類耳機前，下載會略過它，因此你的歌曲將從其他來源儲存。</string>
-    <string name="show_listen_together_button">顯示「一起聽」按鈕</string>
-    <string name="show_listen_together_button_subtitle">關閉後，播放器在歌詞和播放佇列之間只顯示音訊輸出按鈕</string>
     <string name="font">字型</string>
     <string name="font_default">預設</string>
     <string name="font_legacy">舊版</string>

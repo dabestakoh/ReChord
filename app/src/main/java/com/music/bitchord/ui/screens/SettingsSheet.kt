@@ -241,7 +241,6 @@ fun SettingsScreen(
     val dolbyAtmosSupported = DeviceCodecs.playsDolbyAtmos
     val spatialAudio by AppSettings.spatialAudio.collectAsStateWithLifecycle()
     val nerdStats by AppSettings.showNerdStats.collectAsStateWithLifecycle()
-    val listenTogetherButton by AppSettings.showListenTogetherButton.collectAsStateWithLifecycle()
     val reduceAnimation by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val disableBlendEffects by AppSettings.disableBlendEffects.collectAsStateWithLifecycle()
@@ -1666,21 +1665,6 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { AppSettings.setHideVolumeBar(!hideVolumeBar) },
-                )
-            }
-            val listenTogetherButtonTitle = stringResource(R.string.show_listen_together_button)
-            row(listenTogetherButtonTitle, "party", "jam", "output", "headphones", "player") {
-                SettingsRow(
-                    icon = SfIcons.Groups,
-                    title = listenTogetherButtonTitle,
-                    subtitle = stringResource(R.string.show_listen_together_button_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = listenTogetherButton,
-                            onCheckedChange = AppSettings::setShowListenTogetherButton,
-                        )
-                    },
-                    onClick = { AppSettings.setShowListenTogetherButton(!listenTogetherButton) },
                 )
             }
             val hideStatusBarTitle = stringResource(R.string.hide_status_bar_in_player)

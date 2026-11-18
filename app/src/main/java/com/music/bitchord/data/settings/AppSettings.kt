@@ -417,9 +417,6 @@ object AppSettings {
     /** Put the playing track's codec, bitrate and sample rate on the player. */
     val showNerdStats = MutableStateFlow(false)
 
-    /** Show the output / Listen Together pill under the player's transport. */
-    val showListenTogetherButton = MutableStateFlow(false)
-
     /** Freezes the main player's mesh gradient instead of letting it drift/crossfade. */
     val reduceAnimation = MutableStateFlow(false)
 
@@ -1017,7 +1014,6 @@ object AppSettings {
         shuffleEnabled.value = prefs.getBoolean(KEY_SHUFFLE_ENABLED, false)
         repeatMode.value = prefs.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
         showNerdStats.value = prefs.getBoolean(KEY_NERD_STATS, false)
-        showListenTogetherButton.value = prefs.getBoolean(KEY_LISTEN_TOGETHER_BUTTON, false)
         reduceAnimation.value = prefs.getBoolean(KEY_REDUCE_ANIMATION, false)
         onboardingComplete.value = prefs.getBoolean(KEY_ONBOARDING_COMPLETE, false)
         diwaliGreetingShown.value = prefs.getBoolean(KEY_DIWALI_GREETING_SHOWN, false)
@@ -1410,10 +1406,6 @@ object AppSettings {
         prefs.edit().putBoolean(KEY_NERD_STATS, value).apply()
     }
 
-    fun setShowListenTogetherButton(value: Boolean) {
-        showListenTogetherButton.value = value
-        prefs.edit().putBoolean(KEY_LISTEN_TOGETHER_BUTTON, value).apply()
-    }
 
     fun setThemeMode(value: ThemeMode) {
         themeMode.value = value
@@ -2304,7 +2296,6 @@ object AppSettings {
     private const val KEY_SHUFFLE_ENABLED = "shuffle_enabled"
     private const val KEY_REPEAT_MODE = "repeat_mode"
     private const val KEY_NERD_STATS = "show_nerd_stats"
-    private const val KEY_LISTEN_TOGETHER_BUTTON = "show_listen_together_button"
     private const val KEY_CACHE_LIMIT = "audio_cache_limit_bytes"
     private const val KEY_REDUCE_ANIMATION = "reduce_animation"
     private const val KEY_ONBOARDING_COMPLETE = "onboarding_complete"

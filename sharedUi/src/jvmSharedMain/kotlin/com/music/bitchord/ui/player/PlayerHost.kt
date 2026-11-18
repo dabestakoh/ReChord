@@ -118,6 +118,10 @@ interface PlayerHost {
     @Composable
     fun AudioPipelineDialog(hazeState: HazeState, isPlaying: Boolean, onDismiss: () -> Unit)
 
+    /** The platform's existing spatial-audio setting, shown in the output drawer. */
+    @Composable
+    fun SpatialAudioControl() = Unit
+
     /** Casting to a network receiver. Absent, and so never drawn, where the platform has none. */
     val castState: StateFlow<CastUi> get() = NoCast
 
@@ -260,8 +264,6 @@ interface PlayerSettingsSource {
     /** Turns [LocalPlayerChrome] off: glyphs and text over the artwork in plain white. */
     val disableBlendEffects: StateFlow<Boolean>
     val showNerdStats: StateFlow<Boolean>
-    /** Whether the output / Listen Together pill sits under the transport. */
-    val showListenTogetherButton: StateFlow<Boolean>
     val smartAnalysis: StateFlow<SmartAnalysis>
     /**
      * Automix's detailed stats line — both songs' analysis, then the planned

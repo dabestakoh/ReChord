@@ -1426,8 +1426,6 @@
     <string name="download_addon_left_out_title">Baixando sem %1$s</string>
     <string name="download_addon_not_allowed">%1$s não permite downloads, então suas músicas estão sendo salvas das suas outras fontes.</string>
     <string name="download_addon_needs_lossless_output">%1$s só envia música com fones com fio, USB ou de classe LDAC conectados. Os downloads o ignoram até que um esteja conectado, então suas músicas estão sendo salvas das suas outras fontes.</string>
-    <string name="show_listen_together_button">Mostrar botão Ouvir junto</string>
-    <string name="show_listen_together_button_subtitle">Desativado, o player mostra apenas o botão de saída de áudio entre a letra e a fila</string>
     <string name="font">Fonte</string>
     <string name="font_default">Padrão</string>
     <string name="font_legacy">Clássica</string>

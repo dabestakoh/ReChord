@@ -1426,8 +1426,6 @@
     <string name="download_addon_left_out_title">מוריד בלי %1$s</string>
     <string name="download_addon_not_allowed">%1$s לא מאפשר הורדות, ולכן השירים שלך נשמרים מהמקורות האחרים שלך.</string>
     <string name="download_addon_needs_lossless_output">%1$s מספק מוזיקה רק כשמחוברות אוזניות חוטיות, USB או ברמת LDAC. ההורדות מדלגות עליו עד שיתחברו אוזניות כאלה, ולכן השירים שלך נשמרים מהמקורות האחרים שלך.</string>
-    <string name="show_listen_together_button">הצגת הכפתור להאזין ביחד</string>
-    <string name="show_listen_together_button_subtitle">כשהאפשרות כבויה, הנגן מציג רק את כפתור פלט השמע בין המילים לתור ההשמעה</string>
     <string name="font">גופן</string>
     <string name="font_default">ברירת מחדל</string>
     <string name="font_legacy">קלאסי</string>

@@ -1453,8 +1453,6 @@
     <string name="download_addon_left_out_title">Загрузка без %1$s</string>
     <string name="download_addon_not_allowed">%1$s не разрешает загрузки, поэтому треки сохраняются из других ваших источников.</string>
     <string name="download_addon_needs_lossless_output">%1$s отдаёт музыку, только когда подключены проводные, USB или LDAC-наушники. Пока их нет, загрузки его пропускают, поэтому треки сохраняются из других ваших источников.</string>
-    <string name="show_listen_together_button">Показывать кнопку «Слушать вместе»</string>
-    <string name="show_listen_together_button_subtitle">Если выключено, плеер показывает между текстом песни и очередью только кнопку аудиовыхода</string>
     <string name="font">Шрифт</string>
     <string name="font_default">По умолчанию</string>
     <string name="font_legacy">Прежний</string>

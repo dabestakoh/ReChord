@@ -1421,8 +1421,6 @@
     <string name="download_addon_left_out_title">%1$s के बिना डाउनलोड हो रहा है</string>
     <string name="download_addon_not_allowed">%1$s डाउनलोड की अनुमति नहीं देता, इसलिए आपके गाने आपके दूसरे सोर्स से सेव हो रहे हैं।</string>
     <string name="download_addon_needs_lossless_output">%1$s सिर्फ़ तभी संगीत देता है जब वायर्ड, USB या LDAC-क्लास हेडफ़ोन जुड़े हों। जब तक कोई न जुड़े, डाउनलोड इसे छोड़ देते हैं, इसलिए आपके गाने आपके दूसरे सोर्स से सेव हो रहे हैं।</string>
-    <string name="show_listen_together_button">साथ में सुनें बटन दिखाएँ</string>
-    <string name="show_listen_together_button_subtitle">बंद होने पर, प्लेयर लिरिक्स और कतार के बीच सिर्फ़ ऑडियो आउटपुट बटन दिखाता है</string>
     <string name="font">फ़ॉन्ट</string>
     <string name="font_default">डिफ़ॉल्ट</string>
     <string name="font_legacy">पुराना</string>

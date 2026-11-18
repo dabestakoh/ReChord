@@ -1390,8 +1390,6 @@
     <string name="wear_os_done">完成</string>
     <string name="signed_by">由 %1$s 簽名</string>
     <string name="find_your_mood">尋找你的心情</string>
-    <string name="show_listen_together_button">顯示「一起聽」按鈕</string>
-    <string name="show_listen_together_button_subtitle">關閉後，播放器在歌詞和播放佇列之間只顯示音訊輸出按鈕</string>
     <string name="font">字型</string>
     <string name="font_default">預設</string>
     <string name="font_legacy">舊版</string>

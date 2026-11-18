@@ -1393,8 +1393,6 @@
     <string name="download_addon_left_out_title">Descargando sin %1$s</string>
     <string name="download_addon_not_allowed">%1$s no permite descargas, así que tus canciones se guardan desde tus otras fuentes.</string>
     <string name="download_addon_needs_lossless_output">%1$s solo sirve música con auriculares con cable, USB o de clase LDAC conectados. Las descargas lo omiten hasta que conectes unos, así que tus canciones se guardan desde tus otras fuentes.</string>
-    <string name="show_listen_together_button">Mostrar botón de Escuchar juntos</string>
-    <string name="show_listen_together_button_subtitle">Si está desactivado, el reproductor solo muestra el botón de salida de audio entre la letra y la cola</string>
     <string name="font">Fuente</string>
     <string name="font_default">Predeterminada</string>
     <string name="font_legacy">Clásica</string>

@@ -19,6 +19,9 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -179,7 +182,9 @@ object DirectSourceGate {
             SourceResolver.requestForNow(), SourceResolver.upgradeSlackSec(),
         )
         val held = preparations[videoId]
-        if (held?.key == key) return
+        // Metadata-only warming must not replace a stream lookup playback is awaiting.
+        if (held?.key == key || (held?.work?.isActive == true &&
+                held.key.copy(target = target) == key)) return
         held?.scope?.cancel()
         val owner = CoroutineScope(Dispatchers.IO + SupervisorJob() + TrackLog.about(videoId))
         preparations[videoId] = Preparation(
@@ -218,7 +223,7 @@ object DirectSourceGate {
             preparation.startedAtMs = now
             preparation.work = preparation.scope.async(start = CoroutineStart.LAZY) {
                 SourceResolver.directStream(
-                    target, lengthOf = { preparation.length?.await() },
+                    preparation.key.target, lengthOf = { preparation.length?.await() },
                     preparedSources = preparation.sources,
                 )
             }.also { it.start() }
@@ -226,18 +231,31 @@ object DirectSourceGate {
         return preparation
     }
 
-    /** Playback joins the metadata search already started for this track. */
-    suspend fun lookup(videoId: String, target: TrackMatcher.Target): SourceStream? {
-        val preparation = startLookup(videoId, target) ?: return null
-        val work = preparation.work ?: return null
-        val waited = android.os.SystemClock.elapsedRealtime() - preparation.startedAtMs
-        val result = if (work.isCompleted) work.await()
-            else withTimeoutOrNull(LOOKUP_TIMEOUT_MS - waited) { work.await() }
-        return result?.takeIf {
-            preparations[videoId] === preparation && isActive() &&
-                preparation.key.request == SourceResolver.requestForNow() &&
-                preparation.key.sources == SourceRegistry.configs.value
+    /** Playback joins preparation again if background invalidation replaces it. */
+    suspend fun lookup(videoId: String, target: TrackMatcher.Target): SourceStream? =
+        withTimeoutOrNull(LOOKUP_TIMEOUT_MS) {
+            while (isActive()) {
+                currentCoroutineContext().ensureActive()
+                val preparation = startLookup(videoId, target) ?: return@withTimeoutOrNull null
+                val work = preparation.work ?: return@withTimeoutOrNull null
+                val waited = android.os.SystemClock.elapsedRealtime() - preparation.startedAtMs
+                val result = if (work.isCompleted) awaitPreparation(work)
+                    else withTimeoutOrNull(LOOKUP_TIMEOUT_MS - waited) { awaitPreparation(work) }
+                if (preparations[videoId] !== preparation) continue
+                return@withTimeoutOrNull result?.takeIf {
+                    isActive() && preparation.key.request == SourceResolver.requestForNow() &&
+                        preparation.key.sources == SourceRegistry.configs.value
+                }
+            }
+            null
         }
+
+    /** An obsolete lookup is not a playback failure; cancellation of the loader still is. */
+    internal suspend fun <T> awaitPreparation(work: Deferred<T>): T? = try {
+        work.await()
+    } catch (e: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        null
     }
 
     /**
