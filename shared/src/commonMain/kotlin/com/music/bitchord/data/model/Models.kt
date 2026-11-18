@@ -724,3 +724,10 @@ sealed interface UiState<out T> {
     data class Success<T>(val data: T) : UiState<T>
     data class Error(val message: String) : UiState<Nothing>
 }
+
+/** Auris-style display sizing; keep a useful minimum and the existing artwork maximum. */
+fun playerArtPx(windowWidthDp: Float, density: Float): Int {
+    val pixels = windowWidthDp * density
+    if (!pixels.isFinite() || pixels <= 0f) return PLAYER_ART_PX
+    return pixels.toInt().coerceIn(640, PLAYER_ART_PX)
+}

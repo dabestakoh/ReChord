@@ -24,6 +24,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.State
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.music.bitchord.ui.player.PlayerSettings
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,11 +67,13 @@ private val SubtitleWidths = listOf(0.34f, 0.44f, 0.27f, 0.38f, 0.31f)
  */
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier, shape: Shape = BlockShape) {
-    val base = MaterialTheme.colorScheme.surfaceVariant
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val base = if (dark) Color(0xFF1C1C1E) else MaterialTheme.colorScheme.surfaceVariant
+    val reduceMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     val highlight = MaterialTheme.colorScheme.onSurfaceVariant
         .copy(alpha = 0.16f)
         .compositeOver(base)
-    val sweep = rememberInfiniteTransition(label = "skeleton").animateFloat(
+    val sweep: State<Float> = if (reduceMotion) remember { mutableStateOf(0.5f) } else rememberInfiniteTransition(label = "skeleton").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(SHIMMER_PERIOD_MS, easing = LinearEasing)),

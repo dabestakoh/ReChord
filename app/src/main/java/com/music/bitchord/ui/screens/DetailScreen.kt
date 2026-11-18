@@ -1,5 +1,7 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.components.uniqueKeys
+
 import com.music.bitchord.ui.components.trackArtSize
 import android.os.Build
 import com.music.bitchord.R
@@ -470,6 +472,9 @@ fun DetailScreen(
         page.suggestedSongs.matching(query).map { it.value }
     }
 
+    val suggestedKeys = remember(suggested) { uniqueKeys(suggested) { it.videoId } }
+    val sectionKeys = remember(page.sections) { uniqueKeys(page.sections) { it.title } }
+
     // A device folder's tab and Downloads selection. The selection answers
     // Back before the search does: it is registered after it, so it is asked
     // first while it is on.
@@ -826,7 +831,8 @@ fun DetailScreen(
                 val isSuggestedCurrent = playingRowMatcher(suggested, currentSong)
                 itemsIndexed(
                     suggested,
-                    key = { _, song -> "suggested-${song.videoId}" },
+                    key = { index, _ -> "suggested:${suggestedKeys[index]}" },
+                    contentType = { _, _ -> "track" },
                 ) { index, song ->
                     SuggestedSongRow(
                         song = song,
@@ -849,11 +855,13 @@ fun DetailScreen(
             }
 
             // Albums / Singles & EPs carousels (artist pages).
-            items(page.sections) { shelf ->
+            items(page.sections.size, key = { "section:${sectionKeys[it]}" }, contentType = { "shelf" }) { sectionIndex ->
+                val shelf = page.sections[sectionIndex]
                 val canShowAll = shelf.items.size > ARTIST_ROW_MAX_ITEMS
                 val displayItems = remember(shelf.items) {
                     if (canShowAll) shelf.items.take(ARTIST_ROW_MAX_ITEMS) else shelf.items
                 }
+                val cardKeys = remember(displayItems) { uniqueKeys(displayItems) { it.browseId ?: it.videoId ?: it.title } }
                 Column(Modifier.padding(top = 22.dp)) {
                     SectionHeading(
                         title = shelf.title,
@@ -868,7 +876,8 @@ fun DetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         flingBehavior = rememberSnapFlingBehavior(lazyListState = carouselState),
                     ) {
-                        items(displayItems) { item ->
+                        items(displayItems.size, key = { cardKeys[it] }, contentType = { "card" }) { index ->
+                            val item = displayItems[index]
                             SectionCard(
                                 item = item,
                                 palette = palette,
@@ -2408,6 +2417,7 @@ private fun ArtistShelfGridPage(
     modifier: Modifier = Modifier,
 ) {
     val gridState = rememberLazyGridState()
+    val cardKeys = remember(shelf.items) { uniqueKeys(shelf.items) { it.browseId ?: it.videoId ?: it.title } }
     BoxWithConstraints(modifier.fillMaxSize().background(palette.background)) {
         val grid = libraryGrid(maxWidth - PAGE_GUTTER * 2)
         LazyVerticalGrid(
@@ -2423,7 +2433,8 @@ private fun ArtistShelfGridPage(
                 .fillMaxSize()
                 .padding(horizontal = PAGE_GUTTER),
         ) {
-            items(shelf.items, key = { it.browseId ?: it.videoId ?: it.title }) { item ->
+            items(shelf.items.size, key = { cardKeys[it] }, contentType = { "card" }) { index ->
+                val item = shelf.items[index]
                 SectionCard(
                     item = item,
                     palette = palette,

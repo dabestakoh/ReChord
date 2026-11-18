@@ -1,6 +1,10 @@
 package com.music.bitchord
 
 import android.app.Application
+import android.app.ActivityManager
+import android.content.ComponentCallbacks2
+import java.util.concurrent.FutureTask
+import java.util.concurrent.ExecutionException
 import androidx.annotation.OptIn
 import androidx.compose.ui.ComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -58,6 +62,14 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
     @kotlin.OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate() {
         super.onCreate()
+        // Begin preference parsing before the first dependent read, as in Auris.
+        listOf("bitchord_auth", "bitchord_auth_plain", "bitchord_settings",
+            "bitchord_last_played", "bitchord_bounded_context", "bitchord_listen_together",
+            "bitchord_original_versions", "audio_cache_state").forEach {
+            getSharedPreferences(it, MODE_PRIVATE)
+        }
+        val authOpen = FutureTask { AuthStore(this) }
+        thread(name = "startup-auth") { authOpen.run() }
         // The player is drawn by the shared UI module; this is what it reads
         // underneath — settings, the Canvas decoder, outputs, the party.
         AndroidStreamHooks.installEarly()
@@ -102,7 +114,11 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
         LyricsTranslation.cacheDir = cacheDir
         // PlaybackService shares this process, so seeding the cookie here means
         // stream resolution is authenticated from the first play onwards.
-        authStore = AuthStore(this)
+        authStore = try {
+            authOpen.get()
+        } catch (e: ExecutionException) {
+            throw (e.cause ?: e)
+        }
         // Opened off the main thread, alongside everything below: none of these
         // reads a setting or the session, and between them they are the slowest
         // opens at startup — SourceRegistry's encrypted store most of all.
@@ -234,6 +250,23 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
      * Naming a directory alongside it keeps that cache somewhere identifiable
      * rather than in the process's temp dir.
      */
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (shouldTrimUiMemory(level)) trimUiCaches()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onLowMemory() {
+        super.onLowMemory()
+        trimUiCaches()
+    }
+
+    private fun trimUiCaches() {
+        com.music.bitchord.ui.theme.clearArtworkAnalysisCache()
+        com.music.bitchord.widget.MediaWidgetArt.clear()
+    }
+
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             // Covers on the WebDAV server need the credential or every one
@@ -253,7 +286,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.20)
+                    .maxSizePercent(context, if ((getSystemService(ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice) 0.15 else 0.20)
                     .build()
             }
             .diskCache {
@@ -331,3 +364,9 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
         }
     }
 }
+
+/** Switching apps alone must not discard artwork needed by playback and widgets. */
+@Suppress("DEPRECATION")
+internal fun shouldTrimUiMemory(level: Int): Boolean =
+    level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+        level in ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW..ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL

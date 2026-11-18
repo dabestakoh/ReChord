@@ -1,5 +1,7 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.components.uniqueKeys
+
 import com.music.bitchord.R
 
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,8 @@ fun HistoryScreen(
     isPlaying: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val rows = (state as? UiState.Success)?.data.orEmpty()
+    val keys = remember(rows) { uniqueKeys(rows) { it.videoId } }
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
@@ -64,10 +69,7 @@ fun HistoryScreen(
             is UiState.Success -> {
                 val songs = state.data
                 val isCurrentRow = playingRowMatcher(songs, currentSong)
-                // The videoId alone is not a key here: the feed is deduplicated
-                // on it, but a list keyed on something that could repeat is one
-                // bad response away from a crash. The index makes it total.
-                itemsIndexed(songs) { index, song ->
+                itemsIndexed(songs, keys) { index, song ->
                     SongRow(
                         song = song,
                         onClick = { onSongClick(songs, index) },
@@ -90,11 +92,13 @@ fun HistoryScreen(
     }
 }
 
-/** Keyed on both, for the reason given at the call site. */
+/** Repeated plays keep distinct slots without tying every row to its index. */
 private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexed(
     songs: List<Song>,
+    keys: List<String>,
     row: @Composable (Int, Song) -> Unit,
-) = items(
-    count = songs.size,
-    key = { "${songs[it].videoId}:$it" },
-) { index -> row(index, songs[index]) }
+) {
+    items(count = songs.size, key = { keys[it] }, contentType = { "track" }) { index ->
+        row(index, songs[index])
+    }
+}

@@ -31,7 +31,8 @@ class GlassMotionClock(
     }
 }
 
-/** Only navigation glass is optimized; existing player sheet behavior is retained. */
+/** Separate clocks prevent a finished navigation animation from thawing an ongoing scroll. */
 object GlassMotion {
     val nav = GlassMotionClock()
+    val scroll = GlassMotionClock()
 }

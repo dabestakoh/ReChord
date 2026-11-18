@@ -1816,6 +1816,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // out: it has its own skeleton at the head of the page rather than the
         // one at the tail.
         _homePendingShelves.value = 1 + YtMusicRepository.HOME_SUPPLEMENT_BROWSE_IDS.size
+        // Reserve the section while its on-disk snapshot is being read too.
+        _topPicksLoading.value = _topPicks.value == null
         loadTopPicks(identity, rebuild = false)
         viewModelScope.launch {
             launch {

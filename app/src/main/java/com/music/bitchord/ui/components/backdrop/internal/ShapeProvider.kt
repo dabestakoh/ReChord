@@ -50,4 +50,9 @@ internal class ShapeProvider(val shapeBlock: () -> Shape) {
             return _outline!!
         }
     }
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is ShapeProvider && shapeBlock === other.shapeBlock)
+
+    override fun hashCode(): Int = System.identityHashCode(shapeBlock)
 }

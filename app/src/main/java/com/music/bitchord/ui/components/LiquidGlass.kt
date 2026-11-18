@@ -9,6 +9,8 @@
  */
 package com.music.bitchord.ui.components
 
+import androidx.compose.ui.graphics.drawscope.DrawScope
+
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.ui.components.backdrop.Backdrop
 import com.music.bitchord.ui.components.backdrop.backdrops.LayerBackdrop
+import com.music.bitchord.ui.components.backdrop.BackdropEffectScope
 import com.music.bitchord.ui.components.backdrop.drawBackdrop
 import com.music.bitchord.ui.components.backdrop.effects.blur
 import com.music.bitchord.ui.components.backdrop.effects.colorControls
@@ -239,10 +242,9 @@ fun Modifier.liquidGlass(
     }
     val surfaceTintColor = surfaceTint ?: themeTint.copy(alpha = SURFACE_OPACITY)
 
-    return drawBackdrop(
-        backdrop = backdrop,
-        shape = { shape },
-        effects = {
+    val shapeBlock = remember(shape) { { shape } }
+    val effects: BackdropEffectScope.() -> Unit = remember(glassPerformance, blurPx, lensHeightPx, lensAmountPx) {
+        {
             colorControls(saturation = 1f + 0.5f * VIBRANCY)
             blur(blurPx)
             if (!glassPerformance && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -253,14 +255,20 @@ fun Modifier.liquidGlass(
                     chromaticAberration = true,
                 )
             }
-        },
+        }
+    }
+    val surface: DrawScope.() -> Unit = remember(surfaceTintColor) {
+        { drawRect(color = surfaceTintColor, size = size) }
+    }
+    return drawBackdrop(
+        backdrop = backdrop,
+        shape = shapeBlock,
+        effects = effects,
         highlight = { Highlight.Default },
         shadow = { Shadow.Default },
-        onDrawSurface = {
-            drawRect(color = surfaceTintColor, size = size)
-        },
+        onDrawSurface = surface,
         exportedBackdrop = exportedBackdrop,
         backdropScale = resolutionScale,
-        frozen = { GlassMotion.nav.frozen() },
+        frozen = { GlassMotion.nav.frozen() || GlassMotion.scroll.frozen() },
     )
 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.ui.components.GlassMotion
 import com.music.bitchord.ui.components.LocalAppBackdrop
 import com.music.bitchord.ui.components.backdrop.Backdrop
 import com.music.bitchord.ui.components.backdrop.backdrops.LayerBackdrop
@@ -559,6 +560,7 @@ internal fun GlassSelectionPill(
                 val alpha = motion.material * rimOf(motion.glassPresence)
                 if (alpha > 0f) PILL_SHADOW.copy(alpha = alpha) else null
             },
+            frozen = { GlassMotion.scroll.frozen() },
         ),
     )
 }
