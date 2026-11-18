@@ -97,6 +97,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.graphics.painter.ColorPainter
 import com.music.bitchord.data.model.CARD_ART_PX
 import com.music.bitchord.data.model.HEADER_ART_PX
 import com.music.bitchord.data.model.TopPick
@@ -451,6 +452,8 @@ private fun ReleaseArt(url: String?, modifier: Modifier, motion: CardMotionSourc
         )
         AsyncImage(
             model = url.croppedAt(HEADER_ART_PX).whenArtworkReady(),
+            placeholder = ColorPainter(Color(0xFF1C1C1E)),
+            error = ColorPainter(Color(0xFF1C1C1E)),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -1700,7 +1703,7 @@ private val GOOGLE_SIZE_SUFFIX = Regex("""=w\d+-h\d+[^/?]*$""")
  * or a square with `-p`, the server crops it around the subject, which a
  * centre crop of the banner does not. Anything else is sized as usual.
  */
-private fun String?.croppedAt(width: Int, height: Int = width): String? {
+internal fun String?.croppedAt(width: Int, height: Int = width): String? {
     if (this == null) return null
     // Apple Music's photos: the last path segment is the size. Their artist
     // portraits are square, and asking for a portrait crop gets the square

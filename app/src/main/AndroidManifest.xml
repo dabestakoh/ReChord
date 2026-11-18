@@ -131,7 +131,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
-            android:theme="@style/Theme.BitChord">
+            android:theme="@style/Theme.BitChord.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <!--

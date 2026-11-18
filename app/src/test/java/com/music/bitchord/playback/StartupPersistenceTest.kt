@@ -55,6 +55,22 @@ class StartupPersistenceTest {
         assertNull(LastPlayed.load())
     }
 
+    @Test fun `slow writer does not block restoration and rapid updates coalesce`() {
+        withBlockedWriter {
+            repeat(200) {
+                LastPlayed.saveQueue(listOf(song("track-$it")), 0)
+                LastPlayed.savePlaybackState(0, it.toLong())
+            }
+            // This call is deliberately made while the writer is still blocked.
+            val restored = LastPlayed.load()!!
+            assertEquals("track-199", restored.songs.single().videoId)
+            assertEquals(199L, restored.positionMs)
+        }
+        LastPlayed.awaitWritesForTesting()
+        val encoded = prefs.getString("queue", null)!!
+        assertTrue(encoded.contains("track-199"))
+    }
+
     @Test fun `artwork follows display pixels with bounds and a safe geometry fallback`() {
         assertEquals(720, playerArtPx(360f, 2f))
         assertEquals(1080, playerArtPx(360f, 3f))
