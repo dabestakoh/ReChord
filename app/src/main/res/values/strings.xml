@@ -1352,4 +1352,13 @@
     <string name="local_refresh_index">Refresh music library</string>
     <string name="local_scan_running">Updating music library…</string>
     <string name="local_scan_unavailable">Music source unavailable · Retry</string>
+    <string name="home_featured_carousel">Featured carousel</string>
+    <string name="home_show_carousel">Show carousel</string>
+    <string name="home_continue_listening">Continue Listening</string>
+    <string name="home_new_from_artists">New from your artists</string>
+    <string name="home_song_recommendations">Song recommendations</string>
+    <string name="home_artist_recommendations">Artist recommendations</string>
+    <string name="home_shelves">Home shelves</string>
+    <string name="home_recently_played">Recently Played</string>
+    <string name="home_trending">Trending</string>
 </resources>

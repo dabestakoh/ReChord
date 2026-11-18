@@ -95,6 +95,7 @@ import androidx.compose.material3.SliderDefaults
 import com.music.bitchord.ui.components.IosSwitch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.music.bitchord.data.model.HomeSections
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -292,10 +293,7 @@ fun SettingsScreen(
     val dontRepeatSuggestions by AppSettings.dontRepeatSuggestions.collectAsStateWithLifecycle()
     val preferMusicOnly by AppSettings.preferMusicOnly.collectAsStateWithLifecycle()
     val squareVideoThumbnails by AppSettings.squareVideoThumbnails.collectAsStateWithLifecycle()
-    val hideRecents by AppSettings.hideRecents.collectAsStateWithLifecycle()
     val hideHomeVideos by AppSettings.hideHomeVideos.collectAsStateWithLifecycle()
-    val hideTopPicks by AppSettings.hideTopPicks.collectAsStateWithLifecycle()
-    val hideHomeMoods by AppSettings.hideHomeMoods.collectAsStateWithLifecycle()
     val smartVersionAlignment by AppSettings.smartVersionAlignment.collectAsStateWithLifecycle()
     val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
     val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
@@ -979,20 +977,6 @@ fun SettingsScreen(
                     onClick = { AppSettings.setPreferMusicOnly(!preferMusicOnly) },
                 )
             }
-            val hideRecentsTitle = stringResource(R.string.hide_recents)
-            row(hideRecentsTitle, "recents", "recent", "history", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.VisibilityOff,
-                    title = hideRecentsTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideRecents,
-                            onCheckedChange = AppSettings::setHideRecents,
-                        )
-                    },
-                    onClick = { AppSettings.setHideRecents(!hideRecents) },
-                )
-            }
             val hideHomeVideosTitle = stringResource(R.string.hide_home_videos)
             row(hideHomeVideosTitle, "video", "music video", "feed", "home") {
                 SettingsRow(
@@ -1006,34 +990,6 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { AppSettings.setHideHomeVideos(!hideHomeVideos) },
-                )
-            }
-            val hideTopPicksTitle = stringResource(R.string.hide_top_picks)
-            row(hideTopPicksTitle, "top picks", "recommendations", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.AutoAwesome,
-                    title = hideTopPicksTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideTopPicks,
-                            onCheckedChange = AppSettings::setHideTopPicks,
-                        )
-                    },
-                    onClick = { AppSettings.setHideTopPicks(!hideTopPicks) },
-                )
-            }
-            val hideHomeMoodsTitle = stringResource(R.string.hide_home_moods)
-            row(hideHomeMoodsTitle, "mood", "moods", "find your mood", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.Star,
-                    title = hideHomeMoodsTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideHomeMoods,
-                            onCheckedChange = AppSettings::setHideHomeMoods,
-                        )
-                    },
-                    onClick = { AppSettings.setHideHomeMoods(!hideHomeMoods) },
                 )
             }
             val squareVideoThumbnailsTitle = stringResource(R.string.square_video_thumbnails)
@@ -1054,6 +1010,14 @@ fun SettingsScreen(
         }
 
         if (shows(SettingsCategory.APPEARANCE)) SearchableSettingsGroup(search, header = stringResource(R.string.appearance)) {
+            val homeTitle = stringResource(R.string.home)
+            row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
+                SettingsRow(
+                    icon = SfIcons.AutoAwesome,
+                    title = homeTitle,
+                    onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
+                )
+            }
             val themeTitle = stringResource(R.string.theme)
             row(themeTitle, "dark mode", "light mode") {
                 SettingsRow(icon = Icons.Rounded.Brightness4, title = themeTitle)
@@ -2533,6 +2497,7 @@ internal fun SettingsRow(
     iconPainter: Painter? = null,
     iconContent: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    titleMaxLines: Int = 1,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -2568,7 +2533,7 @@ internal fun SettingsRow(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
+                    maxLines = titleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (badge != null) {
@@ -2831,6 +2796,48 @@ enum class SettingsChoiceKind(@param:StringRes val title: Int) {
     AUTOMIX_PERFORMANCE(R.string.automix_performance),
     BIT_PERFECT(R.string.bit_perfect_output),
     FONT(R.string.font),
+    HOME(R.string.home),
+}
+
+@Composable
+private fun HomeSectionSettings() {
+    val overrides by AppSettings.homeSectionOverrides.collectAsStateWithLifecycle()
+    val catalog by AppSettings.homeShelfCatalog.collectAsStateWithLifecycle()
+    val featured = linkedMapOf(
+        HomeSections.CAROUSEL to stringResource(R.string.home_show_carousel),
+        HomeSections.CONTINUE to stringResource(R.string.home_continue_listening),
+        HomeSections.RELEASE to stringResource(R.string.home_new_from_artists),
+        HomeSections.SONG to stringResource(R.string.home_song_recommendations),
+        HomeSections.ARTIST to stringResource(R.string.home_artist_recommendations),
+    )
+    val shelves = linkedMapOf(
+        HomeSections.RECENTS to stringResource(R.string.home_recently_played),
+        HomeSections.QUICK_PICKS to stringResource(R.string.shelf_quick_picks),
+        HomeSections.MOODS to stringResource(R.string.find_your_mood),
+        HomeSections.TOP_SONGS to stringResource(R.string.top_songs),
+        HomeSections.TRENDING to stringResource(R.string.home_trending),
+    )
+    catalog.entries.sortedBy { it.value.lowercase(Locale.ROOT) }.forEach { (key, title) ->
+        shelves.putIfAbsent(key, title)
+    }
+    HomeSectionSwitches(stringResource(R.string.home_featured_carousel), featured, overrides)
+    HomeSectionSwitches(stringResource(R.string.home_shelves), shelves, overrides)
+}
+
+@Composable
+private fun HomeSectionSwitches(title: String, sections: Map<String, String>, overrides: Map<String, Boolean>) {
+    SettingsGroup(header = title) {
+        sections.entries.forEachIndexed { index, (key, label) ->
+            if (index > 0) RowDivider()
+            val checked = HomeSections.visible(key, overrides)
+            SettingsRow(
+                title = label,
+                titleMaxLines = Int.MAX_VALUE,
+                trailing = { IosSwitch(checked = checked, onCheckedChange = { AppSettings.setHomeSectionVisible(key, it) }) },
+                onClick = { AppSettings.setHomeSectionVisible(key, !checked) },
+            )
+        }
+    }
 }
 
 /** The main page's list of categories: a glyph and a name each, and a chevron into it. */
@@ -2950,6 +2957,7 @@ fun SettingsChoicePage(
                 }
             }
 
+            SettingsChoiceKind.HOME -> HomeSectionSettings()
             SettingsChoiceKind.FONT -> {
                 val selected by AppSettings.appFont.collectAsStateWithLifecycle()
                 ChoiceGroup(

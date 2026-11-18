@@ -22,6 +22,7 @@ import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.AppleArtistPhotos
 import com.music.bitchord.data.model.ArtistRef
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.stats.ListeningStats
 import com.music.bitchord.data.stats.ReplayPeriod
 import android.util.Log
@@ -1942,14 +1943,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    suspend fun topPickQueue(pick: TopPick): Result<List<Song>> {
+        val identity = listenerKey()
+        val result = when (pick.kind) {
+            TopPickKind.PERSONAL_STATION, TopPickKind.DISCOVERY_STATION -> TopPicks.queue(pick, localTaste())
+            else -> TopPicks.queue(pick)
+        }
+        return if (identity == listenerKey()) result
+        else Result.failure(IllegalStateException("Listener changed while loading recommendations"))
+    }
+
     /** This app's own Replay chart for the month — Top Picks' second opinion, and all it has signed out. */
     private suspend fun localTaste(): TopPicks.LocalTaste {
         val month = runCatching { ListeningStats.summary(ReplayPeriod.THIS_MONTH) }.getOrNull()
-            ?: return TopPicks.LocalTaste()
+        val liked = (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
         return TopPicks.LocalTaste(
-            artists = month.artists.take(10).map { ArtistRef(name = it.title, browseId = it.browseId) },
-            songs = month.songs.take(5).map { it.song },
-            genres = month.genres.take(3).map { it.title },
+            artists = month?.artists.orEmpty().take(10).map { ArtistRef(name = it.title, browseId = it.browseId) },
+            songs = month?.songs.orEmpty().take(5).map { it.song },
+            genres = month?.genres.orEmpty().take(3).map { it.title },
+            liked = liked,
         )
     }
 
@@ -1979,7 +1991,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val added = shelves.withoutRepeatsOf(existing)
             .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
-        if (added.isNotEmpty()) _home.value = UiState.Success(existing + added)
+        if (added.isNotEmpty()) _home.value = UiState.Success(existing + added.map(TopPicks::diversifyQuickPicks))
     }
 
     /** Refreshes the core feed without blanking the current Play page first. */
@@ -1994,7 +2006,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             homeSeenTitles.clear()
             val shelves = feed.shelves.withoutRepeatsOf(emptyList())
                 .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
-            if (shelves.isNotEmpty()) _home.value = UiState.Success(shelves)
+            if (shelves.isNotEmpty()) _home.value = UiState.Success(shelves.map(TopPicks::diversifyQuickPicks))
         }
         recent?.await()?.onSuccess { shelf ->
             if (identity == listenerKey()) shelf?.let { publishHomeShelves(listOf(it), prepend = true) }
@@ -2021,7 +2033,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // itself rather than run dry with a token still attached —
                     // treat it the same as exhausted so scrolling can't spin here.
                     homeContinuation = feed.continuation.takeIf { added.isNotEmpty() }
-                    if (added.isNotEmpty()) _home.value = UiState.Success(existing + added)
+                    if (added.isNotEmpty()) _home.value = UiState.Success(existing + added.map(TopPicks::diversifyQuickPicks))
                 }
             }
             if (identity == listenerKey()) _homeLoadingMore.value = false
@@ -2678,7 +2690,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         /** Today's Top Picks row, kept so the next launch paints it before any request. */
-        private const val TOP_PICKS_FILE = "top_picks_v4.json"
+        private const val TOP_PICKS_FILE = "top_picks_v5.json"
 
         /** Per-addon budget for the Addons search tab; a slow addon is left out, not waited on. */
         private const val ADDON_SEARCH_TIMEOUT_MS = 12_000L

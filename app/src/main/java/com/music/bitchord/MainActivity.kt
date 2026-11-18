@@ -307,6 +307,7 @@ import androidx.media3.common.Player
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.HomeSections
 import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.ui.screens.MoodGridPage
@@ -879,21 +880,20 @@ private fun BitChordApp(
     )
 
     val homeState by viewModel.home.collectAsStateWithLifecycle()
-    val hideRecents by AppSettings.hideRecents.collectAsStateWithLifecycle()
     val hideHomeVideos by AppSettings.hideHomeVideos.collectAsStateWithLifecycle()
-    val hideTopPicks by AppSettings.hideTopPicks.collectAsStateWithLifecycle()
-    val hideHomeMoods by AppSettings.hideHomeMoods.collectAsStateWithLifecycle()
-    // Only what Home draws: Top Picks reads the unfiltered feed from the view model.
-    val visibleHomeState = remember(homeState, hideHomeVideos, hideRecents) {
+    val homeSections by AppSettings.homeSectionOverrides.collectAsStateWithLifecycle()
+    val visibleHomeState = remember(homeState, hideHomeVideos, homeSections) {
         val loaded = homeState as? UiState.Success
-        if (loaded != null && (hideHomeVideos || hideRecents)) {
-            var shelves = loaded.data
-            if (hideRecents) shelves = shelves.filterNot { it.title == YtMusicRepository.RECENT_TITLE }
-            if (hideHomeVideos) shelves = shelves.withoutVideos()
-            UiState.Success(shelves)
-        } else {
+        if (loaded == null) {
             homeState
+        } else {
+            val source = if (hideHomeVideos) loaded.data.withoutVideos() else loaded.data
+            UiState.Success(HomeSections.arrange(source, homeSections))
         }
+    }
+    LaunchedEffect(homeState) {
+        val shelves = (homeState as? UiState.Success)?.data.orEmpty()
+        AppSettings.rememberHomeShelves(shelves.associate { HomeSections.key(it) to it.title })
     }
     val homeLoadingMore by viewModel.homeLoadingMore.collectAsStateWithLifecycle()
     val homeRecentlyPlayedLoading by viewModel.homeRecentlyPlayedLoading.collectAsStateWithLifecycle()
@@ -1795,7 +1795,7 @@ private fun BitChordApp(
         } else if (controller != null && !refusedByHost()) {
             val request = ++playRequestGeneration
             scope.launch {
-                val songs = TopPicks.queue(pick).getOrNull().orEmpty()
+                val songs = viewModel.topPickQueue(pick).getOrNull().orEmpty()
                 if (request != playRequestGeneration) return@launch
                 val activeController = controller ?: return@launch
                 if (songs.isEmpty()) {
@@ -3478,13 +3478,25 @@ private fun BitChordApp(
                                 contentPadding = listPadding,
                                 onLoadMore = viewModel::loadMoreHome,
                                 loadingMore = homeLoadingMore,
-                                recentlyPlayedLoading = homeRecentlyPlayedLoading && !hideRecents,
+                                recentlyPlayedLoading = homeRecentlyPlayedLoading && HomeSections.visible(HomeSections.RECENTS, homeSections),
                                 topPicks = topPicks,
                                 topPicksLoading = topPicksLoading,
                                 listenerName = account?.name,
                                 // Neither shelf is drawn without its callback.
-                                onTopPickClick = openTopPick.takeUnless { hideTopPicks },
-                                onMoodClick = playMood.takeUnless { hideHomeMoods },
+                                homeSections = homeSections,
+                                featuredHeightLimit = minOf(
+                                    windowHeight * 0.56f,
+                                    (windowHeight - listPadding.calculateTopPadding() -
+                                        listPadding.calculateBottomPadding() - 100.dp).coerceAtLeast(140.dp),
+                                ),
+                                onTopPickClick = { pick, label ->
+                                    if (pick.kind == TopPickKind.CONTINUE_LISTENING) {
+                                        if (player.isPlaying) showNowPlaying = true else togglePlayPause()
+                                    } else {
+                                        openTopPick(pick, label)
+                                    }
+                                },
+                                onMoodClick = playMood.takeIf { HomeSections.visible(HomeSections.MOODS, homeSections) },
                                 onMoodsShowAll = { navigator.push(AppRoute.Moods) },
                                 // Nothing on Home is seen while the greeting covers it.
                                 artworkMotion = artworkMotion && !showDiwali,

@@ -66,6 +66,8 @@ ReChord is under active development. Preview builds may include experimental opt
 
 ReChord is based on [BitChord by kushagrasinghx and contributors](https://github.com/kushagrasinghx/BitChord). Existing upstream copyrights and third-party attribution remain applicable.
 
+Thanks to [Auris](https://github.com/OreoMuncher45/Auris) for inspiring the Now Playing color treatment, startup skeletons, and smoother scrolling. Thanks to [Mochy Music](https://github.com/realidkroo/Mochy-Music) for inspiring the featured Home carousel and personalized recommendations.
+
 Distributed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the license and source-distribution obligations.
 
 Music and metadata are supplied by independent providers. Use the software in accordance with applicable law and service terms.
