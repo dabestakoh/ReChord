@@ -23,6 +23,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import java.text.Normalizer
 import kotlinx.coroutines.launch
@@ -37,7 +40,14 @@ internal fun localLetterPositions(names: List<String>, start: Int, columns: Int)
     }
 
 @Composable
-internal fun LocalLetterIndex(positions: Map<Char, Int>, list: LazyListState, modifier: Modifier = Modifier) {
+internal fun LocalLetterIndex(
+    positions: Map<Char, Int>,
+    list: LazyListState,
+    firstRowIndex: Int,
+    topInset: Dp,
+    bottomInset: Dp,
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
     val letters = remember(positions) { positions.keys.sortedWith(compareBy { if (it == '#') '[' else it }) }
     var preview by remember(positions) { mutableStateOf<Char?>(null) }
@@ -45,7 +55,32 @@ internal fun LocalLetterIndex(positions: Map<Char, Int>, list: LazyListState, mo
         val row = letters.getOrNull(index)?.let(positions::get) ?: return
         scope.launch { if (row < list.layoutInfo.totalItemsCount) list.scrollToItem(row) }
     }
-    Box(modifier.fillMaxHeight()) {
+    val heldBounds = remember(list, positions) { RailBounds() }
+    Box(modifier.fillMaxHeight().layout { measurable, constraints ->
+        val viewport = list.layoutInfo
+        val bottom = (constraints.maxHeight - bottomInset.roundToPx()).coerceAtLeast(0)
+        val firstVisibleRow = viewport.visibleItemsInfo.firstOrNull { it.index >= firstRowIndex }
+        val rowTop = firstVisibleRow?.let {
+            if (it.index == firstRowIndex) it.offset else topInset.roundToPx()
+        } ?: bottom
+        val start = rowTop.coerceIn(topInset.roundToPx().coerceAtMost(bottom), bottom)
+        // Keep touch coordinates fixed when a jump scrolls the header away mid-drag.
+        if (preview == null) {
+            val available = bottom - start
+            val preferred = (20.dp * letters.size).roundToPx()
+            // Avoid drawing compressed letters in the sliver before rows enter view.
+            heldBounds.height = if (available >= (12.dp * letters.size).roundToPx()) {
+                minOf(available, preferred)
+            } else 0
+            heldBounds.top = start + (available - heldBounds.height) / 2
+        }
+        val railHeight = heldBounds.height.coerceIn(0, bottom)
+        val railTop = heldBounds.top.coerceIn(0, bottom - railHeight)
+        val rail = measurable.measure(Constraints.fixed(constraints.maxWidth, railHeight))
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            rail.placeRelative(0, railTop)
+        }
+    }) {
         Column(Modifier.fillMaxHeight().pointerInput(positions, list) {
             fun select(y: Float) {
                 if (size.height <= 0 || letters.isEmpty()) return
@@ -82,3 +117,5 @@ internal fun LocalLetterIndex(positions: Map<Char, Int>, list: LazyListState, mo
         }
     }
 }
+
+private class RailBounds(var top: Int = 0, var height: Int = 0)

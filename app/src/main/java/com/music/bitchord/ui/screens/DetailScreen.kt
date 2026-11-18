@@ -629,6 +629,7 @@ fun DetailScreen(
                         palette = palette,
                         sleeveSize = sleeveSize,
                         fullBleed = fullBleedSleeve,
+                        showSleeve = page.browseId != "local:all",
                         canvas = canvas,
                         songs = songs,
                         onPlay = { onSongClick(songs, 0) },
@@ -934,9 +935,12 @@ fun DetailScreen(
                     val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
                     val positions = remember(names, start, columns) { localLetterPositions(names, start, columns) }
                     LocalLetterIndex(
-                        positions, listState,
-                        Modifier.align(Alignment.CenterEnd).width(gutter)
-                            .padding(top = topBarContentPadding(), bottom = contentPadding.calculateBottomPadding()),
+                        positions = positions,
+                        list = listState,
+                        firstRowIndex = start,
+                        topInset = topBarContentPadding(),
+                        bottomInset = contentPadding.calculateBottomPadding(),
+                        modifier = Modifier.align(Alignment.TopEnd).width(gutter),
                     )
                 }
 
@@ -985,6 +989,7 @@ private fun ReleaseHeader(
      * one. Everything under it is unchanged.
      */
     fullBleed: Boolean,
+    showSleeve: Boolean,
     canvas: CanvasArtwork?,
     songs: List<Song>,
     onPlay: () -> Unit,
@@ -1002,7 +1007,7 @@ private fun ReleaseHeader(
     var artFailed by remember(page.thumbnailUrl) { mutableStateOf(false) }
     // A placeholder is a sleeve or it is nothing, as on the player: blown out
     // to the page's width it would only tint the top of the screen.
-    val bleed = fullBleed && page.thumbnailUrl != null && !artFailed
+    val bleed = showSleeve && fullBleed && page.thumbnailUrl != null && !artFailed
 
     Column(
         modifier = Modifier
@@ -1064,7 +1069,7 @@ private fun ReleaseHeader(
                     )
                 }
             }
-        } else Box(
+        } else if (showSleeve) Box(
             Modifier
                 .size(sleeveSize)
                 .shadow(SLEEVE_SHADOW, SLEEVE_SHAPE)
@@ -1103,7 +1108,7 @@ private fun ReleaseHeader(
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(if (showSleeve) 20.dp else 8.dp))
         Text(
             text = page.title,
             style = MaterialTheme.typography.headlineMedium,
