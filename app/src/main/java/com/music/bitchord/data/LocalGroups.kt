@@ -217,7 +217,7 @@ object LocalGroups {
         browseId = albumPageId(folderId, name),
         title = name,
         subtitle = songs.firstOrNull()?.albumCredit().orEmpty(),
-        thumbnailUrl = songs.firstNotNullOfOrNull { it.localAlbumArtwork ?: it.thumbnailUrl },
+        thumbnailUrl = LocalArtwork.albumCover(songs),
         type = BrowseType.ALBUM,
         songs = songs.sortedForAlbum(),
     )
@@ -319,3 +319,10 @@ fun List<Song>.useTrackTags(): Boolean {
     val album = first().albumName ?: return false
     return all { it.albumName == album }
 }
+
+
+/** Choose the recent set before applying any display sort or search filter. */
+internal fun recentlyAddedTracks(songs: List<Song>): List<Song> =
+    songs.filter { (it.localDateAddedSeconds ?: 0) > 0 }
+        .sortedForLibrary(LocalMusicSort.DATE_ADDED)
+        .take(100)

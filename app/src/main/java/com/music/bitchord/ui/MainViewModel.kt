@@ -3142,20 +3142,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var localRefresh: kotlinx.coroutines.Job? = null
+    private var localRefreshPending = false
+
     fun refreshLocalLibrary() {
+        localRefreshPending = true
         if (localRefresh?.isActive == true) return
         localRefresh = viewModelScope.launch {
             val context = getApplication<Application>()
-            val songs = com.music.bitchord.data.LocalLibraryIndex.refresh(context)
-            if (_librarySongs.value is UiState.Success || songs.isNotEmpty()) {
-                _librarySongs.value = UiState.Success(songs)
-            }
-            _detailStack.value = _detailStack.value.map { page ->
-                when {
-                    page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
-                    LocalGroups.folderOf(page.browseId) == "local:all" ->
-                        page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
-                    else -> page
+            while (localRefreshPending) {
+                localRefreshPending = false
+                val songs = com.music.bitchord.data.LocalLibraryIndex.refresh(context)
+                if (_librarySongs.value is UiState.Success || songs.isNotEmpty()) {
+                    _librarySongs.value = UiState.Success(songs)
+                }
+                _detailStack.value = _detailStack.value.map { page ->
+                    when {
+                        page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
+                        LocalGroups.folderOf(page.browseId) == "local:all" ->
+                            page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
+                        else -> page
+                    }
                 }
             }
         }

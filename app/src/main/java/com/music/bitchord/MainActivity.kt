@@ -5631,12 +5631,21 @@ private fun BitChordApp(
             BackHandler { folderMenuOpen = false }
             val downloadsFolder = menuFolder == "local:downloads"
             val viewType = folderViewTypeOf(menuFolder)
+            val recentState = localFolderStates[menuFolder]?.takeIf { it.tab == LocalFolderTab.RECENTLY_ADDED }
             FrostedFolderMenu(
                 hazeState = hazeState,
-                sort = folderSortOf(menuFolder),
+                sort = recentState?.let {
+                    if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
+                } ?: folderSortOf(menuFolder),
+                recentlyAdded = recentState != null,
+                onRefresh = if (menuFolder == "local:all") ({
+                    folderMenuOpen = false
+                    viewModel.refreshLocalLibrary()
+                }) else null,
                 viewType = viewType,
                 onSort = { option ->
-                    if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
+                    if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+                    else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
                     else AppSettings.setLocalMusicSort(option)
                     folderMenuOpen = false
                 },
@@ -6184,6 +6193,8 @@ private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
+    recentlyAdded: Boolean,
+    onRefresh: (() -> Unit)?,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
     onDismiss: () -> Unit,
@@ -6201,11 +6212,25 @@ private fun FrostedFolderMenu(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
         )
-        LocalMusicSort.entries.forEach { option ->
+        val sorts = if (recentlyAdded) listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
+            else LocalMusicSort.entries
+        sorts.forEach { option ->
             FrostedMenuRow(
                 label = option.localizedLabel(),
                 checked = option == sort,
                 onClick = { onSort(option) },
+            )
+        }
+        onRefresh?.let { refresh ->
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 4.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            )
+            FrostedMenuRow(
+                label = stringResource(R.string.local_refresh_index),
+                checked = false,
+                onClick = refresh,
             )
         }
     }

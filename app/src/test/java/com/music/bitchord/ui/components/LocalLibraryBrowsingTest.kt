@@ -1,6 +1,7 @@
 package com.music.bitchord.ui.screens
 
 import com.music.bitchord.data.LocalGroups
+import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.model.Song
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -11,6 +12,14 @@ class LocalLibraryBrowsingTest {
             mapOf('A' to 3, 'B' to 4, '#' to 5),
             localLetterPositions(listOf("Álbum", "Another", "Beta", "Bravo", "1989"), 3, 2),
         )
+    }
+
+    @Test fun recentlyAddedSelectsOnlyTheNewestHundredDatedTracks() {
+        val songs = (1..105).map { id ->
+            Song("$id", "Title $id", "Artist", null, localDateAddedSeconds = id.toLong())
+        } + Song("unknown", "Untitled", "Artist", null)
+        assertEquals((105 downTo 6).map(Int::toString), recentlyAddedTracks(songs).map { it.videoId })
+        assertEquals(99, recentlyAddedTracks(songs.take(99)).size)
     }
 
     @Test fun multiDiscAlbumsStayTogetherButSeparateDirectoriesDoNotMerge() {

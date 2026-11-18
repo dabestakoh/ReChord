@@ -71,6 +71,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -132,6 +133,7 @@ import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.OfflinePlaylists
 import com.music.bitchord.data.matchesSearch
 import com.music.bitchord.data.settings.LocalMusicSort
+import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.sortedForLibrary
 import com.music.bitchord.data.useTrackTags
 import com.music.bitchord.ui.components.CoverPlaceholder
@@ -377,9 +379,17 @@ fun DetailScreen(
     val folderSort = if (folder != null && folder.state.tab == LocalFolderTab.RECENTLY_ADDED) {
         if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
     } else folder?.sort
-    val songs = remember(rawSongs, songSort, folderSort) {
-        if (folderSort != null) rawSongs.sortedForLibrary(folderSort) else rawSongs.sortedForDetail(songSort)
+    val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
+    val recentSongs = remember(rawSongs, recent) {
+        if (recent) recentlyAddedTracks(rawSongs) else rawSongs
     }
+    val songs = remember(recentSongs, songSort, folderSort, recent) {
+        if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
+        else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
+    }
+    val scanStatus = if (folder?.onRefreshIndex != null) {
+        com.music.bitchord.data.LocalLibraryIndex.scanStatus.collectAsStateWithLifecycle().value
+    } else com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE
     // What a numbered row shows regardless of [songSort] — an album's track
     // numbers are the sleeve's own and must not relabel themselves to match
     // wherever a sort put the row. An album grouped off a device's files
@@ -578,7 +588,11 @@ fun DetailScreen(
                     if (!alphabetic) emptyList()
                     else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
                 }
-                val gutter = if (localPage && names.size >= 20 && !isArtist && reorder == null) 22.dp else 0.dp
+                val sections = remember(names) { localLetterPositions(names, 0, 1).size }
+                val scrollable by remember(listState) {
+                    derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
+                }
+                val gutter = if (localPage && scrollable && sections > 1 && !isArtist && reorder == null) 18.dp else 0.dp
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
 
                 // The artist photo is drawn behind the list rather than in it, so
@@ -601,7 +615,7 @@ fun DetailScreen(
                     reorder(palette)
                 } else LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(end = gutter),
+                    modifier = Modifier.fillMaxSize(),
                     // The artist photo runs edge-to-edge up under the glass bar;
                     // a release header clears the bar itself, see [ReleaseHeader].
                     contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
@@ -737,6 +751,8 @@ fun DetailScreen(
                         groups = folderGroups,
                         query = query,
                         columns = gridColumns,
+                        indexGutter = gutter,
+                        scanStatus = scanStatus,
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
@@ -808,6 +824,7 @@ fun DetailScreen(
                         }
                         SongRow(
                             song = displaySong,
+                            modifier = Modifier.padding(end = gutter),
                             onClick = {
                                 onSongClick(queue, position)
                             },
@@ -911,9 +928,8 @@ fun DetailScreen(
                     val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
                     val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
                         (if ((folder?.tabs?.size ?: 0) > 1) 1 else 0) +
-                        (if (folder?.onRefreshIndex != null) 1 else 0) +
+                        (if (scanStatus != com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE) 1 else 0) +
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0) +
-                        (if (tab == LocalFolderTab.RECENTLY_ADDED) 1 else 0) +
                         (if (tab == LocalFolderTab.SONGS && query.isNotBlank()) folderGroups.size else 0)
                     val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
                     val positions = remember(names, start, columns) { localLetterPositions(names, start, columns) }
