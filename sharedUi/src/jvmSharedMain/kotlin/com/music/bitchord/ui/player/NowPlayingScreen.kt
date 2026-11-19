@@ -873,6 +873,7 @@ fun NowPlayingScreen(
      */
     onLiveCanvasChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
+    companionVideoId: String? = null,
 ) {
     val density = LocalDensity.current
     val artPx = remember(windowWidth, density.density) { playerArtPx(windowWidth.value, density.density) }
@@ -966,7 +967,8 @@ fun NowPlayingScreen(
     val mixing by PlayerSettings.smartMixInProgress.collectAsStateWithLifecycle()
     // A music video plays its own picture where the sleeve is — see
     // [MusicVideoSurface] — and takes the place of any animated cover.
-    val videoMode = showsMusicVideo(song)
+    val pictureId = companionVideoId ?: song.videoId
+    val videoMode = companionVideoId != null || showsMusicVideo(song)
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
     // to it, in place of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
@@ -979,7 +981,7 @@ fun NowPlayingScreen(
         } else it
     }
     // Whether the picture has a frame on screen; the still frame shows until then.
-    var videoRendered by remember(song.videoId) { mutableStateOf(false) }
+    var videoRendered by remember(pictureId) { mutableStateOf(false) }
     // The picture's shape, read only at layout (see the sleeve's card rect), so
     // a new aspect re-lays the sleeve out without recomposing the player.
     val videoAspectState = PlayerPlatform.host.musicVideoAspect.collectAsStateWithLifecycle()
@@ -2008,7 +2010,7 @@ fun NowPlayingScreen(
             val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
             Box(modifier = Modifier.fillMaxSize().then(dockHost)) {
                 FullscreenVideoPlayer(
-                    song = song,
+                    song = if (companionVideoId == null) song else song.copy(videoId = pictureId),
                     isPlaying = isPlaying,
                     artRequest = art.request,
                     rendered = videoRendered,
@@ -3101,6 +3103,17 @@ fun NowPlayingScreen(
                         // The card's paused shrink, let go of as it collapses.
                         // None for a music video: a video doesn't breathe.
                         fun cardScale(): Float = if (videoMode) 1f else artScale + (1f - artScale) * p()
+                        fun inlineVideoRect(): Rect = with(density) {
+                            val side = artSize().toPx()
+                            val top = artTop().toPx()
+                            if (squareVideo) {
+                                return@with Rect(Offset(fromStart(artStart().toPx(), side), top), Size(side, side))
+                            }
+                            val aspect = videoAspectState.value.takeIf { it.isFinite() && it > 0f } ?: (16f / 9f)
+                            val height = minOf(boxWidthPx / aspect, (side - 24.dp.toPx()).coerceAtLeast(1f))
+                            val width = minOf(boxWidthPx.toFloat(), height * aspect)
+                            Rect(Offset((boxWidthPx - width) / 2f, top + (side - height) / 2f), Size(width, height))
+                        }
                         fun cardRect(): Rect = with(density) {
                             val side = artSize().roundToPx().toFloat()
                             val square = Rect(
@@ -3111,16 +3124,7 @@ fun NowPlayingScreen(
                                 size = Size(side, side),
                             )
                             if (!videoMode || squareVideo) return@with square
-                            // A music video's card is its picture box: the
-                            // player's full width at the video's shape, centred
-                            // on the square's slot — the frame the sleeve flies
-                            // to and from the mini player, and morphs from into
-                            // the 16:9 header thumbnail as the player collapses.
-                            val height = boxWidthPx / videoAspectState.value.coerceIn(1f, 2.4f)
-                            val video = Rect(
-                                offset = Offset(0f, square.center.y - height / 2f),
-                                size = Size(boxWidthPx.toFloat(), height),
-                            )
+                            val video = inlineVideoRect()
                             val thumbW = thumbWidth.roundToPx().toFloat()
                             val thumbH = THUMB_SIZE.roundToPx().toFloat()
                             val thumb = Rect(Offset(fromStart(0f, thumbW), 0f), Size(thumbW, thumbH))
@@ -3560,47 +3564,32 @@ fun NowPlayingScreen(
                             WhileShown({ !collapsePastHalf }) {
                                 SleeveNerdStats(
                                     song = song,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                                        .graphicsLayer {
-                                            alpha = (1f - p() * 2f) * spotifyChromeAlpha
-                                        },
+                                    modifier = (if (videoMode) {
+                                        Modifier.align(Alignment.TopCenter).offset {
+                                            IntOffset(0, (inlineVideoRect().bottom - artTop().toPx() + 4.dp.toPx()).roundToInt())
+                                        }.padding(horizontal = 10.dp)
+                                    } else {
+                                        Modifier.align(Alignment.BottomCenter).padding(horizontal = 10.dp, vertical = 8.dp)
+                                    }).graphicsLayer {
+                                        alpha = (1f - p() * 2f) * spotifyChromeAlpha
+                                    },
                                 )
                             }
                         }
 
-                        // The music video, across the player's whole width — the
-                        // same gutters as everything under it — at its own shape,
-                        // centred where the sleeve's square sits. Not the sleeve's
-                        // width: that square is bounded by the screen's height, so
-                        // on a phone it is narrower than the screen. Nor its paused
-                        // shrink: a video doesn't breathe. Put away for the
-                        // collapse into the lyrics or the queue, where the thumbnail
-                        // is the still sleeve, and for the trip to the mini player,
-                        // which takes the picture over.
+                        // Fit the picture inside both axes of the sleeve area.
                         if (videoMode) {
                             WhileShown({ !collapsePastHalf && !docking() }) {
-                                val videoAspect by PlayerPlatform.host.musicVideoAspect
-                                    .collectAsStateWithLifecycle()
-                                val aspect = videoAspect.coerceIn(1f, 2.4f)
                                 Box(
                                     modifier = Modifier
                                         .offset {
-                                            if (squareVideo) {
-                                                val side = artSize().roundToPx()
-                                                return@offset IntOffset(
-                                                    fromStart(artStart().roundToPx().toFloat(), side.toFloat()).roundToInt(),
-                                                    artTop().roundToPx(),
-                                                )
-                                            }
-                                            val height = (boxWidthPx / aspect).roundToInt()
-                                            val centre = (artTop() + artSize() / 2).roundToPx()
-                                            IntOffset(0, centre - height / 2)
+                                            val bounds = inlineVideoRect()
+                                            IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt())
                                         }
                                         .layout { measurable, _ ->
-                                            val width = if (squareVideo) artSize().roundToPx() else boxWidthPx
-                                            val height = if (squareVideo) width else (boxWidthPx / aspect).roundToInt()
+                                            val bounds = inlineVideoRect()
+                                            val width = bounds.width.roundToInt().coerceAtLeast(1)
+                                            val height = bounds.height.roundToInt().coerceAtLeast(1)
                                             val placeable = measurable.measure(Constraints.fixed(width, height))
                                             layout(width, height) { placeable.placeRelative(0, 0) }
                                         }
@@ -3619,7 +3608,7 @@ fun NowPlayingScreen(
                                         )
                                     }
                                     MusicVideoSurface(
-                                        videoId = song.videoId,
+                                        videoId = pictureId,
                                         fit = !squareVideo,
                                         onRenderedChanged = { videoRendered = it },
                                         modifier = Modifier

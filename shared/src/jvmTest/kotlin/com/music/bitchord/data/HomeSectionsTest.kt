@@ -45,4 +45,26 @@ class HomeSectionsTest {
         val hidden = mapOf(HomeSections.key(shelf) to false)
         assertFalse(HomeSections.visible(HomeSections.key(shelf.copy(title = "Álbumes")), hidden))
     }
+
+    @Test
+    fun homeFiltersSpecificArtistsAndAlbumsAndKeepsDynamicCategories() {
+        val tracks = listOf(
+            ShelfItem("First track", "Avril Lavigne", null, "1", null, albumTitle = "Let Go"),
+            ShelfItem("Second track", "Avril Lavigne", null, "2", null, albumTitle = "Let Go"),
+        )
+        val artist = HomeShelf("Avril Lavigne", tracks)
+        val channel = HomeShelf("Skate Avenue PH", tracks, subjectBrowseId = "UCchannel")
+        val album = HomeShelf("Let Go", tracks)
+        val linkedAlbum = HomeShelf("Under My Skin", tracks, subjectBrowseId = "MPREb_album")
+        val categories = listOf("Forgotten Favorites", "Featured Playlist", "Mixed for You", "A new general shelf")
+        val general = categories.map { HomeShelf(it, tracks) }
+        val feed = listOf(artist, channel, album, linkedAlbum) + general
+
+        assertEquals(
+            listOf("Mixed for You", "Forgotten Favorites", "Featured Playlist", "A new general shelf"),
+            HomeSections.arrange(feed, emptyMap()).map { it.title },
+        )
+        assertFalse(HomeSections.retainLegacyLabel("feed:avril lavigne", "Avril Lavigne"))
+        assertEquals(true, HomeSections.retainLegacyLabel("feed:featured playlist", "Featured Playlist"))
+    }
 }

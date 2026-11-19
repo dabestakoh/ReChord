@@ -1400,6 +1400,7 @@
     <string name="song_info_retry">फिर से कोशिश करें</string>
     <string name="no_audio_version">No audio version found for this video</string>
     <string name="no_video_version">No video version found for this song</string>
+    <string name="video_picture_unavailable">सिंक किया गया वीडियो नहीं दिखाया जा सका। ऑडियो पहले जैसा है।</string>
     <string name="version_switch_in_party">Everyone in Listen Together hears the same version</string>
     <string name="opened_file">खोली गई फ़ाइल</string>
     <string name="folders">फ़ोल्डर</string>
