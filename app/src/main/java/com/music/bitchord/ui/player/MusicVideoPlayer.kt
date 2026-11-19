@@ -1,6 +1,8 @@
 package com.music.bitchord.ui.player
 
 import android.content.Context
+import android.net.Uri
+import android.os.SystemClock
 import android.view.TextureView
 import android.view.ViewGroup
 import androidx.compose.animation.core.animateFloatAsState
@@ -34,11 +36,15 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.metrolist.innertubex.extraction.StreamResolveException
 import com.music.bitchord.data.Http
+import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.innertube.InnerTubeXResolver
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.playback.ChunkedDataSource
+import com.music.bitchord.playback.smart.AutomixAnalysisSource
+import com.music.bitchord.playback.smart.VersionAudioAligner
 import com.music.bitchord.playback.MusicOnlyPlayback
 import com.music.bitchord.playback.toSong
 import com.music.bitchord.ui.rememberIsForeground
@@ -46,6 +52,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +62,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -95,6 +104,18 @@ object MusicVideoEngine {
     private const val STREAM_TTL_MS = 60 * 60 * 1000L
 
     private val scope = MainScope()
+
+    private data class CompanionPicture(
+        val audioId: String,
+        val queueEntryId: String?,
+        val song: Song,
+        val videoTime: (Long) -> Long,
+        val tapAt: Long,
+    )
+
+    private var companion: CompanionPicture? = null
+    private val _companionVideoId = MutableStateFlow<String?>(null)
+    val companionVideoId: StateFlow<String?> = _companionVideoId.asStateFlow()
 
     private var controller: Player? = null
     private var player: ExoPlayer? = null
@@ -184,7 +205,9 @@ object MusicVideoEngine {
     val aspect: StateFlow<Float> = _aspect.asStateFlow()
 
     private val controllerListener = object : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = refresh()
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (companion != null && activeCompanion() == null) clearCompanion() else refresh()
+        }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playing.value = isPlaying
             sync()
@@ -204,6 +227,11 @@ object MusicVideoEngine {
     private val playerListener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
             _frameOn.value = top()
+            if (_shownVideoId.value != loadedId) {
+                activeCompanion()?.takeIf { it.song.videoId == loadedId }?.let {
+                    TrackLog.d(TAG, "picture first frame after ${SystemClock.elapsedRealtime() - it.tapAt}ms", it.audioId)
+                }
+            }
             _shownVideoId.value = loadedId
         }
 
@@ -246,7 +274,7 @@ object MusicVideoEngine {
                 return
             }
             noPicture += id
-            unload()
+            abandonPicture(id)
         }
     }
 
@@ -255,6 +283,7 @@ object MusicVideoEngine {
         if (this.controller === controller) return
         this.controller?.removeListener(controllerListener)
         this.controller = controller
+        if (companion != null && activeCompanion() == null) clearCompanion()
         controller?.addListener(controllerListener)
         _playing.value = controller?.isPlaying == true
         refresh()
@@ -270,12 +299,7 @@ object MusicVideoEngine {
         surfaces.removeAll { it.view === view }
         surfaces += Surface(view, priority)
         val app = view.context.applicationContext
-        if (prefs == null) {
-            prefs = app.getSharedPreferences("music_video", Context.MODE_PRIVATE).also { stored ->
-                val held = stored.getInt(KEY_QUALITY, 0).takeIf { it > 0 }
-                _quality.value = _quality.value.copy(held = held)
-            }
-        }
+        readQualityPreference(app)
         val exo = ensurePlayer(app)
         if (top() === view) {
             _frameOn.value = null
@@ -302,6 +326,101 @@ object MusicVideoEngine {
         }
     }
 
+    private fun readQualityPreference(context: Context) {
+        if (prefs != null) return
+        prefs = context.getSharedPreferences("music_video", Context.MODE_PRIVATE).also { stored ->
+            _quality.value = _quality.value.copy(held = stored.getInt(KEY_QUALITY, 0).takeIf { it > 0 })
+        }
+    }
+
+    private fun activeCompanion(): CompanionPicture? {
+        val picture = companion ?: return null
+        val audio = controller?.currentMediaItem?.toSong() ?: return null
+        return picture.takeIf { it.audioId == audio.videoId && it.queueEntryId == audio.queueEntryId }
+    }
+
+    fun clearCompanion() {
+        companion = null
+        _companionVideoId.value = null
+        refresh()
+    }
+
+    // Resolve only the URL in parallel. The visible surface owns the one video
+    // decoder, and the audio controller never receives a replacement item.
+    suspend fun showCompanion(
+        context: Context,
+        source: Song,
+        target: Song,
+        tapAt: Long,
+        isCurrent: () -> Boolean,
+    ): Boolean = coroutineScope {
+        readQualityPreference(context.applicationContext)
+        val cap = capFor(target.videoId)
+        val session = InnerTubeXResolver.sessionGeneration.value
+        val picture = async {
+            cachedStream(target.videoId, cap) ?: try {
+                withTimeoutOrNull(15_000L) { resolve(target.videoId, cap) }?.also {
+                    if (InnerTubeXResolver.sessionGeneration.value == session) {
+                        streams[target.videoId] = Triple(it, cap, System.currentTimeMillis())
+                        while (streams.size > 8) streams.remove(streams.keys.first())
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                TrackLog.w(TAG, "companion picture resolve failed: ${e.javaClass.simpleName}", source.videoId)
+                null
+            }
+        }
+        val mapping = try {
+            companionTime(context, source, target)?.also {
+                TrackLog.d(TAG, "companion alignment ready after ${SystemClock.elapsedRealtime() - tapAt}ms", source.videoId)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            TrackLog.w(TAG, "companion alignment failed: ${e.javaClass.simpleName}", source.videoId)
+            null
+        }
+        if (mapping == null) {
+            picture.cancel()
+            return@coroutineScope false
+        }
+        val stream = picture.await()
+        if (stream == null || !isCurrent() || session != InnerTubeXResolver.sessionGeneration.value) {
+            return@coroutineScope false
+        }
+        val current = controller?.currentMediaItem?.toSong() ?: return@coroutineScope false
+        if (current.videoId != source.videoId || current.queueEntryId != source.queueEntryId) {
+            return@coroutineScope false
+        }
+        noPicture.remove(target.videoId)
+        _aspect.value = stream.aspect.takeIf { it > 0f } ?: (16f / 9f)
+        companion = CompanionPicture(source.videoId, source.queueEntryId, target, mapping, tapAt)
+        _companionVideoId.value = target.videoId
+        TrackLog.d(TAG, "companion picture ready after ${SystemClock.elapsedRealtime() - tapAt}ms", source.videoId)
+        refresh()
+        true
+    }
+
+    private suspend fun companionTime(context: Context, source: Song, target: Song): ((Long) -> Long)? {
+        YtMusicRepository.versionTimeMap(source.videoId, target.videoId)?.let { return it::map }
+        val offset = VersionAudioAligner.getCachedOffsetMs(source.videoId, target.videoId)
+            ?: withTimeoutOrNull(20_000L) {
+                coroutineScope {
+                    val headReads = listOf(source, target).filter { it.localUri == null }.map { song ->
+                        async(Dispatchers.IO) {
+                            val uri = Uri.parse(AutomixAnalysisSource.opusUri(song.videoId))
+                            AudioCache.awaitAnalysisHead(uri, 12_000L)
+                        }
+                    }
+                    headReads.forEach { it.await() }
+                    VersionAudioAligner.findOffsetMs(context, source, target)
+                }
+            } ?: return null
+        return { position -> (position + offset).coerceAtLeast(0L) }
+    }
+
     private fun ensurePlayer(context: Context): ExoPlayer = player ?: ExoPlayer.Builder(context)
         .build()
         .apply {
@@ -323,6 +442,7 @@ object MusicVideoEngine {
 
     /** The track the picture should be of: the controller's, when it is a music video. */
     private fun wanted(): Song? {
+        activeCompanion()?.let { return it.song.takeUnless { song -> song.videoId in noPicture } }
         val song = controller?.currentMediaItem?.toSong() ?: return null
         return song.takeIf {
             it.isVideo && it.videoId !in noPicture && MusicOnlyPlayback.showsPicture(it.videoId)
@@ -411,7 +531,7 @@ object MusicVideoEngine {
             } catch (e: StreamResolveException) {
                 TrackLog.w(TAG, "video: no picture (${e.reason}): ${e.message}", about = videoId)
                 if (loadedId != videoId) return@launch
-                loadedId = null
+                if (activeCompanion()?.song?.videoId == videoId) clearCompanion() else loadedId = null
                 // Settled until something changes it: the age gate by a sign-in
                 // (which clears [noPicture]), the rest not at all. A network
                 // failure is asked again on the next surface or track change.
@@ -421,14 +541,16 @@ object MusicVideoEngine {
                 // Not remembered as pictureless: the next surface or track
                 // change asks again.
                 TrackLog.w(TAG, "video: couldn't resolve the picture: ${e.message}", about = videoId)
-                if (loadedId == videoId) loadedId = null
+                if (loadedId == videoId) {
+                    if (activeCompanion()?.song?.videoId == videoId) clearCompanion() else loadedId = null
+                }
                 return@launch
             }
             if (loadedId != videoId) return@launch
             // A catalogue track's "video" is its cover held still; nothing to show.
-            if (stream == null || stream.aspect < MIN_VIDEO_ASPECT) {
+            if (stream == null || (activeCompanion() == null && stream.aspect < MIN_VIDEO_ASPECT)) {
                 noPicture += videoId
-                loadedId = null
+                abandonPicture(videoId)
                 return@launch
             }
             val exo = player ?: return@launch
@@ -440,7 +562,8 @@ object MusicVideoEngine {
             _quality.value = _quality.value.copy(heights = stream.heights, activeHeight = stream.height)
             loadedProfile = stream.profileId
             val start = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
-            exo.setMediaSource(source, start + seekLeadMs)
+            val playing = controller?.isPlaying == true
+            exo.setMediaSource(source, picturePosition(start + if (playing) seekLeadMs else 0L))
             exo.playWhenReady = controller?.isPlaying == true
             exo.prepare()
             lastSeekAt = System.currentTimeMillis()
@@ -457,6 +580,13 @@ object MusicVideoEngine {
         }
         return stream
     }
+
+    private fun abandonPicture(videoId: String) {
+        if (activeCompanion()?.song?.videoId == videoId) clearCompanion() else unload()
+    }
+
+    private fun picturePosition(audioPositionMs: Long): Long =
+        (activeCompanion()?.videoTime?.invoke(audioPositionMs) ?: audioPositionMs).coerceAtLeast(0L)
 
     private fun unload() {
         loadJob?.cancel()
@@ -491,7 +621,7 @@ object MusicVideoEngine {
         val exo = player ?: return
         if (loadedId == null || exo.playbackState == Player.STATE_IDLE || exo.playbackState == Player.STATE_ENDED) return
         val speed = audio.playbackParameters.speed
-        val audioPos = audio.currentPosition
+        val audioPos = picturePosition(audio.currentPosition)
         val now = System.currentTimeMillis()
         if (!audio.isPlaying) {
             exo.playWhenReady = false
@@ -504,7 +634,7 @@ object MusicVideoEngine {
         if (exo.playbackState == Player.STATE_BUFFERING) return
         val drift = exo.currentPosition - audioPos
         if (abs(drift) > SEEK_DRIFT_MS) {
-            if (now - lastSeekAt > SEEK_COOLDOWN_MS) seek(exo, audioPos + seekLeadMs)
+            if (now - lastSeekAt > SEEK_COOLDOWN_MS) seek(exo, picturePosition(audio.currentPosition + seekLeadMs))
             return
         }
         // Catch up (or wait) over about a second, rather than jumping.

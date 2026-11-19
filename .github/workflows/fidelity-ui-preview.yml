@@ -48,9 +48,11 @@ jobs:
           done
           exit 1
 
-      - name: Run fidelity and freeze-clock tests
+      - name: Run Home and Android unit tests
         run: |
           chmod +x gradlew
+          ./gradlew :shared:jvmTest --tests 'com.music.bitchord.data.HomeSectionsTest' \
+            --build-cache --max-workers=3 --stacktrace
           ./gradlew :app:testDevDebugUnitTest -Pbitchord.bundleWear=false \
             --build-cache --max-workers=3 --stacktrace
 

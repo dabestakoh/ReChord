@@ -1042,15 +1042,22 @@ object AppSettings {
         ) + prefs.getStringSet("home_section_overrides", emptySet()).orEmpty()
             .associate { it.drop(1) to it.startsWith("+") }
         homeShelfCatalog.value = runCatching {
-            val json = org.json.JSONObject(prefs.getString("home_shelf_catalog", "{}").orEmpty())
-            json.keys().asSequence().associateWith { json.getString(it) }
+            val catalogKey = "home_shelf_category_catalog"
+            val legacy = !prefs.contains(catalogKey)
+            val json = org.json.JSONObject(
+                prefs.getString(if (legacy) "home_shelf_catalog" else catalogKey, "{}").orEmpty(),
+            )
+            val labels = json.keys().asSequence().associateWith { json.getString(it) }
+            if (legacy) labels.filter { (key, title) ->
+                com.music.bitchord.data.model.HomeSections.retainLegacyLabel(key, title)
+            } else labels
         }.getOrDefault(emptyMap())
         val retiredHomeKeys = homeShelfCatalog.value.filterValues(com.music.bitchord.data.model.HomeSections::removed).keys
         if (retiredHomeKeys.isNotEmpty()) {
             homeShelfCatalog.value = homeShelfCatalog.value - retiredHomeKeys
             homeSectionOverrides.value = homeSectionOverrides.value - retiredHomeKeys
             prefs.edit()
-                .putString("home_shelf_catalog", org.json.JSONObject(homeShelfCatalog.value).toString())
+                .putString("home_shelf_category_catalog", org.json.JSONObject(homeShelfCatalog.value).toString())
                 .putStringSet("home_section_overrides", homeSectionOverrides.value.mapTo(mutableSetOf()) {
                     (if (it.value) "+" else "-") + it.key
                 }).apply()
@@ -1519,7 +1526,7 @@ object AppSettings {
         val updated = homeShelfCatalog.value + shelves
         if (updated == homeShelfCatalog.value) return
         homeShelfCatalog.value = updated
-        prefs.edit().putString("home_shelf_catalog", org.json.JSONObject(updated).toString()).apply()
+        prefs.edit().putString("home_shelf_category_catalog", org.json.JSONObject(updated).toString()).apply()
     }
 
     fun setHideTopPicks(value: Boolean) {

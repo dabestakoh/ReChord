@@ -35,10 +35,36 @@ object HomeSections {
         return normalized in removedTitles || " - " in normalized || " – " in normalized || " — " in normalized
     }
 
+    private val generalShelfTitles = setOf(
+        "recents", "recently played", "quick picks", "mixed for you", "your daily discover",
+        "daily discover", "fresh finds, old favorites", "listen again", "from your library",
+        "from the community", "forgotten favorites", "featured playlist", "featured playlists",
+        "find your mood", "top songs", "trending",
+    )
+
+    fun retainLegacyLabel(key: String, title: String): Boolean =
+        key in shelves || key in editorialOrder || title.trim().lowercase() in generalShelfTitles
+
+    private fun isArtistOrAlbumShelf(shelf: HomeShelf): Boolean {
+        val title = shelf.title.trim()
+        if (retainLegacyLabel(key(shelf), title)) return false
+        fun isSubject(id: String?): Boolean =
+            id?.let { it.startsWith("UC") || it.startsWith("MPRE") || it.startsWith("OLAK5uy") } == true
+        if (isSubject(shelf.subjectBrowseId) || isSubject(shelf.moreBrowseId)) return true
+
+        fun sameTitle(value: String?): Boolean = value?.trim()?.equals(title, ignoreCase = true) == true
+        if (shelf.items.any { sameTitle(it.title) && isSubject(it.browseId) }) return true
+
+        val tracks = shelf.items.filter { it.videoId != null }
+        return tracks.isNotEmpty() && tracks.size == shelf.items.size && (
+            tracks.all { item -> item.subtitle.split('•', '·').any(::sameTitle) } ||
+                tracks.all { sameTitle(it.albumTitle) }
+        )
+    }
+
     fun isRecurring(shelf: HomeShelf): Boolean {
-        if (removed(shelf.title)) return false
-        val id = key(shelf)
-        return id in shelves || id in editorialOrder || shelf.items.size > 1
+        if (removed(shelf.title) || isArtistOrAlbumShelf(shelf)) return false
+        return retainLegacyLabel(key(shelf), shelf.title) || shelf.items.size > 1
     }
 
     fun arrange(feed: List<HomeShelf>, overrides: Map<String, Boolean>): List<HomeShelf> =

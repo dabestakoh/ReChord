@@ -421,6 +421,7 @@ data class ShelfItem(
      * picture the player can show. Drawn as a 16:9 card, as the web player does.
      */
     val isVideo: Boolean = false,
+    val albumTitle: String? = null,
 )
 
 /** How a shelf's items are laid out — the web player's `ShelfLayout`, by the same rules. */
@@ -480,6 +481,7 @@ data class HomeShelf(
     val moreBrowseId: String? = null,
     val moreParams: String? = null,
     val layout: ShelfLayout = ShelfLayout.CARDS,
+    val subjectBrowseId: String? = null,
 )
 
 /** These shelves without their music videos, and without any shelf that leaves empty. */
