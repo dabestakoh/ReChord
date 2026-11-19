@@ -147,6 +147,13 @@ internal fun TopPicksShelf(
     onLongPress: ((TopPick) -> Unit)?,
 ) {
     val rowState = rememberLazyListState()
+    var visibleLimit by remember { mutableIntStateOf(8) }
+    LaunchedEffect(rowState, picks.size) {
+        snapshotFlow { rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { last ->
+                if (last >= visibleLimit - 2 && visibleLimit < picks.size) visibleLimit += 8
+            }
+    }
     // Which cards turned out to have a clip, by index, and which one plays.
     val hasClip = remember(picks) { mutableStateMapOf<Int, Boolean>() }
     var owner by remember(picks) { mutableIntStateOf(-1) }
@@ -166,7 +173,7 @@ internal fun TopPicksShelf(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     state = rowState,
                 ) {
-                    itemsIndexed(picks, key = { _, pick -> pick.carouselKey }) { index, pick ->
+                    itemsIndexed(picks.take(visibleLimit), key = { _, pick -> pick.carouselKey }) { index, pick ->
                         CompositionLocalProvider(
                             LocalClipSlot provides ClipSlot(
                                 mayPlay = index == owner,

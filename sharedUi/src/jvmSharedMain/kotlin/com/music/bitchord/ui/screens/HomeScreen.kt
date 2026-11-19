@@ -203,7 +203,7 @@ fun HomeScreen(
                 picks.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }?.let(::add)
             }
             val songs = picks.filter { it.kind == TopPickKind.RELATED_SONG }
-                .take(3).takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }.orEmpty()
+                .takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }.orEmpty()
             val artists = picks.filter { it.kind == TopPickKind.ARTIST_AND_SIMILAR }
                 .take(2).takeIf { HomeSections.visible(HomeSections.ARTIST, homeSections) }.orEmpty()
             for (index in 0 until maxOf(songs.size, artists.size)) {

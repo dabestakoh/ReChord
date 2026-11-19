@@ -12,6 +12,37 @@ import com.music.bitchord.data.model.TopPickKind
 
 class TopPicksTest {
     @Test
+    fun seedsRotateThroughLongTermAndRecentGenresWithAnUntaggedFallback() {
+        fun song(id: String, artist: String) = Song(id, id, artist, null)
+        val first = song("aaaaaaaaaaa", "Pop A")
+        val second = song("bbbbbbbbbbb", "Pop B")
+        val third = song("ccccccccccc", "Jazz A")
+        val unknown = song("ddddddddddd", "No genre")
+        val local = TopPicks.LocalTaste(
+            genres = listOf("Pop"),
+            recentGenres = listOf("Jazz"),
+            recent = listOf(first, second, third, first, unknown),
+            genresForArtist = { artist ->
+                when {
+                    artist.startsWith("Pop") -> listOf("pop")
+                    artist.startsWith("Jazz") -> listOf("JAZZ")
+                    else -> emptyList()
+                }
+            },
+        )
+        assertEquals(listOf(first, third, unknown, second), TopPicks.featuredSeeds(emptyList(), local))
+    }
+
+    @Test
+    fun moreThanThreeSongPicksCanFillAnExistingCarousel() {
+        val cards = (1..6).map { id ->
+            val song = Song("id$id", "Song $id", "Artist $id", null)
+            TopPick(kind = TopPickKind.RELATED_SONG, title = song.title, recommendations = listOf(song))
+        }
+        assertEquals(cards, TopPicks.appendFeaturedCards(cards.take(3), cards))
+    }
+
+    @Test
     fun lateCardsKeepShownTracksInPlaceAndRejectDuplicateRelease() {
         val song = Song("track", "DESERVE", "BABYMONSTER", null, albumId = "release")
         val initial = TopPick(kind = TopPickKind.RELATED_SONG, title = song.title, recommendations = listOf(song))

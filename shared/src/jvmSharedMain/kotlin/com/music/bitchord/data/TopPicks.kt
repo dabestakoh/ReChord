@@ -58,6 +58,8 @@ object TopPicks {
      * time it is built without leaving the listener's own taste.
      */
     private const val ARTIST_POOL = 10
+    private const val FEATURED_SEED_LIMIT = 12
+    private const val PICKS_PER_SEED = 3
 
     /**
      * What this app knows about the listener's taste without asking YouTube:
@@ -68,6 +70,8 @@ object TopPicks {
         val artists: List<ArtistRef> = emptyList(),
         val songs: List<Song> = emptyList(),
         val genres: List<String> = emptyList(),
+        val recentGenres: List<String> = emptyList(),
+        val genresForArtist: (String) -> List<String> = { emptyList() },
         val liked: List<Song> = emptyList(),
         val recent: List<Song> = emptyList(),
         val albumIds: Set<String> = emptySet(),
@@ -192,35 +196,40 @@ object TopPicks {
     ): List<TopPick> {
         val known = (history + local.songs + local.recent + local.liked).mapTo(HashSet()) { it.videoId }
         val used = HashSet<String>()
+        val alternatives = songPicks.map { pick ->
+            pick to pick.recommendations.sortedBy { it.videoId in known }
+        }
         val featured = buildList {
-            for (group in listOf(songPicks to 3, artistPicks.distinctBy { normalizedArtistName(it.title) } to 2)) {
-                var count = 0
-                for (pick in group.first) {
-                    val tracks = pick.recommendations.filterNot { it.videoId in used }
-                        .distinctBy { it.videoId }
-                        .sortedBy { it.videoId in known }
-                        .take(12)
-                    if (pick.kind == TopPickKind.RELATED_SONG) {
-                        val track = tracks.firstOrNull { candidate ->
+            val artistCounts = mutableMapOf<String, Int>()
+            // Give each seed one turn before drawing more from the same Related page.
+            repeat(PICKS_PER_SEED) {
+                for ((pick, tracks) in alternatives) {
+                    val track = tracks.firstOrNull { candidate ->
+                        candidate.videoId !in used &&
+                            (artistCounts[primaryArtist(candidate)] ?: 0) < 2 &&
                             (lead == null || !sameFeaturedItem(lead, candidate)) &&
-                                none { sameFeaturedItem(it, candidate) }
-                        } ?: continue
-                        used += track.videoId
-                        add(pick.copy(
-                            title = track.title,
-                            subtitle = track.artist,
-                            images = listOfNotNull(track.thumbnailUrl),
-                            browseId = track.albumId,
-                            recommendations = listOf(track),
-                        ))
-                    } else {
-                        if (tracks.size < 3) continue
-                        tracks.mapTo(used) { it.videoId }
-                        add(pick.copy(recommendations = tracks))
-                    }
-                    count++
-                    if (count == group.second) break
+                            none { sameFeaturedItem(it, candidate) }
+                    } ?: continue
+                    used += track.videoId
+                    val artist = primaryArtist(track)
+                    artistCounts[artist] = (artistCounts[artist] ?: 0) + 1
+                    add(pick.copy(
+                        title = track.title,
+                        subtitle = track.artist,
+                        images = listOfNotNull(track.thumbnailUrl),
+                        browseId = track.albumId,
+                        recommendations = listOf(track),
+                    ))
                 }
+            }
+            var artistCards = 0
+            for (pick in artistPicks.distinctBy { normalizedArtistName(it.title) }) {
+                val tracks = pick.recommendations.filterNot { it.videoId in used }
+                    .distinctBy { it.videoId }.sortedBy { it.videoId in known }.take(12)
+                if (tracks.size < 3) continue
+                tracks.mapTo(used) { it.videoId }
+                add(pick.copy(recommendations = tracks))
+                if (++artistCards == 2) break
             }
         }
         return listOfNotNull(lead) + featured
@@ -266,11 +275,17 @@ object TopPicks {
         shown.forEach { add(updates[it.carouselKey] ?: it) }
         ready.forEach { card ->
             val limit = when (card.kind) {
-                TopPickKind.RELATED_SONG -> 3
+                TopPickKind.RELATED_SONG -> FEATURED_SEED_LIMIT * PICKS_PER_SEED
                 TopPickKind.ARTIST_AND_SIMILAR -> 2
                 else -> 1
             }
             if (count { it.kind == card.kind } >= limit) return@forEach
+            val selected = card.recommendations.firstOrNull().takeIf { card.kind == TopPickKind.RELATED_SONG }
+            if (selected != null && count {
+                    it.kind == TopPickKind.RELATED_SONG &&
+                        it.recommendations.firstOrNull()?.let(::primaryArtist) == primaryArtist(selected)
+                } >= 2
+            ) return@forEach
             val clash = any { earlier ->
                 if (earlier.carouselKey == card.carouselKey) return@any true
                 val priorSong = earlier.recommendations.firstOrNull().takeIf { earlier.kind == TopPickKind.RELATED_SONG }
@@ -297,39 +312,47 @@ object TopPicks {
                 normalizedArtistName(pick.artistName ?: pick.subtitle) == primaryArtist(track))
     }
 
+    internal fun featuredSeeds(history: List<Song>, local: LocalTaste): List<Song> {
+        val playlistIds = local.playlistSongs.mapTo(HashSet()) { it.videoId }
+        val familiar = (local.genres + local.recentGenres).map { it.lowercase(Locale.ROOT) }.distinct()
+        val frequencies = history.groupingBy { it.videoId }.eachCount()
+        val remote = history.distinctBy { it.videoId }.sortedByDescending { frequencies[it.videoId] }
+        val sources = listOf(local.recent.take(20), remote.take(30), local.liked.take(10), local.songs.take(30))
+        val candidates = (0 until sources.maxOf { it.size }).flatMap { index ->
+            sources.mapNotNull { it.getOrNull(index) }
+        } + local.playlistSongs.take(12)
+        val ranked = candidates.filter { !it.isVideo && youtubeVideoId.matches(it.videoId) }
+            .distinctBy { it.videoId }
+            .withIndex()
+            .sortedBy { (index, song) ->
+                index - (if (song.videoId in playlistIds) 2 else 0) - (if (song.albumId in local.albumIds) 1 else 0)
+            }
+            .map { it.value }
+            .distinctBy { primaryArtist(it).ifBlank { it.videoId } }
+        val buckets = ranked.groupBy { song ->
+            val artist = song.artists.firstOrNull()?.name ?: song.artist
+            val genres = local.genresForArtist(artist).map { it.lowercase(Locale.ROOT) }
+            familiar.firstOrNull { it in genres }
+        }
+        val ordered = familiar.mapNotNull { buckets[it] } + listOfNotNull(buckets[null])
+        return buildList {
+            for (index in 0 until (ordered.maxOfOrNull { it.size } ?: 0)) {
+                for (bucket in ordered) {
+                    bucket.getOrNull(index)?.let(::add)
+                    if (size == FEATURED_SEED_LIMIT) return@buildList
+                }
+            }
+        }
+    }
+
     private suspend fun relatedSongPicks(
         history: List<Song>,
         local: LocalTaste,
         interrupted: java.util.concurrent.atomic.AtomicBoolean,
         onPick: suspend (Int, TopPick) -> Unit,
     ): Unit = coroutineScope {
-        val playlistIds = local.playlistSongs.mapTo(HashSet()) { it.videoId }
-        val played = local.recent + history + local.songs
-        val frequencies = history.groupingBy { it.videoId }.eachCount()
-        val frequent = (local.songs + history.sortedByDescending { frequencies[it.videoId] }).distinctBy { it.videoId }
-        val seeds = buildList {
-            val usedArtists = HashSet<String>()
-            val usedTracks = HashSet<String>()
-            fun choose(pool: List<Song>, count: Int) {
-                val candidates = pool.take(25).shuffled().sortedByDescending {
-                    (if (it.videoId in playlistIds) 1 else 0) + (if (it.albumId in local.albumIds) 1 else 0)
-                }
-                var added = 0
-                for (song in candidates) {
-                    if (song.isVideo || !youtubeVideoId.matches(song.videoId)) continue
-                    val artist = primaryArtist(song).ifBlank { song.videoId }
-                    if (song.videoId in usedTracks || !usedArtists.add(artist)) continue
-                    usedTracks.add(song.videoId)
-                    add(song)
-                    if (++added == count) break
-                }
-            }
-            choose(local.liked, 2)
-            choose(frequent, 2)
-            choose(played, 2)
-            if (size < 6) choose(local.playlistSongs, 6 - size)
-        }
-        val known = (played + local.liked).mapTo(HashSet()) { it.videoId }
+        val seeds = featuredSeeds(history, local)
+        val known = (local.recent + history + local.songs + local.liked).mapTo(HashSet()) { it.videoId }
         val liked = local.liked.mapTo(HashSet()) { it.videoId }
         val limiter = Semaphore(3)
         seeds.mapIndexed { index, seed ->

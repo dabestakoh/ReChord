@@ -19,6 +19,7 @@ import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.PlaylistSnapshotCache
 import com.music.bitchord.data.playlist.playlistEntryKey
 import com.music.bitchord.data.TopPicks
+import com.music.bitchord.data.stats.ArtistFacts
 import com.music.bitchord.data.AppleArtistPhotos
 import com.music.bitchord.data.model.ArtistRef
 import com.music.bitchord.data.model.TopPick
@@ -1896,11 +1897,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
                 _topPicks.value = stored.picks
-                topPicksSlotShown = stored.day.takeIf { stored.revision == 3 }
+                topPicksSlotShown = stored.day.takeIf { stored.revision == 4 }
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot && stored.revision == 3) {
+            if (!rebuild && stored?.day == slot && stored.revision == 4) {
                 _topPicksLoading.value = false
                 return@launch
             }
@@ -1917,7 +1918,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val result = try {
                 buildTopPicks { cards ->
                     latest = cards
-                    if (!retained && !_topPicksLoading.value && identity == listenerKey()) {
+                    if (!_topPicksLoading.value && identity == listenerKey()) {
                         _topPicks.value = TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), cards)
                     }
                 }
@@ -1927,17 +1928,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (identity != listenerKey()) return@launch
             _topPicksLoading.value = false
             val built = result?.picks.orEmpty()
-            if (built.isEmpty() || retained && result?.complete != true) {
+            if (built.isEmpty()) {
                 if (_topPicks.value == null) _topPicks.value = emptyList()
                 return@launch
             }
-            val picks = if (retained) built else TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), built)
+            val picks = TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), built)
             _topPicks.value = picks
             if (result?.complete != true) return@launch
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 3)))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, built, AppleArtistPhotos.snapshot(), revision = 4)))
                 }
             }
         }
@@ -2009,6 +2010,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             songs = all.songs.take(60).map { it.song },
             recent = week.songs.take(25).map { it.song },
             genres = all.genres.take(3).map { it.title },
+            recentGenres = week.genres.take(4).map { it.title },
+            genresForArtist = ArtistFacts::genresFor,
             liked = liked,
             albumIds = (week.albums.take(5) + all.albums.take(10)).mapNotNull { it.browseId }.toSet(),
             playlistSongs = (localPlaylists + remote.await()).distinctBy { it.videoId },
