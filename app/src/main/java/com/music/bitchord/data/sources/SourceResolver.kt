@@ -322,6 +322,24 @@ object SourceResolver {
         return rankedAbove(youtube.configId, active).filter { it.kind == SourceKind.ADDON }
     }
 
+    private val addonTitleSeparators = Regex("[^\\p{L}\\p{M}\\p{N}]+")
+
+    internal fun matchQueries(target: TrackMatcher.Target): List<TrackSearchQuery> {
+        val titleQuery = TrackMatcher.titleQuery(target)
+        val fullTitleQuery = target.title.lowercase().replace(addonTitleSeparators, " ").trim()
+        return TrackMatcher.queries(target).mapIndexed { index, query ->
+            when {
+                index == 0 -> TrackSearchQuery(query, title = target.title, artist = target.artist)
+                query == titleQuery -> TrackSearchQuery(
+                    query,
+                    title = target.title,
+                    addonQuery = fullTitleQuery.ifBlank { query }.takeIf { it.length <= 200 } ?: query,
+                )
+                else -> TrackSearchQuery(query)
+            }
+        }
+    }
+
     /** Search metadata now and reuse it when the direct stream is requested. */
     internal fun prepareDirectSources(
         scope: CoroutineScope,
@@ -329,22 +347,24 @@ object SourceResolver {
         sources: List<MusicSource> = directAddons(),
         request: StreamRequest = requestForNow(),
     ): List<MusicSource> {
-        val expectedQuery = TrackMatcher.queries(target).firstOrNull() ?: return emptyList()
+        val expectedQuery = matchQueries(target).firstOrNull() ?: return emptyList()
         val expectedRequest = request
         return sources.map { source ->
             val search = scope.async {
-                attempt(source) { source.search(expectedQuery, limit = MATCH_CANDIDATES, request = expectedRequest) }
+                attempt(source) {
+                    source.searchForMatch(expectedQuery, limit = MATCH_CANDIDATES, request = expectedRequest)
+                }
             }
             object : MusicSource by source {
-                override suspend fun search(
-                    query: String,
+                override suspend fun searchForMatch(
+                    query: TrackSearchQuery,
                     limit: Int,
                     waitForAll: Boolean,
-                    request: StreamRequest?,
+                    request: StreamRequest,
                 ): List<Song> = if (query == expectedQuery && limit == MATCH_CANDIDATES &&
                     !waitForAll && request == expectedRequest
                 ) search.await().orEmpty()
-                else source.search(query, limit, waitForAll, request)
+                else source.searchForMatch(query, limit, waitForAll, request)
             }
         }
     }
@@ -1159,9 +1179,9 @@ object SourceResolver {
         checkFileLength: Boolean = false,
     ): SourceStream? {
         var matchOn = target
-        for (query in TrackMatcher.queries(target)) {
+        for (query in matchQueries(target)) {
             val candidates = attempt(source) {
-                source.search(
+                source.searchForMatch(
                     query,
                     limit = MATCH_CANDIDATES,
                     waitForAll = waitForAll,

@@ -188,12 +188,27 @@ class AddonSource(
         limit: Int,
         waitForAll: Boolean,
         request: StreamRequest?,
+    ): List<Song> = searchAddon(query, limit, request)
+
+    override suspend fun searchForMatch(
+        query: TrackSearchQuery,
+        limit: Int,
+        waitForAll: Boolean,
+        request: StreamRequest,
+    ): List<Song> = searchAddon(query.addonQuery, limit, request, query.title, query.artist)
+
+    private suspend fun searchAddon(
+        query: String,
+        limit: Int,
+        request: StreamRequest?,
+        title: String? = null,
+        artist: String? = null,
     ): List<Song> =
         withContext(Dispatchers.IO) {
             if (query.isBlank()) return@withContext emptyList()
             if (!admitted("a search")) return@withContext emptyList()
             val tier = request?.tier ?: AddonClient.TIER_LOSSLESS
-            val tracks = client.search(query, tier).getOrElse { failure ->
+            val tracks = client.search(query, tier, title, artist).getOrElse { failure ->
                 TrackLog.w(TAG, "${config.displayName}: search failed — ${failure.message}")
                 return@withContext emptyList()
             }

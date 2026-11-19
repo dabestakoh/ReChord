@@ -92,6 +92,13 @@ sealed interface SourceHealth {
     val isOk: Boolean get() = this is Ok
 }
 
+data class TrackSearchQuery(
+    val text: String,
+    val title: String? = null,
+    val artist: String? = null,
+    val addonQuery: String = text,
+)
+
 /**
  * One place tracks can come from.
  *
@@ -146,6 +153,13 @@ interface MusicSource {
         waitForAll: Boolean = false,
         request: StreamRequest? = null,
     ): List<Song>
+
+    suspend fun searchForMatch(
+        query: TrackSearchQuery,
+        limit: Int,
+        waitForAll: Boolean = false,
+        request: StreamRequest,
+    ): List<Song> = search(query.text, limit, waitForAll, request)
 
     /**
      * @param trackId this source's own id for the track, as issued by [search].
