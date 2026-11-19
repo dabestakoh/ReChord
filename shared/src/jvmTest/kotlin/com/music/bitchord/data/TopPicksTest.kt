@@ -12,6 +12,32 @@ import com.music.bitchord.data.model.TopPickKind
 
 class TopPicksTest {
     @Test
+    fun fourCardCarouselGainsPlayablePicksFromBothArtistRadiosWithoutAnotherRequest() {
+        fun artist(name: String, prefix: String) = TopPick(
+            kind = TopPickKind.ARTIST_AND_SIMILAR,
+            title = name,
+            artistName = name,
+            recommendations = (1..3).map { index ->
+                Song("$prefix$index", "Song $prefix$index", "Artist $prefix$index", null)
+            },
+        )
+        val pop = artist("Pop artist", "p")
+        val jazz = artist("Jazz artist", "j")
+        val existing = listOf(
+            TopPick(kind = TopPickKind.CONTINUE_LISTENING),
+            TopPick(kind = TopPickKind.LATEST_RELEASE, title = "New release"),
+            pop,
+            jazz,
+        )
+        val expanded = TopPicks.fillFeaturedFromArtistPicks(existing)
+        assertEquals(existing, expanded.take(4))
+        val songs = expanded.drop(4)
+        assertEquals(listOf("p1", "j1", "p2", "j2", "p3", "j3"), songs.map { it.recommendations.single().videoId })
+        assertEquals(listOf("Pop artist", "Jazz artist", "Pop artist", "Jazz artist", "Pop artist", "Jazz artist"), songs.map { it.seedTitle })
+        assertEquals(expanded, TopPicks.fillFeaturedFromArtistPicks(expanded))
+    }
+
+    @Test
     fun seedsRotateThroughLongTermAndRecentGenresWithAnUntaggedFallback() {
         fun song(id: String, artist: String) = Song(id, id, artist, null)
         val first = song("aaaaaaaaaaa", "Pop A")
