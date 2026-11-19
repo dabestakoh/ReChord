@@ -7,7 +7,9 @@ import com.music.bitchord.data.sources.SourceConfig
 import com.music.bitchord.data.sources.SourceHealth
 import com.music.bitchord.data.sources.SourceKind
 import com.music.bitchord.data.sources.SourceRegistry
+import com.music.bitchord.data.sources.SourceResolver
 import com.music.bitchord.data.sources.StreamRequest
+import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.data.sources.addon.AddonClient
 import com.music.bitchord.data.sources.addon.AddonException
 import com.music.bitchord.data.sources.addon.AddonQualityOption
@@ -227,6 +229,58 @@ class AddonSourceTest {
     }
 
     // ── Search ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `metadata addon receives full credits on the first pass and only title on retry`() = runBlocking {
+        route(
+            "/manifest.json",
+            json("""{"id":"test","resources":["search","stream"],"searchMetadata":true}"""),
+        )
+        route("/search", json("""{"tracks":[]}"""))
+        val target = TrackMatcher.Target("Die With a Smile (Live)", "Lady Gaga & Bruno Mars")
+        val (first, retry) = SourceResolver.matchQueries(target)
+        val addon = source()
+        addon.searchForMatch(first, 15, request = StreamRequest.Lossless)
+        addon.searchForMatch(retry, 15, request = StreamRequest.Lossless)
+        // The previous retry must not satisfy a free-text search for the same q.
+        addon.search("die with a smile live", 15)
+
+        val requests = synchronized(seen) {
+            seen.mapNotNull { it.requestUrl }.filter { it.encodedPath == "/search" }
+        }
+        assertEquals(3, requests.size)
+        assertEquals(TrackMatcher.queries(target).first(), requests[0].queryParameter("q"))
+        assertEquals(target.title, requests[0].queryParameter("title"))
+        assertEquals(target.artist, requests[0].queryParameter("artist"))
+        assertEquals("die with a smile live", requests[1].queryParameter("q"))
+        assertEquals(target.title, requests[1].queryParameter("title"))
+        assertNull(requests[1].queryParameter("artist"))
+        assertNull(requests[1].queryParameter("album"))
+        assertNull(requests[2].queryParameter("title"))
+        assertNull(requests[2].queryParameter("artist"))
+    }
+
+    @Test
+    fun `an addon without metadata support receives q on both passes`() = runBlocking {
+        route("/manifest.json", manifest())
+        route("/search", json("""{"tracks":[]}"""))
+        val target = TrackMatcher.Target("Beyoncé + You (Live 2003)", "AC/DC")
+        val addon = source()
+        for (query in SourceResolver.matchQueries(target)) {
+            addon.searchForMatch(query, 15, request = StreamRequest.Lossless)
+        }
+
+        val requests = synchronized(seen) {
+            seen.mapNotNull { it.requestUrl }.filter { it.encodedPath == "/search" }
+        }
+        assertEquals(2, requests.size)
+        assertEquals(TrackMatcher.queries(target).first(), requests[0].queryParameter("q"))
+        assertEquals("beyoncé you live 2003", requests[1].queryParameter("q"))
+        for (request in requests) {
+            assertNull(request.queryParameter("title"))
+            assertNull(request.queryParameter("artist"))
+        }
+    }
 
     @Test
     fun `search maps rows to songs tagged with this source`() = runBlocking {

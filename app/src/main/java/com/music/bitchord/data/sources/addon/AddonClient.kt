@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -133,19 +134,33 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
      * either: the spec fixes the path, the parameter name and the shape coming
      * back.
      */
-    suspend fun search(query: String, tier: String): Result<List<AddonTrack>> {
+    suspend fun search(
+        query: String,
+        tier: String,
+        title: String? = null,
+        artist: String? = null,
+    ): Result<List<AddonTrack>> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return Result.success(emptyList())
-        val params = settingsFor(tier)
+        val manifest = manifest().getOrNull()
+        val params = settingsFor(tier, manifest = manifest)
+        val supportsMetadata = manifest?.searchMetadata == JsonPrimitive(true)
+        val titleHint = title?.trim()?.takeIf { supportsMetadata && it.isNotEmpty() && it.length <= 200 }
+        val artistHint = artist?.trim()?.takeIf { supportsMetadata && it.isNotEmpty() && it.length <= 200 }
+        val searchParams = params.toMutableMap().apply {
+            put("q", trimmed)
+            titleHint?.let { put("title", it) }
+            artistHint?.let { put("artist", it) }
+        }
         return searches.get(
             // The parameters are in the key because they are in the request:
             // the same query at a different quality is a different question,
             // and an addon whose catalogue differs by tier would otherwise
             // answer the second one with the first one's rows.
-            key = keyOf(trimmed, params.toString()),
+            key = keyOf(trimmed, params.toString(), titleHint.orEmpty(), artistHint.orEmpty()),
             describe = { "▶ addon search(${redact(baseUrl)}) q=\"$trimmed\" tier=$tier quality=${params[QUALITY_KEY]}" },
         ) {
-            fetch<AddonSearchResponse>(endpoint(listOf("search"), params + ("q" to trimmed)))
+            fetch<AddonSearchResponse>(endpoint(listOf("search"), searchParams))
         }.map { it.tracks }
     }
 
@@ -165,7 +180,7 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
      * Atmos sibling of the very row that was chosen over it.
      */
     suspend fun stream(trackId: String, tier: String, stereoOnly: Boolean = false): Result<AddonStream> {
-        val params = settingsFor(tier, stereoOnly)
+        val params = settingsFor(tier, stereoOnly, manifest().getOrNull())
         return streams.get(
             key = keyOf(trackId, params.toString()),
             describe = { "▶ addon stream(${redact(baseUrl)}) id=$trackId tier=$tier quality=${params[QUALITY_KEY]}" },
@@ -215,8 +230,11 @@ class AddonClient(rawBaseUrl: String, private val pickedQuality: String? = null)
      * Last comes `atmos`, which is the one parameter here that is not about
      * quality. See [atmosHint].
      */
-    private suspend fun settingsFor(tier: String, stereoOnly: Boolean = false): Map<String, String> {
-        val manifest = manifest().getOrNull()
+    private fun settingsFor(
+        tier: String,
+        stereoOnly: Boolean = false,
+        manifest: AddonManifest?,
+    ): Map<String, String> {
         val declared = manifest?.settings.orEmpty()
         val params = LinkedHashMap<String, String>()
         declared.forEach { setting ->

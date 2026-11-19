@@ -81,7 +81,7 @@ object TrackMatcher {
      * in the other script (below).
      */
     fun queries(target: Target): List<String> {
-        val title = searchableTitle(target.title, target.artist)
+        val title = titleQuery(target)
         if (title.isBlank()) return emptyList()
         val artist = primaryArtist(target.artist)
         val out = if (artist.isBlank()) mutableListOf(title) else mutableListOf("$title $artist", title)
@@ -99,6 +99,8 @@ object TrackMatcher {
         otherScript?.let { out += it }
         return out.distinct()
     }
+
+    fun titleQuery(target: Target): String = searchableTitle(target.title, target.artist)
 
     /** The title with the packaging taken off, version markers kept. */
     internal fun searchableTitle(title: String, artist: String = ""): String =

@@ -72,6 +72,7 @@ data class AddonManifest(
      * Read through [requiresLosslessOutput].
      */
     @SerialName("checkValidLossless") val checkValidLossless: JsonElement? = null,
+    @SerialName("searchMetadata") val searchMetadata: JsonElement? = null,
 ) {
     val downloadsAllowed: Boolean get() = allowDownloads.asFlag() ?: true
 
