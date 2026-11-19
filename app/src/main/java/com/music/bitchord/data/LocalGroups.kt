@@ -279,6 +279,29 @@ fun Song.matchesSearch(query: String): Boolean =
         albumName?.contains(query, ignoreCase = true) == true ||
         localAlbumArtist?.contains(query, ignoreCase = true) == true
 
+/** Group dates reflect the newest dated track in the group. Missing dates sort last. */
+internal fun List<LocalGroup>.sortedLocalGroups(
+    order: LocalMusicSort,
+    alphabet: LocalAlphabet,
+): List<LocalGroup> {
+    val byTitle = Comparator<LocalGroup> { first, second -> alphabet.compare(first.title, second.title) }
+        .thenBy { it.browseId }
+    return when (order) {
+        LocalMusicSort.TITLE_ASC -> sortedWith(byTitle)
+        LocalMusicSort.TITLE_DESC -> sortedWith(byTitle.reversed())
+        LocalMusicSort.DATE_ADDED, LocalMusicSort.DATE_MODIFIED -> {
+            val dated = map { group ->
+                val newest = group.songs.mapNotNull { song ->
+                    if (order == LocalMusicSort.DATE_ADDED) song.localDateAddedSeconds else song.localDateModifiedSeconds
+                }.maxOrNull()
+                group to newest
+            }
+            dated.sortedWith(compareByDescending<Pair<LocalGroup, Long?>> { it.second }
+                .thenComparator { a, b -> byTitle.compare(a.first, b.first) }).map { it.first }
+        }
+    }
+}
+
 /** A device folder's running order, per the sort its top bar menu picked. */
 fun List<Song>.sortedForLibrary(order: LocalMusicSort): List<Song> = when (order) {
     LocalMusicSort.TITLE_ASC -> sortedByTitle()

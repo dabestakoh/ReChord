@@ -307,6 +307,7 @@ import androidx.media3.common.Player
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.HomeSections
 import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.ui.screens.MoodGridPage
@@ -879,21 +880,20 @@ private fun BitChordApp(
     )
 
     val homeState by viewModel.home.collectAsStateWithLifecycle()
-    val hideRecents by AppSettings.hideRecents.collectAsStateWithLifecycle()
     val hideHomeVideos by AppSettings.hideHomeVideos.collectAsStateWithLifecycle()
-    val hideTopPicks by AppSettings.hideTopPicks.collectAsStateWithLifecycle()
-    val hideHomeMoods by AppSettings.hideHomeMoods.collectAsStateWithLifecycle()
-    // Only what Home draws: Top Picks reads the unfiltered feed from the view model.
-    val visibleHomeState = remember(homeState, hideHomeVideos, hideRecents) {
+    val homeSections by AppSettings.homeSectionOverrides.collectAsStateWithLifecycle()
+    val visibleHomeState = remember(homeState, hideHomeVideos, homeSections) {
         val loaded = homeState as? UiState.Success
-        if (loaded != null && (hideHomeVideos || hideRecents)) {
-            var shelves = loaded.data
-            if (hideRecents) shelves = shelves.filterNot { it.title == YtMusicRepository.RECENT_TITLE }
-            if (hideHomeVideos) shelves = shelves.withoutVideos()
-            UiState.Success(shelves)
-        } else {
+        if (loaded == null) {
             homeState
+        } else {
+            val source = if (hideHomeVideos) loaded.data.withoutVideos() else loaded.data
+            UiState.Success(HomeSections.arrange(source, homeSections))
         }
+    }
+    LaunchedEffect(homeState) {
+        val shelves = (homeState as? UiState.Success)?.data.orEmpty()
+        AppSettings.rememberHomeShelves(shelves.filter(HomeSections::isRecurring).associate { HomeSections.key(it) to it.title })
     }
     val homeLoadingMore by viewModel.homeLoadingMore.collectAsStateWithLifecycle()
     val homeRecentlyPlayedLoading by viewModel.homeRecentlyPlayedLoading.collectAsStateWithLifecycle()
@@ -924,6 +924,7 @@ private fun BitChordApp(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
     val exploreState by viewModel.explore.collectAsStateWithLifecycle()
+    val exploreReleases by viewModel.exploreReleases.collectAsStateWithLifecycle()
     val selectedMoodGenre by viewModel.selectedMoodGenre.collectAsStateWithLifecycle()
     val moodGenreShelves by viewModel.moodGenreShelves.collectAsStateWithLifecycle()
     val libraryState by viewModel.library.collectAsStateWithLifecycle()
@@ -1795,7 +1796,7 @@ private fun BitChordApp(
         } else if (controller != null && !refusedByHost()) {
             val request = ++playRequestGeneration
             scope.launch {
-                val songs = TopPicks.queue(pick).getOrNull().orEmpty()
+                val songs = viewModel.topPickQueue(pick).getOrNull().orEmpty()
                 if (request != playRequestGeneration) return@launch
                 val activeController = controller ?: return@launch
                 if (songs.isEmpty()) {
@@ -1813,7 +1814,9 @@ private fun BitChordApp(
                 }
                 activeRadioSeed = null
                 activeController.beginRadioQueue()
-                activeController.playSongs(station, 0)
+                activeController.playSongs(
+                    station, 0, pick.radioContinuation, pick.artistName, pick.artistBrowseId,
+                )
                 activeController.commitRadioQueue()
             }
         }
@@ -3211,6 +3214,11 @@ private fun BitChordApp(
                                 LocalFolder(
                                     state = localFolderStates.getOrPut(page.browseId) {
                                         LocalFolderState().apply {
+                                            val preferences = context.getSharedPreferences("local_music_view", 0)
+                                            groupSorts = LocalFolderTab.entries.mapNotNull { group ->
+                                                val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
+                                                group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
+                                            }.toMap()
                                             if (localArtist) tab = LocalFolderTab.ALBUMS
                                             else if (isDevice) tab = context.getSharedPreferences("local_music_view", 0)
                                                 .getString("tab", null)?.let { name ->
@@ -3478,13 +3486,25 @@ private fun BitChordApp(
                                 contentPadding = listPadding,
                                 onLoadMore = viewModel::loadMoreHome,
                                 loadingMore = homeLoadingMore,
-                                recentlyPlayedLoading = homeRecentlyPlayedLoading && !hideRecents,
+                                recentlyPlayedLoading = homeRecentlyPlayedLoading && HomeSections.visible(HomeSections.RECENTS, homeSections),
                                 topPicks = topPicks,
                                 topPicksLoading = topPicksLoading,
                                 listenerName = account?.name,
                                 // Neither shelf is drawn without its callback.
-                                onTopPickClick = openTopPick.takeUnless { hideTopPicks },
-                                onMoodClick = playMood.takeUnless { hideHomeMoods },
+                                homeSections = homeSections,
+                                featuredHeightLimit = minOf(
+                                    windowHeight * 0.56f,
+                                    (windowHeight - listPadding.calculateTopPadding() -
+                                        listPadding.calculateBottomPadding() - 100.dp).coerceAtLeast(140.dp),
+                                ),
+                                onTopPickClick = { pick, label ->
+                                    if (pick.kind == TopPickKind.CONTINUE_LISTENING) {
+                                        if (player.isPlaying) showNowPlaying = true else togglePlayPause()
+                                    } else {
+                                        openTopPick(pick, label)
+                                    }
+                                },
+                                onMoodClick = playMood.takeIf { HomeSections.visible(HomeSections.MOODS, homeSections) },
                                 onMoodsShowAll = { navigator.push(AppRoute.Moods) },
                                 // Nothing on Home is seen while the greeting covers it.
                                 artworkMotion = artworkMotion && !showDiwali,
@@ -3537,6 +3557,10 @@ private fun BitChordApp(
                                 )
                             } ?: ExploreScreen(
                                 state = exploreState,
+                                newReleases = exploreReleases,
+                                onReleaseClick = { release ->
+                                    release.browseId?.let { viewModel.openDetail(it, release.title, release.subtitle, release.thumbnailUrl) }
+                                },
                                 listState = exploreListState,
                                 onCategoryClick = viewModel::openMoodGenre,
                                 onRetry = viewModel::loadExplore,
@@ -5631,13 +5655,16 @@ private fun BitChordApp(
             BackHandler { folderMenuOpen = false }
             val downloadsFolder = menuFolder == "local:downloads"
             val viewType = folderViewTypeOf(menuFolder)
-            val recentState = localFolderStates[menuFolder]?.takeIf { it.tab == LocalFolderTab.RECENTLY_ADDED }
+            val folderState = localFolderStates[menuFolder]
+            val tab = folderState?.tab ?: LocalFolderTab.SONGS
+            val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
+            val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
             FrostedFolderMenu(
                 hazeState = hazeState,
                 sort = recentState?.let {
                     if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-                } ?: folderSortOf(menuFolder),
-                recentlyAdded = recentState != null,
+                } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSortOf(menuFolder),
+                sorts = tab.sortOptions,
                 onRefresh = if (menuFolder == "local:all") ({
                     folderMenuOpen = false
                     viewModel.refreshLocalLibrary()
@@ -5645,6 +5672,11 @@ private fun BitChordApp(
                 viewType = viewType,
                 onSort = { option ->
                     if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+                    else if (groupState != null) {
+                        groupState.groupSorts = groupState.groupSorts + (tab to option)
+                        context.getSharedPreferences("local_music_view", 0).edit()
+                            .putString("sort:$menuFolder:${tab.name}", option.name).apply()
+                    }
                     else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
                     else AppSettings.setLocalMusicSort(option)
                     folderMenuOpen = false
@@ -6193,7 +6225,7 @@ private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
-    recentlyAdded: Boolean,
+    sorts: List<LocalMusicSort>,
     onRefresh: (() -> Unit)?,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
@@ -6212,8 +6244,6 @@ private fun FrostedFolderMenu(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
         )
-        val sorts = if (recentlyAdded) listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
-            else LocalMusicSort.entries
         sorts.forEach { option ->
             FrostedMenuRow(
                 label = option.localizedLabel(),

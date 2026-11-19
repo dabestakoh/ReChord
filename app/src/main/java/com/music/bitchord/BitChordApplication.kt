@@ -62,6 +62,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
     @kotlin.OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate() {
         super.onCreate()
+        com.music.bitchord.data.AppDiagnostics.install(this)
         // Begin preference parsing before the first dependent read, as in Auris.
         listOf("bitchord_auth", "bitchord_auth_plain", "bitchord_settings",
             "bitchord_last_played", "bitchord_bounded_context", "bitchord_listen_together",
@@ -75,10 +76,11 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
         AndroidStreamHooks.installEarly()
         PlayerPlatform.install(AndroidPlayerHost(this))
         com.music.bitchord.ui.AppUi.install(com.music.bitchord.ui.AndroidAppUiHost)
-        // The shared data layer (lyrics, the YouTube Music client) logs to
-        // logcat on debug builds only, as the app's own DebugLog always has.
-        if (BuildConfig.DEBUG) {
-            DebugLog.sink = DebugLog.Sink { level, tag, message, error ->
+        DebugLog.sink = DebugLog.Sink { level, tag, message, error ->
+            if (error != null && (level == 'W' || level == 'E')) {
+                com.music.bitchord.data.AppDiagnostics.record("Shared app exception", error)
+            }
+            if (BuildConfig.DEBUG) {
                 when (level) {
                     'D' -> android.util.Log.d(tag, message, error)
                     'I' -> android.util.Log.i(tag, message, error)
@@ -86,7 +88,8 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
                     else -> android.util.Log.e(tag, message, error)
                 }
             }
-        } else {
+        }
+        if (!BuildConfig.DEBUG) {
             // R8 strips android.util.Log from a release build (proguard-rules.pro);
             // this stops Media3 composing the lines it would have handed it.
             androidx.media3.common.util.Log.setLogLevel(androidx.media3.common.util.Log.LOG_LEVEL_OFF)

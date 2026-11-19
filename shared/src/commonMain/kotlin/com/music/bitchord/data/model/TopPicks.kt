@@ -21,6 +21,9 @@ data class WatchTarget(
  */
 @Serializable
 enum class TopPickKind {
+    CONTINUE_LISTENING,
+    RELATED_SONG,
+
     /** The newest single or album from one of the listener's top artists. Opens the release. */
     LATEST_RELEASE,
 
@@ -152,4 +155,16 @@ data class TopPick(
     val exclude: List<String> = emptyList(),
     /** Words that steer a mood station toward the listener's own scene, e.g. "bollywood". */
     val hints: List<String> = emptyList(),
-)
+    val recommendations: List<Song> = emptyList(),
+    val likedSeed: Boolean = false,
+    val seedTitle: String? = null,
+    val radioContinuation: String? = null,
+) {
+    val carouselKey: String
+        get() = "$kind:${when (kind) {
+            TopPickKind.RELATED_SONG -> recommendations.firstOrNull()?.videoId ?: title
+            TopPickKind.ARTIST_AND_SIMILAR -> artistBrowseId ?: title
+            TopPickKind.CONTINUE_LISTENING -> kind.name
+            else -> browseId ?: title
+        }}"
+}

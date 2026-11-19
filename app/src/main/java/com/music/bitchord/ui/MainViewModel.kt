@@ -19,9 +19,11 @@ import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.PlaylistSnapshotCache
 import com.music.bitchord.data.playlist.playlistEntryKey
 import com.music.bitchord.data.TopPicks
+import com.music.bitchord.data.stats.ArtistFacts
 import com.music.bitchord.data.AppleArtistPhotos
 import com.music.bitchord.data.model.ArtistRef
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.stats.ListeningStats
 import com.music.bitchord.data.stats.ReplayPeriod
 import android.util.Log
@@ -77,6 +79,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -1733,7 +1736,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!exploreRequested) loadExplore()
     }
 
-    private suspend fun fetchExplore() {
+    private val _exploreReleases = MutableStateFlow<List<ShelfItem>>(emptyList())
+    val exploreReleases = _exploreReleases.asStateFlow()
+
+    private suspend fun fetchExplore() = coroutineScope {
+        val identity = listenerKey()
+        launch {
+            val releases = YtMusicRepository.newReleases().getOrNull() ?: return@launch
+            val history = YtMusicRepository.recentHistory().getOrNull().orEmpty()
+            val ranked = TopPicks.rankReleases(releases, history, localTaste())
+            if (identity == listenerKey()) _exploreReleases.value = ranked
+        }
         val state = YtMusicRepository.moodAndGenres().fold(
             onSuccess = { sections ->
                 if (sections.isEmpty()) {
@@ -1879,31 +1892,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         topPicksJob = viewModelScope.launch {
             val stored = withContext(Dispatchers.IO) {
                 runCatching { file.takeIf { it.exists() }?.readText() }.getOrNull()?.let(TopPicks::decode)
-            }?.takeIf { it.listener == identity && it.picks.isNotEmpty() }
+            }?.takeIf { it.listener == identity && it.revision >= 2 && it.picks.isNotEmpty() }
+            if (identity != listenerKey()) return@launch
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
                 _topPicks.value = stored.picks
-                topPicksSlotShown = stored.day
+                topPicksSlotShown = stored.day.takeIf { stored.revision == 4 }
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot) {
+            if (!rebuild && stored?.day == slot && stored.revision == 4) {
                 _topPicksLoading.value = false
                 return@launch
             }
-            _topPicksLoading.value = _topPicks.value == null
-            val picks = buildTopPicks()?.takeIf { it.isNotEmpty() }
+            val retained = _topPicks.value.orEmpty().isNotEmpty()
+            _topPicksLoading.value = !retained
+            var latest = emptyList<TopPick>()
+            val deadline = if (retained) null else launch {
+                delay(2500)
+                if (identity == listenerKey()) {
+                    _topPicksLoading.value = false
+                    _topPicks.value = latest
+                }
+            }
+            val result = try {
+                buildTopPicks { cards ->
+                    latest = cards
+                    if (!_topPicksLoading.value && identity == listenerKey()) {
+                        _topPicks.value = TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), cards)
+                    }
+                }
+            } finally {
+                deadline?.cancel()
+            }
             if (identity != listenerKey()) return@launch
             _topPicksLoading.value = false
-            if (picks == null) {
+            val built = result?.picks.orEmpty()
+            if (built.isEmpty()) {
                 if (_topPicks.value == null) _topPicks.value = emptyList()
                 return@launch
             }
+            val picks = TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), built)
             _topPicks.value = picks
+            if (result?.complete != true) return@launch
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot())))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, built, AppleArtistPhotos.snapshot(), revision = 4)))
                 }
             }
         }
@@ -1919,7 +1954,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun refreshTopPicksIfStale() {
         if (topPicksJob?.isActive == true) return
-        if (topPicksSlotShown == null || topPicksSlotShown == topPicksSlot()) return
+        if (topPicksSlotShown == topPicksSlot()) return
         loadTopPicks(listenerKey(), rebuild = false)
     }
 
@@ -1927,13 +1962,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun topPicksSlot(now: LocalDateTime = LocalDateTime.now()): String =
         "${now.toLocalDate()}T%02d".format(now.hour)
 
-    private suspend fun buildTopPicks(): List<TopPick>? {
-        // Home's first page may already hold the account's mixes; give it a
-        // moment to land so the builder reads them off it instead of asking.
-        val shelves = withTimeoutOrNull(8_000L) { _home.first { it !is UiState.Loading } }
-            .let { (it as? UiState.Success)?.data.orEmpty() }
+    private suspend fun buildTopPicks(onAvailable: suspend (List<TopPick>) -> Unit): TopPicks.Build? {
+        val shelves = (_home.value as? UiState.Success)?.data.orEmpty()
         return try {
-            TopPicks.build(shelves, localTaste())
+            TopPicks.build(shelves, localTaste(includePlaylists = true), onAvailable = onAvailable)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1942,14 +1974,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** This app's own Replay chart for the month — Top Picks' second opinion, and all it has signed out. */
-    private suspend fun localTaste(): TopPicks.LocalTaste {
-        val month = runCatching { ListeningStats.summary(ReplayPeriod.THIS_MONTH) }.getOrNull()
-            ?: return TopPicks.LocalTaste()
-        return TopPicks.LocalTaste(
-            artists = month.artists.take(10).map { ArtistRef(name = it.title, browseId = it.browseId) },
-            songs = month.songs.take(5).map { it.song },
-            genres = month.genres.take(3).map { it.title },
+    suspend fun topPickQueue(pick: TopPick): Result<List<Song>> {
+        val identity = listenerKey()
+        val result = when (pick.kind) {
+            TopPickKind.PERSONAL_STATION, TopPickKind.DISCOVERY_STATION -> TopPicks.queue(pick, localTaste())
+            else -> TopPicks.queue(pick)
+        }
+        return if (identity == listenerKey()) result
+        else Result.failure(IllegalStateException("Listener changed while loading recommendations"))
+    }
+
+    private suspend fun localTaste(includePlaylists: Boolean = false): TopPicks.LocalTaste = coroutineScope {
+        val recent = async { ListeningStats.summary(ReplayPeriod.THIS_WEEK) }
+        val lifetime = async { ListeningStats.summary(ReplayPeriod.ALL_TIME) }
+        val remote = async {
+            if (!includePlaylists || !_signedIn.value) return@async emptyList()
+            withTimeoutOrNull(2200) {
+                val playlists = _playlists.value.ifEmpty { YtMusicRepository.userPlaylists().getOrNull().orEmpty() }
+                playlists.filterNot { it.playlistId == "LM" }.take(3).map { playlist ->
+                    async { YtMusicRepository.browseSongs(playlist.browseId).getOrNull()?.songs.orEmpty().take(8) }
+                }.awaitAll().flatten()
+            }.orEmpty()
+        }
+        val localPlaylists = if (includePlaylists) {
+            OfflinePlaylists.playlists.value.filterNot { OfflinePlaylists.isLikedPage(it.browseId) }
+                .take(3).flatMap { it.songs.take(8) } +
+                com.music.bitchord.data.spotify.LocalPlaylistStore.playlists.value.take(3).flatMap { it.songs.take(8) }
+        } else emptyList()
+        val all = lifetime.await()
+        val week = recent.await()
+        val liked = (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
+        TopPicks.LocalTaste(
+            artists = (week.artists.take(10) + all.artists.take(15)).distinctBy { it.browseId ?: it.title }
+                .map { ArtistRef(name = it.title, browseId = it.browseId) },
+            songs = all.songs.take(60).map { it.song },
+            recent = week.songs.take(25).map { it.song },
+            genres = all.genres.take(3).map { it.title },
+            recentGenres = week.genres.take(4).map { it.title },
+            genresForArtist = ArtistFacts::genresFor,
+            liked = liked,
+            albumIds = (week.albums.take(5) + all.albums.take(10)).mapNotNull { it.browseId }.toSet(),
+            playlistSongs = (localPlaylists + remote.await()).distinctBy { it.videoId },
         )
     }
 
@@ -1979,22 +2044,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val added = shelves.withoutRepeatsOf(existing)
             .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
-        if (added.isNotEmpty()) _home.value = UiState.Success(existing + added)
+        if (added.isNotEmpty()) _home.value = UiState.Success(existing + added.map(TopPicks::diversifyQuickPicks))
     }
 
     /** Refreshes the core feed without blanking the current Play page first. */
     private suspend fun refreshHome(identity: String?) = coroutineScope {
         val recent = if (_signedIn.value) async { YtMusicRepository.homeRecentlyPlayed() } else null
-        // Top Picks keeps to its hour; a pull refreshes the feed, not the
-        // picks, unless the hour has already turned over.
-        if (topPicksJob?.isActive != true) loadTopPicks(identity, rebuild = false)
+        if (topPicksJob?.isActive != true) loadTopPicks(identity, rebuild = true)
         YtMusicRepository.home().onSuccess { feed ->
             if (identity != listenerKey()) return@onSuccess
             homeContinuation = feed.continuation
             homeSeenTitles.clear()
             val shelves = feed.shelves.withoutRepeatsOf(emptyList())
                 .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
-            if (shelves.isNotEmpty()) _home.value = UiState.Success(shelves)
+            if (shelves.isNotEmpty()) _home.value = UiState.Success(shelves.map(TopPicks::diversifyQuickPicks))
         }
         recent?.await()?.onSuccess { shelf ->
             if (identity == listenerKey()) shelf?.let { publishHomeShelves(listOf(it), prepend = true) }
@@ -2021,7 +2084,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // itself rather than run dry with a token still attached —
                     // treat it the same as exhausted so scrolling can't spin here.
                     homeContinuation = feed.continuation.takeIf { added.isNotEmpty() }
-                    if (added.isNotEmpty()) _home.value = UiState.Success(existing + added)
+                    if (added.isNotEmpty()) _home.value = UiState.Success(existing + added.map(TopPicks::diversifyQuickPicks))
                 }
             }
             if (identity == listenerKey()) _homeLoadingMore.value = false
@@ -2678,7 +2741,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         /** Today's Top Picks row, kept so the next launch paints it before any request. */
-        private const val TOP_PICKS_FILE = "top_picks_v4.json"
+        private const val TOP_PICKS_FILE = "top_picks_v5.json"
 
         /** Per-addon budget for the Addons search tab; a slow addon is left out, not waited on. */
         private const val ADDON_SEARCH_TIMEOUT_MS = 12_000L
@@ -3738,6 +3801,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun clearListenerState(restoreCached: Boolean = false) {
+        _exploreReleases.value = emptyList()
         _account.value = null
         likedSyncJob?.cancel()
         LikeState.clear()
@@ -3769,6 +3833,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun reloadForAccount() {
         viewModelScope.launch {
             Innertube.ensureSessionScope()
+            if (exploreRequested) loadExplore()
             loadHome()
             loadLibrary()
             loadAccount()

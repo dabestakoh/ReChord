@@ -1487,4 +1487,18 @@
     <string name="local_refresh_index">רענון ספריית המוזיקה</string>
     <string name="local_scan_running">ספריית המוזיקה מתעדכנת…</string>
     <string name="local_scan_unavailable">מקור המוזיקה אינו זמין · ניסיון חוזר</string>
+    <string name="home_featured_carousel">קרוסלת תוכן נבחר</string>
+    <string name="home_show_carousel">הצגת הקרוסלה</string>
+    <string name="home_continue_listening">המשך האזנה</string>
+    <string name="home_new_from_artists">חדש מהאמנים שלך</string>
+    <string name="home_song_recommendations">שירים מומלצים</string>
+    <string name="home_artist_recommendations">אמנים מומלצים</string>
+    <string name="home_shelves">מדורים בדף הבית</string>
+    <string name="home_recently_played">הושמעו לאחרונה</string>
+    <string name="home_trending">פופולרי עכשיו</string>
+    <string name="diagnostics">אבחון</string>
+    <string name="send_diagnostic_report">שליחת דוח אבחון</string>
+    <string name="diagnostic_report_github">פתיחת טיוטה ציבורית ב-GitHub לבדיקה ולשליחה.</string>
+    <string name="export_diagnostic_log">ייצוא יומן אבחון</string>
+    <string name="diagnostic_report_error">לא ניתן לפתוח או לייצא את דוח האבחון.</string>
 </resources>

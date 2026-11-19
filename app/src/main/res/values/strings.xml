@@ -1352,4 +1352,18 @@
     <string name="local_refresh_index">Refresh music library</string>
     <string name="local_scan_running">Updating music library…</string>
     <string name="local_scan_unavailable">Music source unavailable · Retry</string>
+    <string name="home_featured_carousel">Featured carousel</string>
+    <string name="home_show_carousel">Show carousel</string>
+    <string name="home_continue_listening">Continue Listening</string>
+    <string name="home_new_from_artists">New from your artists</string>
+    <string name="home_song_recommendations">Song recommendations</string>
+    <string name="home_artist_recommendations">Artist recommendations</string>
+    <string name="home_shelves">Home shelves</string>
+    <string name="home_recently_played">Recently Played</string>
+    <string name="home_trending">Trending</string>
+    <string name="diagnostics">Diagnostics</string>
+    <string name="send_diagnostic_report">Send diagnostic report</string>
+    <string name="diagnostic_report_github">Opens a public GitHub draft for review and submission.</string>
+    <string name="export_diagnostic_log">Export diagnostic log</string>
+    <string name="diagnostic_report_error">Could not open or export the diagnostic report.</string>
 </resources>

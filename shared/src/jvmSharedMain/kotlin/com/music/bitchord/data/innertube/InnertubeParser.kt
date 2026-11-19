@@ -196,6 +196,11 @@ object InnertubeParser {
 
     // ---- Home feed ----------------------------------------------------------
 
+    fun relatedBrowseId(response: JsonObject): String? = response
+        .o("contents").o("singleColumnMusicWatchNextResultsRenderer").o("tabbedRenderer")
+        .o("watchNextTabbedResultsRenderer").a("tabs").orEmpty()
+        .getOrNull(2).o("tabRenderer").o("endpoint").o("browseEndpoint").s("browseId")
+
     fun parseHome(response: JsonObject): List<HomeShelf> {
         val sections = response.o("contents")
             .o("singleColumnBrowseResultsRenderer").a("tabs")?.firstOrNull()
@@ -516,6 +521,12 @@ object InnertubeParser {
      * [parseMultiRowListItem] — and are credited to [show], since they don't
      * name it themselves; see [podcastShow].
      */
+    fun relatedTrackRows(root: JsonElement): List<Song> =
+        (collectRenderers(root, "musicShelfRenderer") + collectRenderers(root, "musicCarouselShelfRenderer"))
+            .flatMap { collectSongsDeep(it) }
+            .distinctBy { it.videoId }
+            .filterNot { it.isVideo }
+
     fun collectSongsDeep(root: JsonElement, show: String? = null): List<Song> {
         val out = LinkedHashMap<String, Song>()
         // A release's own rows are credited by its header, not one by one.
@@ -1308,6 +1319,10 @@ object InnertubeParser {
      * [preferVideo] is the other way round: a pair comes back as its music
      * video, for a queue that plays on from a video.
      */
+    fun watchQueueContinuation(root: JsonElement): String? =
+        (collectRenderers(root, "playlistPanelRenderer") + collectRenderers(root, "playlistPanelContinuation"))
+            .firstNotNullOfOrNull(::continuationToken)
+
     fun parseWatchQueue(root: JsonElement, preferAudio: Boolean = false, preferVideo: Boolean = false): List<Song> {
         val out = LinkedHashMap<String, Song>()
         // Each pair stands in the queue as one row: the audio half where

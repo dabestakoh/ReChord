@@ -1454,4 +1454,18 @@
     <string name="local_refresh_index">重新整理音樂庫</string>
     <string name="local_scan_running">正在更新音樂庫…</string>
     <string name="local_scan_unavailable">音樂來源無法使用 · 重試</string>
+    <string name="home_featured_carousel">精選輪播</string>
+    <string name="home_show_carousel">顯示輪播</string>
+    <string name="home_continue_listening">繼續聆聽</string>
+    <string name="home_new_from_artists">常聽藝人的新作品</string>
+    <string name="home_song_recommendations">歌曲推薦</string>
+    <string name="home_artist_recommendations">藝人推薦</string>
+    <string name="home_shelves">首頁欄目</string>
+    <string name="home_recently_played">最近播放</string>
+    <string name="home_trending">熱門趨勢</string>
+    <string name="diagnostics">診斷</string>
+    <string name="send_diagnostic_report">傳送診斷報告</string>
+    <string name="diagnostic_report_github">在 GitHub 開啟公開議題草稿，供你檢查並提交。</string>
+    <string name="export_diagnostic_log">匯出診斷記錄</string>
+    <string name="diagnostic_report_error">無法開啟或匯出診斷報告。</string>
 </resources>

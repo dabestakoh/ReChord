@@ -27,7 +27,7 @@ import java.util.UUID
  *
  * User-queued tracks (USER_QUEUE) are NEVER shuffled: they reflect deliberate user
  * intent and remain pinned at the front. Context tracks (CONTEXT) and AutoPlay tracks
- * (AUTOPLAY) are shuffled among themselves.
+ * (AUTOPLAY) keep their radio order.
  *
  * The rearranging is applied in-place to the player's queue via [Player.replaceMediaItems]
  * so that currently playing playback is completely uninterrupted.
@@ -201,7 +201,7 @@ object QueueShuffle {
             val s = context.shuffled()
             if (s == context) s.drop(1) + s.first() else s
         } else context
-        val autoplay = rest.filter { it.queueTier == QueueTier.AUTOPLAY }.shuffled()
+        val autoplay = rest.filter { it.queueTier == QueueTier.AUTOPLAY }
         return listOf(songs[startIndex]) + userQueue + shuffledContext + autoplay
     }
 

@@ -108,7 +108,6 @@ import com.music.bitchord.sharedui.resources.*
 import com.music.bitchord.ui.components.PAGE_GUTTER
 import com.music.bitchord.ui.components.rememberBlurredBackdrop
 import com.music.bitchord.ui.components.ShelfRow
-import com.music.bitchord.ui.components.SectionHeaderSkeleton
 import com.music.bitchord.ui.components.ShimmerBox
 import com.music.bitchord.ui.components.contextClick
 import com.music.bitchord.ui.components.longPressMenuClickable
@@ -131,22 +130,16 @@ import kotlin.math.sin
  * card leaves composition.
  */
 
-/** Width over height: Apple's cards are a 3:4 portrait. */
-private const val TOP_PICK_RATIO = 0.75f
-
-/** Share of the row a card takes, so the next one shows past it. */
-private const val TOP_PICK_FRACTION = 0.60f
-
-/** Held back on a tablet, so a card doesn't blow up into a poster. */
-private val TOP_PICK_MAX_WIDTH = 280.dp
-
+private fun featuredHeight(width: Dp, limit: Dp): Dp = minOf(width * 1.18f, limit, 460.dp)
 private val TopPickShape = RoundedCornerShape(12.dp)
 
-private fun topPickWidth(available: Dp): Dp = minOf(available * TOP_PICK_FRACTION, TOP_PICK_MAX_WIDTH)
+private fun topPickWidth(available: Dp): Dp = (available - PAGE_GUTTER * 2 - 24.dp).coerceIn(1.dp, 540.dp)
 
 @Composable
 internal fun TopPicksShelf(
     picks: List<TopPick>,
+    heightLimit: Dp,
+    isPlaying: Boolean,
     /** The account's name, for "Kushagra's Station". Null shows "Your Station". */
     listenerName: String?,
     /** The card, and the title it was showing — the station's name for the queue. */
@@ -154,6 +147,13 @@ internal fun TopPicksShelf(
     onLongPress: ((TopPick) -> Unit)?,
 ) {
     val rowState = rememberLazyListState()
+    var visibleLimit by remember { mutableIntStateOf(8) }
+    LaunchedEffect(rowState, picks.size) {
+        snapshotFlow { rowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { last ->
+                if (last >= visibleLimit - 2 && visibleLimit < picks.size) visibleLimit += 8
+            }
+    }
     // Which cards turned out to have a clip, by index, and which one plays.
     val hasClip = remember(picks) { mutableStateMapOf<Int, Boolean>() }
     var owner by remember(picks) { mutableIntStateOf(-1) }
@@ -164,7 +164,7 @@ internal fun TopPicksShelf(
             .collect { (scrolling, next) -> if (!scrolling) owner = next }
     }
     Column(Modifier.padding(bottom = 26.dp)) {
-        SectionHeader(stringResource(Res.string.top_picks_for_you))
+        SectionHeader(stringResource(Res.string.home_featured))
         BoxWithConstraints {
             val cardWidth = topPickWidth(maxWidth)
             PausedWhileScrolling(rowState) {
@@ -173,7 +173,7 @@ internal fun TopPicksShelf(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     state = rowState,
                 ) {
-                    itemsIndexed(picks, key = { index, pick -> "$index:${pick.kind}:${pick.title}" }) { index, pick ->
+                    itemsIndexed(picks.take(visibleLimit), key = { _, pick -> pick.carouselKey }) { index, pick ->
                         CompositionLocalProvider(
                             LocalClipSlot provides ClipSlot(
                                 mayPlay = index == owner,
@@ -182,10 +182,12 @@ internal fun TopPicksShelf(
                         ) {
                             TopPickCard(
                                 pick = pick,
+                                isPlaying = isPlaying,
+                                compact = featuredHeight(cardWidth, heightLimit) < 210.dp,
                                 listenerName = listenerName,
                                 onClick = onClick,
                                 onLongPress = onLongPress?.takeIf { pick.kind == TopPickKind.LATEST_RELEASE },
-                                modifier = Modifier.width(cardWidth),
+                                modifier = Modifier.width(cardWidth).height(featuredHeight(cardWidth, heightLimit)),
                             )
                         }
                     }
@@ -196,10 +198,10 @@ internal fun TopPicksShelf(
 }
 
 /** Stands in for the row while it is being built, at the same size, so the feed doesn't jump. */
-fun LazyListScope.topPicksSkeleton() {
+fun LazyListScope.topPicksSkeleton(heightLimit: Dp) {
     item(key = "skeleton:top-picks") {
         Column(Modifier.padding(bottom = 26.dp)) {
-            SectionHeaderSkeleton()
+            SectionHeader(stringResource(Res.string.home_featured))
             BoxWithConstraints {
                 val cardWidth = topPickWidth(maxWidth)
                 LazyRow(
@@ -209,7 +211,7 @@ fun LazyListScope.topPicksSkeleton() {
                 ) {
                     items(2) {
                         ShimmerBox(
-                            modifier = Modifier.width(cardWidth).aspectRatio(TOP_PICK_RATIO),
+                            modifier = Modifier.width(cardWidth).height(featuredHeight(cardWidth, heightLimit)),
                             shape = TopPickShape,
                         )
                     }
@@ -226,6 +228,17 @@ private class CardText(val eyebrow: String, val title: String, val subtitle: Str
 private fun cardText(pick: TopPick, listenerName: String?): CardText {
     val artist = pick.artistName.orEmpty()
     return when (pick.kind) {
+        TopPickKind.CONTINUE_LISTENING -> CardText(
+            stringResource(Res.string.home_continue_listening), pick.title, pick.subtitle,
+        )
+        TopPickKind.RELATED_SONG -> CardText(
+            listOfNotNull(
+                stringResource(if (pick.likedSeed) Res.string.home_because_you_like else Res.string.home_more_like_song),
+                pick.seedTitle,
+            ).joinToString(" "),
+            pick.title,
+            pick.subtitle,
+        )
         TopPickKind.LATEST_RELEASE -> CardText(
             eyebrow = stringResource(Res.string.top_pick_new_from, artist),
             title = pick.title,
@@ -248,7 +261,7 @@ private fun cardText(pick: TopPick, listenerName: String?): CardText {
         }
         TopPickKind.ARTIST_AND_SIMILAR -> CardText(
             eyebrow = stringResource(Res.string.top_pick_featuring, artist),
-            title = stringResource(Res.string.top_pick_and_similar, artist),
+            title = stringResource(Res.string.home_more_like_artist, artist),
             subtitle = "",
         )
         TopPickKind.FEATURED_ARTIST -> CardText(
@@ -273,6 +286,8 @@ private fun cardText(pick: TopPick, listenerName: String?): CardText {
 @Composable
 private fun TopPickCard(
     pick: TopPick,
+    isPlaying: Boolean,
+    compact: Boolean,
     listenerName: String?,
     onClick: (TopPick, String) -> Unit,
     onLongPress: ((TopPick) -> Unit)?,
@@ -282,7 +297,6 @@ private fun TopPickCard(
     val longPress = onLongPress?.let { { it(pick) } }
     Box(
         modifier = modifier
-            .aspectRatio(TOP_PICK_RATIO)
             .clip(TopPickShape)
             .thumbnailBorder(TopPickShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -314,7 +328,7 @@ private fun TopPickCard(
                 eyebrowColor = palette.eyebrow
                 branded = true
             }
-            TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX -> {
+            TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX, TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG -> {
                 ReleaseArt(
                     pick.images.firstOrNull(),
                     Modifier.fillMaxSize(),
@@ -365,12 +379,19 @@ private fun TopPickCard(
                     .aspectRatio(730f / 484f),
             )
         }
-        CardCaption(text, eyebrowColor, Modifier.align(Alignment.BottomStart))
+        val action = when (pick.kind) {
+            TopPickKind.CONTINUE_LISTENING -> stringResource(if (isPlaying) Res.string.home_open_player else Res.string.home_resume)
+            TopPickKind.LATEST_RELEASE -> stringResource(Res.string.home_open_release)
+            TopPickKind.ARTIST_AND_SIMILAR -> stringResource(Res.string.home_play_picks)
+            TopPickKind.RELATED_SONG -> stringResource(Res.string.play)
+            else -> null
+        }
+        CardCaption(text, eyebrowColor, Modifier.align(Alignment.BottomStart), action, compact)
     }
 }
 
 @Composable
-private fun CardCaption(text: CardText, eyebrowColor: Color, modifier: Modifier) {
+private fun CardCaption(text: CardText, eyebrowColor: Color, modifier: Modifier, action: String?, compact: Boolean) {
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -391,16 +412,29 @@ private fun CardCaption(text: CardText, eyebrowColor: Color, modifier: Modifier)
                 fontWeight = FontWeight.SemiBold,
             ),
             color = Color.White,
-            maxLines = 2,
+            maxLines = if (compact) 1 else 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (text.subtitle.isNotBlank()) {
+        if (!compact && text.subtitle.isNotBlank()) {
             Text(
                 text = text.subtitle,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 16.sp),
                 color = Color.White.copy(alpha = 0.86f),
-                maxLines = 2,
+                maxLines = if (compact) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (action != null) {
+            Text(
+                text = action,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
             )
         }
     }

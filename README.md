@@ -49,6 +49,8 @@ Download a published build from [Releases](https://github.com/dabestakoh/ReChord
 
 Preview and Release use separate application data. APK upgrades require a matching signing certificate; do not uninstall a build containing important unbacked-up data merely to replace it.
 
+For implementation and testing conventions, see the [ReChord engineering standards](docs/RECHORD-STANDARDS.md).
+
 ## Build from source
 
 1. Clone this repository and open the Android project in Android Studio.
@@ -65,6 +67,8 @@ ReChord is under active development. Preview builds may include experimental opt
 ## Credits and license
 
 ReChord is based on [BitChord by kushagrasinghx and contributors](https://github.com/kushagrasinghx/BitChord). Existing upstream copyrights and third-party attribution remain applicable.
+
+Thanks to [Auris](https://github.com/OreoMuncher45/Auris) for inspiring the Now Playing color treatment, startup skeletons, and smoother scrolling. Thanks to [Mochy Music](https://github.com/realidkroo/Mochy-Music) for inspiring the featured Home carousel and personalized recommendations.
 
 Distributed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the license and source-distribution obligations.
 

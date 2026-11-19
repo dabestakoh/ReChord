@@ -1522,4 +1522,18 @@
     <string name="local_refresh_index">Odśwież bibliotekę muzyczną</string>
     <string name="local_scan_running">Aktualizowanie biblioteki muzycznej…</string>
     <string name="local_scan_unavailable">Źródło muzyki niedostępne · Spróbuj ponownie</string>
+    <string name="home_featured_carousel">Karuzela polecanych</string>
+    <string name="home_show_carousel">Pokaż karuzelę</string>
+    <string name="home_continue_listening">Słuchaj dalej</string>
+    <string name="home_new_from_artists">Nowości od Twoich wykonawców</string>
+    <string name="home_song_recommendations">Polecane utwory</string>
+    <string name="home_artist_recommendations">Polecani wykonawcy</string>
+    <string name="home_shelves">Sekcje strony głównej</string>
+    <string name="home_recently_played">Ostatnio odtwarzane</string>
+    <string name="home_trending">Na czasie</string>
+    <string name="diagnostics">Diagnostyka</string>
+    <string name="send_diagnostic_report">Wyślij raport diagnostyczny</string>
+    <string name="diagnostic_report_github">Otwiera publiczny szkic na GitHubie do sprawdzenia i wysłania.</string>
+    <string name="export_diagnostic_log">Eksportuj dziennik diagnostyczny</string>
+    <string name="diagnostic_report_error">Nie udało się otworzyć ani wyeksportować raportu diagnostycznego.</string>
 </resources>

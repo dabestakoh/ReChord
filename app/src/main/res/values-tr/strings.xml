@@ -1439,4 +1439,18 @@
     <string name="local_refresh_index">Müzik arşivini yenile</string>
     <string name="local_scan_running">Müzik arşivi güncelleniyor…</string>
     <string name="local_scan_unavailable">Müzik kaynağı kullanılamıyor · Yeniden dene</string>
+    <string name="home_featured_carousel">Öne çıkanlar karuseli</string>
+    <string name="home_show_carousel">Karuseli göster</string>
+    <string name="home_continue_listening">Dinlemeye devam et</string>
+    <string name="home_new_from_artists">Sanatçılarından yeni çıkanlar</string>
+    <string name="home_song_recommendations">Şarkı önerileri</string>
+    <string name="home_artist_recommendations">Sanatçı önerileri</string>
+    <string name="home_shelves">Ana sayfa bölümleri</string>
+    <string name="home_recently_played">Son çalınanlar</string>
+    <string name="home_trending">Trendler</string>
+    <string name="diagnostics">Tanılama</string>
+    <string name="send_diagnostic_report">Tanılama raporu gönder</string>
+    <string name="diagnostic_report_github">İnceleyip göndermeniz için GitHub’da herkese açık bir taslak açar.</string>
+    <string name="export_diagnostic_log">Tanılama günlüğünü dışa aktar</string>
+    <string name="diagnostic_report_error">Tanılama raporu açılamadı veya dışa aktarılamadı.</string>
 </resources>

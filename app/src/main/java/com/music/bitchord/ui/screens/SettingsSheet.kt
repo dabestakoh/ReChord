@@ -95,6 +95,7 @@ import androidx.compose.material3.SliderDefaults
 import com.music.bitchord.ui.components.IosSwitch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.music.bitchord.data.model.HomeSections
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -172,7 +173,10 @@ import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
+import com.music.bitchord.data.AppDiagnostics
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.util.Locale
 
@@ -292,10 +296,7 @@ fun SettingsScreen(
     val dontRepeatSuggestions by AppSettings.dontRepeatSuggestions.collectAsStateWithLifecycle()
     val preferMusicOnly by AppSettings.preferMusicOnly.collectAsStateWithLifecycle()
     val squareVideoThumbnails by AppSettings.squareVideoThumbnails.collectAsStateWithLifecycle()
-    val hideRecents by AppSettings.hideRecents.collectAsStateWithLifecycle()
     val hideHomeVideos by AppSettings.hideHomeVideos.collectAsStateWithLifecycle()
-    val hideTopPicks by AppSettings.hideTopPicks.collectAsStateWithLifecycle()
-    val hideHomeMoods by AppSettings.hideHomeMoods.collectAsStateWithLifecycle()
     val smartVersionAlignment by AppSettings.smartVersionAlignment.collectAsStateWithLifecycle()
     val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
     val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
@@ -979,20 +980,6 @@ fun SettingsScreen(
                     onClick = { AppSettings.setPreferMusicOnly(!preferMusicOnly) },
                 )
             }
-            val hideRecentsTitle = stringResource(R.string.hide_recents)
-            row(hideRecentsTitle, "recents", "recent", "history", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.VisibilityOff,
-                    title = hideRecentsTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideRecents,
-                            onCheckedChange = AppSettings::setHideRecents,
-                        )
-                    },
-                    onClick = { AppSettings.setHideRecents(!hideRecents) },
-                )
-            }
             val hideHomeVideosTitle = stringResource(R.string.hide_home_videos)
             row(hideHomeVideosTitle, "video", "music video", "feed", "home") {
                 SettingsRow(
@@ -1006,34 +993,6 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { AppSettings.setHideHomeVideos(!hideHomeVideos) },
-                )
-            }
-            val hideTopPicksTitle = stringResource(R.string.hide_top_picks)
-            row(hideTopPicksTitle, "top picks", "recommendations", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.AutoAwesome,
-                    title = hideTopPicksTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideTopPicks,
-                            onCheckedChange = AppSettings::setHideTopPicks,
-                        )
-                    },
-                    onClick = { AppSettings.setHideTopPicks(!hideTopPicks) },
-                )
-            }
-            val hideHomeMoodsTitle = stringResource(R.string.hide_home_moods)
-            row(hideHomeMoodsTitle, "mood", "moods", "find your mood", "feed", "home") {
-                SettingsRow(
-                    icon = SfIcons.Star,
-                    title = hideHomeMoodsTitle,
-                    trailing = {
-                        IosSwitch(
-                            checked = hideHomeMoods,
-                            onCheckedChange = AppSettings::setHideHomeMoods,
-                        )
-                    },
-                    onClick = { AppSettings.setHideHomeMoods(!hideHomeMoods) },
                 )
             }
             val squareVideoThumbnailsTitle = stringResource(R.string.square_video_thumbnails)
@@ -1054,6 +1013,14 @@ fun SettingsScreen(
         }
 
         if (shows(SettingsCategory.APPEARANCE)) SearchableSettingsGroup(search, header = stringResource(R.string.appearance)) {
+            val homeTitle = stringResource(R.string.home)
+            row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
+                SettingsRow(
+                    icon = SfIcons.AutoAwesome,
+                    title = homeTitle,
+                    onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
+                )
+            }
             val themeTitle = stringResource(R.string.theme)
             row(themeTitle, "dark mode", "light mode") {
                 SettingsRow(icon = Icons.Rounded.Brightness4, title = themeTitle)
@@ -1597,6 +1564,52 @@ fun SettingsScreen(
                     subtitle = importStatus ?: stringResource(R.string.import_data_subtitle),
                     onClick = { confirmImport = true },
                 )
+            }
+        }
+
+        if (shows(SettingsCategory.DIAGNOSTICS)) {
+            val sendTitle = stringResource(R.string.send_diagnostic_report)
+            val exportTitle = stringResource(R.string.export_diagnostic_log)
+            val reportError = stringResource(R.string.diagnostic_report_error)
+            val diagnosticsScope = rememberCoroutineScope()
+            val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+                if (uri != null) diagnosticsScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            checkNotNull(context.contentResolver.openOutputStream(uri, "wt")).bufferedWriter().use {
+                                it.write(AppDiagnostics.report(context))
+                            }
+                        }
+                    }
+                    if (result.isFailure) Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show()
+                }
+            }
+            SearchableSettingsGroup(search, header = stringResource(R.string.diagnostics)) {
+                row(sendTitle, "crash", "github") {
+                    SettingsRow(
+                        icon = SfIcons.Miscellaneous,
+                        title = sendTitle,
+                        subtitle = stringResource(R.string.diagnostic_report_github),
+                        onClick = {
+                            diagnosticsScope.launch {
+                                val report = withContext(Dispatchers.IO) { AppDiagnostics.report(context) }
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, AppDiagnostics.issueUri(report)))
+                                }.onFailure { Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show() }
+                            }
+                        },
+                    )
+                }
+                row(exportTitle, "crash", "logs") {
+                    SettingsRow(
+                        icon = SfIcons.Download,
+                        title = exportTitle,
+                        onClick = {
+                            runCatching { export.launch("rechord-diagnostics.txt") }
+                                .onFailure { Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show() }
+                        },
+                    )
+                }
             }
         }
 
@@ -2533,6 +2546,7 @@ internal fun SettingsRow(
     iconPainter: Painter? = null,
     iconContent: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    titleMaxLines: Int = 1,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
@@ -2568,7 +2582,7 @@ internal fun SettingsRow(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
+                    maxLines = titleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (badge != null) {
@@ -2805,6 +2819,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
     STORAGE(R.string.storage),
     YOUR_DATA(R.string.your_data),
     MISCELLANEOUS(R.string.miscellaneous),
+    DIAGNOSTICS(R.string.diagnostics),
     LANGUAGE(R.string.language),
     ;
 
@@ -2819,6 +2834,7 @@ enum class SettingsCategory(@param:StringRes val title: Int) {
             STORAGE -> SfIcons.Storage
             YOUR_DATA -> SfIcons.YourData
             MISCELLANEOUS -> SfIcons.Miscellaneous
+            DIAGNOSTICS -> SfIcons.Miscellaneous
             LANGUAGE -> SfIcons.Language
         }
 }
@@ -2831,6 +2847,48 @@ enum class SettingsChoiceKind(@param:StringRes val title: Int) {
     AUTOMIX_PERFORMANCE(R.string.automix_performance),
     BIT_PERFECT(R.string.bit_perfect_output),
     FONT(R.string.font),
+    HOME(R.string.home),
+}
+
+@Composable
+private fun HomeSectionSettings() {
+    val overrides by AppSettings.homeSectionOverrides.collectAsStateWithLifecycle()
+    val catalog by AppSettings.homeShelfCatalog.collectAsStateWithLifecycle()
+    val featured = linkedMapOf(
+        HomeSections.CAROUSEL to stringResource(R.string.home_show_carousel),
+        HomeSections.CONTINUE to stringResource(R.string.home_continue_listening),
+        HomeSections.RELEASE to stringResource(R.string.home_new_from_artists),
+        HomeSections.SONG to stringResource(R.string.home_song_recommendations),
+        HomeSections.ARTIST to stringResource(R.string.home_artist_recommendations),
+    )
+    val shelves = linkedMapOf(
+        HomeSections.RECENTS to stringResource(R.string.home_recently_played),
+        HomeSections.QUICK_PICKS to stringResource(R.string.shelf_quick_picks),
+        HomeSections.MOODS to stringResource(R.string.find_your_mood),
+        HomeSections.TOP_SONGS to stringResource(R.string.top_songs),
+        HomeSections.TRENDING to stringResource(R.string.home_trending),
+    )
+    catalog.entries.sortedBy { it.value.lowercase(Locale.ROOT) }.forEach { (key, title) ->
+        shelves.putIfAbsent(key, title)
+    }
+    HomeSectionSwitches(stringResource(R.string.home_featured_carousel), featured, overrides)
+    HomeSectionSwitches(stringResource(R.string.home_shelves), shelves, overrides)
+}
+
+@Composable
+private fun HomeSectionSwitches(title: String, sections: Map<String, String>, overrides: Map<String, Boolean>) {
+    SettingsGroup(header = title) {
+        sections.entries.forEachIndexed { index, (key, label) ->
+            if (index > 0) RowDivider()
+            val checked = HomeSections.visible(key, overrides)
+            SettingsRow(
+                title = label,
+                titleMaxLines = Int.MAX_VALUE,
+                trailing = { IosSwitch(checked = checked, onCheckedChange = { AppSettings.setHomeSectionVisible(key, it) }) },
+                onClick = { AppSettings.setHomeSectionVisible(key, !checked) },
+            )
+        }
+    }
 }
 
 /** The main page's list of categories: a glyph and a name each, and a chevron into it. */
@@ -2950,6 +3008,7 @@ fun SettingsChoicePage(
                 }
             }
 
+            SettingsChoiceKind.HOME -> HomeSectionSettings()
             SettingsChoiceKind.FONT -> {
                 val selected by AppSettings.appFont.collectAsStateWithLifecycle()
                 ChoiceGroup(

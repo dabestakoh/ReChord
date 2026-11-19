@@ -467,6 +467,8 @@ object AppSettings {
 
     /** Home's Top Picks for You shelf. */
     val hideTopPicks = MutableStateFlow(false)
+    val homeSectionOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val homeShelfCatalog = MutableStateFlow<Map<String, String>>(emptyMap())
 
     /** Home's Find Your Mood shelf. Explore's moods are a page the listener opened, so they stay. */
     val hideHomeMoods = MutableStateFlow(false)
@@ -1033,6 +1035,26 @@ object AppSettings {
         hideHomeVideos.value = prefs.getBoolean(KEY_HIDE_HOME_VIDEOS, false)
         hideTopPicks.value = prefs.getBoolean(KEY_HIDE_TOP_PICKS, false)
         hideHomeMoods.value = prefs.getBoolean(KEY_HIDE_HOME_MOODS, false)
+        homeSectionOverrides.value = mapOf(
+            "carousel" to !hideTopPicks.value,
+            "recents" to !hideRecents.value,
+            "moods" to !hideHomeMoods.value,
+        ) + prefs.getStringSet("home_section_overrides", emptySet()).orEmpty()
+            .associate { it.drop(1) to it.startsWith("+") }
+        homeShelfCatalog.value = runCatching {
+            val json = org.json.JSONObject(prefs.getString("home_shelf_catalog", "{}").orEmpty())
+            json.keys().asSequence().associateWith { json.getString(it) }
+        }.getOrDefault(emptyMap())
+        val retiredHomeKeys = homeShelfCatalog.value.filterValues(com.music.bitchord.data.model.HomeSections::removed).keys
+        if (retiredHomeKeys.isNotEmpty()) {
+            homeShelfCatalog.value = homeShelfCatalog.value - retiredHomeKeys
+            homeSectionOverrides.value = homeSectionOverrides.value - retiredHomeKeys
+            prefs.edit()
+                .putString("home_shelf_catalog", org.json.JSONObject(homeShelfCatalog.value).toString())
+                .putStringSet("home_section_overrides", homeSectionOverrides.value.mapTo(mutableSetOf()) {
+                    (if (it.value) "+" else "-") + it.key
+                }).apply()
+        }
         squareVideoThumbnails.value = prefs.getBoolean(KEY_SQUARE_VIDEO_THUMBNAILS, false)
         VideoThumbnails.square = squareVideoThumbnails.value
         smartVersionAlignment.value = prefs.getBoolean(KEY_SMART_VERSION_ALIGNMENT, true)
@@ -1483,6 +1505,21 @@ object AppSettings {
     fun setHideHomeVideos(value: Boolean) {
         hideHomeVideos.value = value
         prefs.edit().putBoolean(KEY_HIDE_HOME_VIDEOS, value).apply()
+    }
+
+    fun setHomeSectionVisible(key: String, visible: Boolean) {
+        val updated = homeSectionOverrides.value + (key to visible)
+        homeSectionOverrides.value = updated
+        prefs.edit().putStringSet("home_section_overrides", updated.mapTo(mutableSetOf()) {
+            (if (it.value) "+" else "-") + it.key
+        }).apply()
+    }
+
+    fun rememberHomeShelves(shelves: Map<String, String>) {
+        val updated = homeShelfCatalog.value + shelves
+        if (updated == homeShelfCatalog.value) return
+        homeShelfCatalog.value = updated
+        prefs.edit().putString("home_shelf_catalog", org.json.JSONObject(updated).toString()).apply()
     }
 
     fun setHideTopPicks(value: Boolean) {

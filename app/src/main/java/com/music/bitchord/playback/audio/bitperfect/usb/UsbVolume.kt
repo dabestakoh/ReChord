@@ -240,7 +240,12 @@ internal object UsbVolume {
                     ),
                 )
                 // Never raise the device's current volume on connection.
-                volume.setTargets(control, startup)
+                try {
+                    volume.setTargets(control, startup)
+                } catch (failure: Exception) {
+                    runCatching { volume.restore(control) }
+                    throw failure
+                }
                 return volume
             }
         }
