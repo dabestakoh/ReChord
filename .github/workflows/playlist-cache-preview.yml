@@ -79,6 +79,8 @@ jobs:
             --tests 'com.music.bitchord.playback.CachedFlacReusePolicyTest' \
             --build-cache --max-workers=3 --stacktrace
       - name: Assemble signed ARM64 Preview
+        env:
+          RECHORD_DIAGNOSTICS_SERVER: ${{ vars.RECHORD_DIAGNOSTICS_SERVER }}
         run: |
           ./gradlew :app:assembleDevDebug -PbitchordArm64Only=true -Pbitchord.bundleWear=false \
             --build-cache --parallel --max-workers=3 --stacktrace

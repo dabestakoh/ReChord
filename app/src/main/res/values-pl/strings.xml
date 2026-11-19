@@ -1533,7 +1533,7 @@
     <string name="home_trending">Na czasie</string>
     <string name="diagnostics">Diagnostyka</string>
     <string name="send_diagnostic_report">Wyślij raport diagnostyczny</string>
-    <string name="diagnostic_report_github">Otwiera publiczny szkic na GitHubie do sprawdzenia i wysłania.</string>
+    <string name="diagnostic_report_github">Publikuje raport bez danych wrażliwych w serwisie GitHub.</string>
     <string name="export_diagnostic_log">Eksportuj dziennik diagnostyczny</string>
     <string name="diagnostic_report_error">Nie udało się otworzyć ani wyeksportować raportu diagnostycznego.</string>
 </resources>

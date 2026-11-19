@@ -90,6 +90,8 @@ jobs:
             "$RELEASE_STORE_PASSWORD" "$RELEASE_KEY_ALIAS" "$RELEASE_KEY_PASSWORD" > keystore.properties
 
       - name: Build signed production APK
+        env:
+          RECHORD_DIAGNOSTICS_SERVER: ${{ vars.RECHORD_DIAGNOSTICS_SERVER }}
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleProdRelease -Pbitchord.bundleWear=false \

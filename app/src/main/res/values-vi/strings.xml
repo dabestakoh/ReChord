@@ -1410,7 +1410,7 @@
     <string name="home_trending">Thịnh hành</string>
     <string name="diagnostics">Chẩn đoán</string>
     <string name="send_diagnostic_report">Gửi báo cáo chẩn đoán</string>
-    <string name="diagnostic_report_github">Mở bản nháp công khai trên GitHub để xem lại và gửi.</string>
+    <string name="diagnostic_report_github">Đăng báo cáo đã loại bỏ thông tin nhạy cảm lên GitHub.</string>
     <string name="export_diagnostic_log">Xuất nhật ký chẩn đoán</string>
     <string name="diagnostic_report_error">Không thể mở hoặc xuất báo cáo chẩn đoán.</string>
 </resources>

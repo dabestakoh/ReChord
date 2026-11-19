@@ -1494,7 +1494,7 @@
     <string name="home_trending">Tendances</string>
     <string name="diagnostics">Diagnostic</string>
     <string name="send_diagnostic_report">Envoyer un rapport de diagnostic</string>
-    <string name="diagnostic_report_github">Ouvre un brouillon public sur GitHub pour le relire et le publier.</string>
+    <string name="diagnostic_report_github">Publie un rapport expurgé sur GitHub.</string>
     <string name="export_diagnostic_log">Exporter le journal de diagnostic</string>
     <string name="diagnostic_report_error">Impossible d’ouvrir ou d’exporter le rapport de diagnostic.</string>
 </resources>
