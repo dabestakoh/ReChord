@@ -139,6 +139,7 @@ internal object AppDiagnostics {
                         ApplicationExitInfo.REASON_CRASH -> "App crash"
                         ApplicationExitInfo.REASON_CRASH_NATIVE -> "Native crash"
                         ApplicationExitInfo.REASON_ANR -> "App not responding"
+                        ApplicationExitInfo.REASON_LOW_MEMORY -> "Low memory kill"
                         else -> return@mapNotNull null
                     }
                     "$reason (time: ${exit.timestamp})"

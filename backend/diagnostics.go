@@ -82,7 +82,7 @@ func diagnosticHandler(token string, client *http.Client, endpoint string) http.
 }
 
 var diagnosticHeader = regexp.MustCompile(`^ReChord [0-9]+(\.[0-9]+){1,4}(-[A-Za-z0-9.-]{1,20})? \([0-9]{1,10}, (debug|release|benchmark)\)$`)
-var diagnosticBreadcrumb = regexp.MustCompile(`^(Android SDK [0-9]{1,3}|Playback error -?[0-9]{1,8}|(App crash|Native crash|App not responding) \(time: [0-9]{1,16}\)|USB open: [A-Z_]{1,30}, [0-9]{1,7} Hz → [0-9]{1,7} Hz, [0-9]{1,3} → [0-9]{1,3} valid bits)$`)
+var diagnosticBreadcrumb = regexp.MustCompile(`^(Android SDK [0-9]{1,3}|Playback error -?[0-9]{1,8}|(App crash|Native crash|App not responding|Low memory kill) \(time: [0-9]{1,16}\)|Playback memory \((track|error|rebuild|quality|pressure)\): heap [0-9]{1,12}/[0-9]{1,12} B, active [0-9]{1,10} B, standby [0-9]{1,10} B, quality [0-9]{1,10} B, route [A-Z0-9_]{1,30}, transport [A-Z0-9_]{1,30}, mode [A-Z0-9_]{1,30}|USB open: [A-Z_]{1,30}, [0-9]{1,7} Hz → [0-9]{1,7} Hz, [0-9]{1,3} → [0-9]{1,3} valid bits)$`)
 var diagnosticSymbol = regexp.MustCompile(`^(  )?([A-Za-z0-9_$<>-]+\.)+[A-Za-z0-9_$<>-]+(:-?[0-9]{1,8})?$`)
 
 func sanitizedDiagnostics(report string) string {

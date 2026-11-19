@@ -20,7 +20,7 @@ func TestDiagnosticsCreatesIssueAndReturnsNumber(t *testing.T) {
 	}))
 	defer remote.Close()
 	request := httptest.NewRequest(http.MethodPost, "/api/diagnostics", strings.NewReader(
-		`{"report":"ReChord 1.9.2.8 (51, debug)\nAndroid SDK 37\nLast recorded crash\n  com.music.Player.run:42\nhttps://private.example/?token=secret\n@username"}`,
+		`{"report":"ReChord 1.9.2.8 (51, debug)\nAndroid SDK 37\nLast recorded crash\n  com.music.Player.run:42\nPlayback memory (pressure): heap 123/456 B, active 20 B, standby 0 B, quality 0 B, route USB, transport USB_DIRECT, mode USB_DIRECT\nLow memory kill (time: 1234)\nPlayback memory (pressure): heap secret\nhttps://private.example/?token=secret\n@username"}`,
 	))
 	response := httptest.NewRecorder()
 	diagnosticHandler("test-token", remote.Client(), remote.URL).ServeHTTP(response, request)
@@ -28,6 +28,8 @@ func TestDiagnosticsCreatesIssueAndReturnsNumber(t *testing.T) {
 		t.Fatalf("unexpected response: %d %s", response.Code, response.Body.String())
 	}
 	if got := posted["body"]; !strings.Contains(got, "com.music.Player.run:42") ||
+		!strings.Contains(got, "heap 123/456 B, active 20 B") ||
+		!strings.Contains(got, "Low memory kill (time: 1234)") ||
 		strings.Contains(got, "secret") || strings.Contains(got, "@username") {
 		t.Fatalf("unexpected GitHub issue body: %q", got)
 	}
