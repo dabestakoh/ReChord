@@ -13,13 +13,18 @@ ReChord is not affiliated with or endorsed by YouTube, Google, Spotify, Qobuz or
 
 ## Features
 
-- **Music sources:** YouTube Music browsing and playback, locally stored music, downloads, and compatible custom add-on servers.
-- **Audio options:** quality preferences for Wi-Fi and mobile data, available lossless-capable streams, output selection, and compatible USB audio paths.
-- **Playlists:** cache-first opening of previously loaded playlists, background refresh, sorting, editing, reordering, and playback queues.
-- **Listening:** lyrics, mini-player, media notifications, home-screen widgets, and optional scrobbling integrations.
-- **Personalization:** appearance and performance settings, music content preferences, and optional Spotify playlist import.
+- **Home and discovery** — Browse personalized Featured picks and choose which sections appear on Home in Settings. Explore carries the broader new-releases catalog.
+- **Music sources** — Play YouTube Music, downloads, local files, and streams from compatible add-on servers. Set streaming quality separately for Wi-Fi and mobile data.
+- **Local Music** — Browse Songs, Albums, Artists, Album Artists, Folders, Playlists, and Recently Added. Open an artist to see their albums and tracks, or use the letter rail to jump through long alphabetical lists. ReChord opens the saved index while checking for file changes in the background. Refresh on demand from the Sort/View menu. Local covers can come from embedded tags or nearby cover images.
+- **Playlists and queues** — Import public playlists by link from Apple Music, Spotify, and YouTube Music. Open previously loaded playlists from cache, sort and edit them, and resume playback from the saved position. Autoplay can continue the current radio once the playlist and manually queued tracks finish.
+- **Now Playing** — Album artwork colors the player and lyrics. Open Audio Output to select a device, adjust volume, or inspect Audio Pipeline. Playback controls are also available in the mini-player, Android media controls, and home-screen widgets.
+- **Audio and USB DACs** — Choose automatic or fixed output precision, use Direct USB or Android USB on supported devices, and check the source, app output, and active DAC format in Audio Pipeline. Compatible sources can provide lossless streams and, where supported, upgrade playback to verified FLAC.
+- **Appearance and performance** — Choose a true-black AMOLED theme. Home uses placeholders that follow its layout, and scrolling reuses the backdrop behind glass controls to reduce rendering work.
+- **Diagnostics** — In **Settings → Diagnostics**, export a redacted log or choose **Send diagnostic report** when reporting is available. Reports are sent when you select that action.
 
-Available audio formats, resolution and output fidelity depend on the source, device and playback path. USB bit-perfect operation is device-dependent and should not be assumed on every configuration.
+Available formats and output fidelity depend on the source, device, and playback path. Audio Pipeline reports bit-perfect USB output when it can verify that PCM is preserved.
+
+See [Releases](https://github.com/dabestakoh/ReChord/releases) for version-by-version changes and fixes.
 
 ### Custom add-ons
 
