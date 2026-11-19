@@ -1,6 +1,7 @@
 package com.music.bitchord.playback
 
 import com.music.bitchord.data.YtMusicRepository
+import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
@@ -93,6 +94,9 @@ suspend fun youtubeSeedFor(song: Song): String? {
         ?.videoId
 }
 
+internal fun shouldResumeAutoplay(ended: Boolean, playWhenReady: Boolean, hasNext: Boolean): Boolean =
+    ended && playWhenReady && hasNext
+
 /** Keeps YouTube's radio cursor with the queue that started it. */
 internal class AutoplayRadio(
     private val page: suspend (String, String?, Boolean) -> YtMusicRepository.SongPage? =
@@ -110,6 +114,15 @@ internal class AutoplayRadio(
     private var seedId: String? = null
     private var continuation: String? = null
     private var pending = emptyList<Song>()
+    private var featuredArtist: Pair<String?, String?>? = null
+    private var continuationFailures = 0
+
+    fun continueArtistRadio(seed: Song, cursor: String, name: String?, artistId: String?) {
+        seedSong = seed
+        seedId = seed.videoId
+        continuation = cursor
+        featuredArtist = name to artistId
+    }
 
     suspend fun load(existing: List<Song>, queue: List<Song>, limit: Int): List<Song> {
         fun takesVideos(seed: Song) = seed.isVideo && !MusicOnlyPlayback.isActive()
@@ -127,15 +140,20 @@ internal class AutoplayRadio(
         if (active != null) {
             val ready = pick(active, pending)
             if (ready.isNotEmpty()) return ready
-            val cursor = continuation
-            if (cursor != null) {
-                val page = page(checkNotNull(seedId), cursor, takesVideos(active))
+            repeat(3) {
+                val cursor = continuation ?: return@repeat
+                val next = page(checkNotNull(seedId), cursor, takesVideos(active))
                 coroutineContext.ensureActive()
-                continuation = page?.continuation
-                pending = page?.songs.orEmpty()
+                if (next == null && ++continuationFailures < 2) return emptyList()
+                continuationFailures = 0
+                continuation = next?.continuation?.takeIf { it != cursor }
+                val tracks = next?.songs.orEmpty()
+                pending = featuredArtist?.let { (name, id) -> TopPicks.artistRadioTracks(tracks, name, id) } ?: tracks
                 val continued = pick(active, pending)
                 if (continued.isNotEmpty()) return continued
             }
+            if (continuation != null) return emptyList()
+            featuredArtist = null
         }
 
         val newestFirst = queue.asReversed()

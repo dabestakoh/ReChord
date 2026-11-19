@@ -12,6 +12,15 @@ import com.music.bitchord.data.model.TopPickKind
 
 class TopPicksTest {
     @Test
+    fun lateCardsKeepShownTracksInPlaceAndRejectDuplicateRelease() {
+        val song = Song("track", "DESERVE", "BABYMONSTER", null, albumId = "release")
+        val initial = TopPick(kind = TopPickKind.RELATED_SONG, title = song.title, recommendations = listOf(song))
+        val duplicate = TopPick(kind = TopPickKind.LATEST_RELEASE, title = song.title, browseId = song.albumId)
+        val new = TopPick(kind = TopPickKind.ARTIST_AND_SIMILAR, title = "TWICE", artistBrowseId = "artist")
+        assertEquals(listOf(initial, new), TopPicks.appendFeaturedCards(listOf(initial), listOf(duplicate, new)))
+    }
+
+    @Test
     fun featuredReleaseRejectsItsTrackAndSameCoverAtDifferentSizes() {
         val release = TopPick(
             kind = TopPickKind.LATEST_RELEASE,

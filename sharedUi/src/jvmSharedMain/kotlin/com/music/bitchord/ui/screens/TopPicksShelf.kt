@@ -166,7 +166,7 @@ internal fun TopPicksShelf(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     state = rowState,
                 ) {
-                    itemsIndexed(picks, key = { index, pick -> "$index:${pick.kind}:${pick.title}" }) { index, pick ->
+                    itemsIndexed(picks, key = { _, pick -> pick.carouselKey }) { index, pick ->
                         CompositionLocalProvider(
                             LocalClipSlot provides ClipSlot(
                                 mayPlay = index == owner,

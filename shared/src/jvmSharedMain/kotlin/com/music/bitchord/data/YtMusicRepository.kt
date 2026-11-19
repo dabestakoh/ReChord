@@ -1210,6 +1210,14 @@ object YtMusicRepository {
             .distinctBy { it.browseId }
     }
 
+    suspend fun watchRadioPage(target: WatchTarget): Result<SongPage> = call("watch-radio:${target.playlistId}") {
+        val response = Innertube.nextPlaylist(target.playlistId, target.videoId, target.params)
+        SongPage(
+            songs = InnertubeParser.parseWatchQueue(response).filterNot { it.isVideo },
+            continuation = InnertubeParser.watchQueueContinuation(response),
+        )
+    }
+
     suspend fun watchQueue(target: WatchTarget): Result<List<Song>> = call("watch:${target.playlistId}") {
         InnertubeParser.parseWatchQueue(
             Innertube.nextPlaylist(target.playlistId, target.videoId, target.params),

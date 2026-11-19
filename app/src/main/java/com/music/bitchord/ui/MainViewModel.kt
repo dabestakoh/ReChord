@@ -1891,42 +1891,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         topPicksJob = viewModelScope.launch {
             val stored = withContext(Dispatchers.IO) {
                 runCatching { file.takeIf { it.exists() }?.readText() }.getOrNull()?.let(TopPicks::decode)
-            }?.takeIf { it.listener == identity && it.revision == 2 && it.picks.isNotEmpty() }
+            }?.takeIf { it.listener == identity && it.revision >= 2 && it.picks.isNotEmpty() }
             if (identity != listenerKey()) return@launch
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
                 _topPicks.value = stored.picks
-                topPicksSlotShown = stored.day
+                topPicksSlotShown = stored.day.takeIf { stored.revision == 3 }
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot && stored.revision == 2) {
+            if (!rebuild && stored?.day == slot && stored.revision == 3) {
                 _topPicksLoading.value = false
                 return@launch
             }
-            _topPicksLoading.value = _topPicks.value == null
-            var result = buildTopPicks()
-            if (result == null || !result.complete) {
-                kotlinx.coroutines.delay(1500)
-                val retry = buildTopPicks()
-                if (retry?.complete == true || retry != null && retry.picks.size > (result?.picks?.size ?: 0)) {
-                    result = retry
+            val retained = _topPicks.value.orEmpty().isNotEmpty()
+            _topPicksLoading.value = !retained
+            var latest = emptyList<TopPick>()
+            val deadline = if (retained) null else launch {
+                delay(2500)
+                if (identity == listenerKey()) {
+                    _topPicksLoading.value = false
+                    _topPicks.value = latest
                 }
             }
-            val picks = result?.picks?.takeIf { it.isNotEmpty() }
+            val result = try {
+                buildTopPicks { cards ->
+                    latest = cards
+                    if (!retained && !_topPicksLoading.value && identity == listenerKey()) {
+                        _topPicks.value = TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), cards)
+                    }
+                }
+            } finally {
+                deadline?.cancel()
+            }
             if (identity != listenerKey()) return@launch
             _topPicksLoading.value = false
-            if (picks == null) {
+            val built = result?.picks.orEmpty()
+            if (built.isEmpty() || retained && result?.complete != true) {
                 if (_topPicks.value == null) _topPicks.value = emptyList()
                 return@launch
             }
-            if (result?.complete != true && _topPicks.value.orEmpty().isNotEmpty()) return@launch
+            val picks = if (retained) built else TopPicks.appendFeaturedCards(_topPicks.value.orEmpty(), built)
             _topPicks.value = picks
             if (result?.complete != true) return@launch
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 2)))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 3)))
                 }
             }
         }
@@ -1950,13 +1961,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun topPicksSlot(now: LocalDateTime = LocalDateTime.now()): String =
         "${now.toLocalDate()}T%02d".format(now.hour)
 
-    private suspend fun buildTopPicks(): TopPicks.Build? {
-        // Home's first page may already hold the account's mixes; give it a
-        // moment to land so the builder reads them off it instead of asking.
-        val shelves = withTimeoutOrNull(8_000L) { _home.first { it !is UiState.Loading } }
-            .let { (it as? UiState.Success)?.data.orEmpty() }
+    private suspend fun buildTopPicks(onAvailable: suspend (List<TopPick>) -> Unit): TopPicks.Build? {
+        val shelves = (_home.value as? UiState.Success)?.data.orEmpty()
         return try {
-            TopPicks.build(shelves, localTaste(includePlaylists = true))
+            TopPicks.build(shelves, localTaste(includePlaylists = true), onAvailable = onAvailable)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

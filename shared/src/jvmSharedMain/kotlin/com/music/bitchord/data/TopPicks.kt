@@ -14,6 +14,9 @@ import com.music.bitchord.playback.QueueBuilder
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -77,46 +80,73 @@ object TopPicks {
         homeShelves: List<HomeShelf>,
         local: LocalTaste,
         now: LocalDateTime = LocalDateTime.now(),
+        onAvailable: suspend (List<TopPick>) -> Unit = {},
     ): Build = coroutineScope {
         val interrupted = java.util.concurrent.atomic.AtomicBoolean()
-        val historyAsync = async {
-            YtMusicRepository.recentHistory().onFailure { interrupted.set(true) }.getOrNull().orEmpty()
-        }
         val mixesAsync = async { findMixes(homeShelves) }
+        val history = retryFeaturedRequest(interrupted) { YtMusicRepository.recentHistory() }.orEmpty()
+        val stateLock = Mutex()
+        val songsBySeed = sortedMapOf<Int, TopPick>()
+        val artistsBySeed = sortedMapOf<Int, TopPick>()
+        var lead: TopPick? = null
+        var availablePhotos = emptyMap<String, String>()
 
-        val history = historyAsync.await()
-        val songPicks = async { relatedSongPicks(history, local) { interrupted.set(true) } }
+        suspend fun update(change: () -> Unit) = stateLock.withLock {
+            change()
+            onAvailable(assembleFeatured(lead, songsBySeed.values, artistsBySeed.values, history, local))
+        }
+
+        val songPicks = async {
+            relatedSongPicks(history, local, interrupted) { index, pick ->
+                update { songsBySeed[index] = pick }
+            }
+        }
         val ranked = weightedSample(rankArtists(history, local).take(ARTIST_POOL), ARTISTS)
         val pages = ranked.map { artist ->
-            async { YtMusicRepository.artistLanding(artist.browseId!!).onFailure { interrupted.set(true) }.getOrNull() }
-        }.awaitAll()
-        val artists = ranked.zip(pages).mapNotNull { (ref, page) ->
-            page?.let { ArtistCard(it.copy(name = it.name ?: ref.name), ref.browseId!!) }
-        }
-            // One person can be two channels (an artist's own and a "Topic"
-            // one, or a spelling of their name); two of them would be the
-            // same face on two cards.
-            .distinctBy { normalizedArtistName(it.name) }
-        // Every artist face on the row is Apple Music's photo of them, not
-        // YouTube's channel art: the artists themselves, and the people their
-        // fans also play. Looked up together, a few at a time.
-        val photos = applePhotos(artists)
-        val mixes = mixesAsync.await()
-        Log.d(TAG, "topPicks: history=${history.size} artists=${artists.map { it.name }} mixes=${mixes.keys}")
-
-        // The first card is always the new release when there is one, as on
-        // Apple Music; the rest come in a different order every build.
-        val lead = latestRelease(artists)
-        val artistPicks = async {
-            artists.mapNotNull { andSimilar(it, photos) }.map { pick ->
-                async {
-                    val response = withTimeoutOrNull(5000) { queue(pick) }
-                    if (response == null || response.isFailure) interrupted.set(true)
-                    val tracks = response?.getOrNull().orEmpty()
-                    pick.copy(recommendations = tracks.take(24))
+            async {
+                val id = checkNotNull(artist.browseId)
+                retryFeaturedRequest(interrupted) { YtMusicRepository.artistLanding(id) }?.let {
+                    ArtistCard(it.copy(name = it.name ?: artist.name), id)
                 }
-            }.awaitAll()
+            }
         }
+        val radios = pages.mapIndexed { index, page ->
+            async {
+                val card = page.await() ?: return@async
+                val radio = card.page.radio ?: return@async
+                val batch = retryFeaturedRequest(interrupted) { YtMusicRepository.watchRadioPage(radio) }
+                    ?: return@async
+                val tracks = artistRadioTracks(batch.songs, card.name, card.browseId)
+                update {
+                    andSimilar(card, availablePhotos)?.let { pick ->
+                        artistsBySeed[index] = pick.copy(
+                            recommendations = tracks.take(24),
+                            radioContinuation = batch.continuation,
+                        )
+                    }
+                }
+            }
+        }
+        // Each landing page supplies its release independently of radio and photos.
+        val artists = pages.awaitAll().filterNotNull().distinctBy { normalizedArtistName(it.name) }
+        update { lead = latestRelease(artists) }
+
+        val artistPhotos = async {
+            val photos = withTimeoutOrNull(3000) { applePhotos(artists) }.orEmpty()
+            if (photos.isNotEmpty()) update {
+                availablePhotos = photos
+                val byId = artists.associateBy { it.browseId }
+                artistsBySeed.replaceAll { _, pick ->
+                    byId[pick.artistBrowseId]?.let { andSimilar(it, photos) }
+                        ?.let { pick.copy(images = it.images) } ?: pick
+                }
+            }
+            photos
+        }
+        songPicks.await()
+        radios.awaitAll()
+        val photos = artistPhotos.await()
+        val mixes = mixesAsync.await()
         val rest = buildList {
             personalStation(mixes, history, local)?.let(::add)
             add(moodPick(now, local))
@@ -134,10 +164,36 @@ object TopPicks {
             }
             discoveryStation(mixes, artists, history)?.let(::add)
         }.shuffled()
+        val featured = stateLock.withLock {
+            assembleFeatured(lead, songsBySeed.values, artistsBySeed.values, history, local)
+        }
+        Build(featured + rest, !interrupted.get())
+    }
+
+    private suspend fun <T> retryFeaturedRequest(
+        interrupted: java.util.concurrent.atomic.AtomicBoolean,
+        request: suspend () -> Result<T>,
+    ): T? {
+        repeat(2) { attempt ->
+            val response = withTimeoutOrNull(3000) { request() }
+            if (response?.isSuccess == true) return response.getOrNull()
+            if (attempt == 0) delay(350)
+        }
+        interrupted.set(true)
+        return null
+    }
+
+    private fun assembleFeatured(
+        lead: TopPick?,
+        songPicks: Collection<TopPick>,
+        artistPicks: Collection<TopPick>,
+        history: List<Song>,
+        local: LocalTaste,
+    ): List<TopPick> {
         val known = (history + local.songs + local.recent + local.liked).mapTo(HashSet()) { it.videoId }
         val used = HashSet<String>()
         val featured = buildList {
-            for (group in listOf(songPicks.await() to 3, artistPicks.await() to 2)) {
+            for (group in listOf(songPicks to 3, artistPicks.distinctBy { normalizedArtistName(it.title) } to 2)) {
                 var count = 0
                 for (pick in group.first) {
                     val tracks = pick.recommendations.filterNot { it.videoId in used }
@@ -167,7 +223,7 @@ object TopPicks {
                 }
             }
         }
-        Build(listOfNotNull(lead) + featured + rest, !interrupted.get())
+        return listOfNotNull(lead) + featured
     }
 
     /**
@@ -204,6 +260,35 @@ object TopPicks {
         "quick picks", "lựa chọn nhanh", "chọn nhanh đài phát", "クイック ミックス",
     )
 
+    /** Keep cards in place as slower sources deliver results or better artwork. */
+    fun appendFeaturedCards(shown: List<TopPick>, ready: List<TopPick>): List<TopPick> = buildList {
+        val updates = ready.associateBy { it.carouselKey }
+        shown.forEach { add(updates[it.carouselKey] ?: it) }
+        ready.forEach { card ->
+            val limit = when (card.kind) {
+                TopPickKind.RELATED_SONG -> 3
+                TopPickKind.ARTIST_AND_SIMILAR -> 2
+                else -> 1
+            }
+            if (count { it.kind == card.kind } >= limit) return@forEach
+            val clash = any { earlier ->
+                if (earlier.carouselKey == card.carouselKey) return@any true
+                val priorSong = earlier.recommendations.firstOrNull().takeIf { earlier.kind == TopPickKind.RELATED_SONG }
+                val newSong = card.recommendations.firstOrNull().takeIf { card.kind == TopPickKind.RELATED_SONG }
+                when (card.kind) {
+                    TopPickKind.RELATED_SONG -> newSong != null &&
+                        earlier.kind in setOf(TopPickKind.LATEST_RELEASE, TopPickKind.RELATED_SONG) &&
+                        sameFeaturedItem(earlier, newSong)
+                    TopPickKind.LATEST_RELEASE -> priorSong != null && sameFeaturedItem(card, priorSong)
+                    TopPickKind.ARTIST_AND_SIMILAR -> earlier.kind == card.kind &&
+                        normalizedArtistName(earlier.title) == normalizedArtistName(card.title)
+                    else -> false
+                }
+            }
+            if (!clash) add(card)
+        }
+    }
+
     internal fun sameFeaturedItem(pick: TopPick, track: Song): Boolean {
         val cover = track.thumbnailUrl?.substringBefore('=')?.substringBefore('?')
         return (track.albumId != null && track.albumId == pick.browseId) ||
@@ -215,8 +300,9 @@ object TopPicks {
     private suspend fun relatedSongPicks(
         history: List<Song>,
         local: LocalTaste,
-        onInterrupted: () -> Unit,
-    ): List<TopPick> = coroutineScope {
+        interrupted: java.util.concurrent.atomic.AtomicBoolean,
+        onPick: suspend (Int, TopPick) -> Unit,
+    ): Unit = coroutineScope {
         val playlistIds = local.playlistSongs.mapTo(HashSet()) { it.videoId }
         val played = local.recent + history + local.songs
         val frequencies = history.groupingBy { it.videoId }.eachCount()
@@ -246,12 +332,10 @@ object TopPicks {
         val known = (played + local.liked).mapTo(HashSet()) { it.videoId }
         val liked = local.liked.mapTo(HashSet()) { it.videoId }
         val limiter = Semaphore(3)
-        seeds.map { seed ->
+        seeds.mapIndexed { index, seed ->
             async {
                 limiter.withPermit {
-                    val response = withTimeoutOrNull(5000) { YtMusicRepository.relatedSongs(seed.videoId) }
-                    if (response == null || response.isFailure) onInterrupted()
-                    val related = response?.getOrNull().orEmpty()
+                    val related = retryFeaturedRequest(interrupted) { YtMusicRepository.relatedSongs(seed.videoId) }.orEmpty()
                     val artistCounts = mutableMapOf<String, Int>()
                     val tracks = related.filter { !QueueBuilder.isSameRecording(seed, it) && !it.isVideo }
                         .distinctBy { it.videoId }.sortedBy { it.videoId in known }
@@ -261,7 +345,7 @@ object TopPicks {
                             artistCounts[artist] = count + 1
                             count < 3
                         }.take(24)
-                    if (tracks.isEmpty()) null else TopPick(
+                    if (tracks.isNotEmpty()) onPick(index, TopPick(
                         kind = TopPickKind.RELATED_SONG,
                         title = seed.title,
                         subtitle = seed.artist,
@@ -269,10 +353,10 @@ object TopPicks {
                         recommendations = tracks,
                         likedSeed = seed.videoId in liked,
                         seedTitle = seed.title,
-                    )
+                    ))
                 }
             }
-        }.awaitAll().filterNotNull()
+        }.awaitAll()
     }
 
     fun rankReleases(items: List<ShelfItem>, history: List<Song>, local: LocalTaste): List<ShelfItem> {
@@ -295,15 +379,17 @@ object TopPicks {
         }
         val tracks = YtMusicRepository.watchQueue(target)
         if (pick.kind != TopPickKind.ARTIST_AND_SIMILAR) return tracks
-        val artist = pick.artistName?.let(::normalizedArtistName)
-        return tracks.map { songs ->
-            songs.distinctBy { it.videoId }
-                .filter { song ->
-                    primaryArtist(song) != artist &&
-                        song.artists.none { (pick.artistBrowseId != null && it.browseId == pick.artistBrowseId) || normalizedArtistName(it.name) == artist }
-                }
-                .distinctBy { primaryArtist(it).ifBlank { it.videoId } }
-        }
+        return tracks.map { artistRadioTracks(it, pick.artistName, pick.artistBrowseId) }
+    }
+
+    fun artistRadioTracks(songs: List<Song>, artistName: String?, artistId: String?): List<Song> {
+        val artist = artistName?.let(::normalizedArtistName)
+        return songs.distinctBy { it.videoId }
+            .filter { song ->
+                !song.isVideo && primaryArtist(song) != artist && song.artistId.let { artistId == null || it != artistId } &&
+                    song.artists.none { (artistId != null && it.browseId == artistId) || normalizedArtistName(it.name) == artist }
+            }
+            .distinctBy { primaryArtist(it).ifBlank { it.videoId } }
     }
 
     /**

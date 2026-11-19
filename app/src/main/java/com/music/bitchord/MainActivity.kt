@@ -1814,7 +1814,9 @@ private fun BitChordApp(
                 }
                 activeRadioSeed = null
                 activeController.beginRadioQueue()
-                activeController.playSongs(station, 0)
+                activeController.playSongs(
+                    station, 0, pick.radioContinuation, pick.artistName, pick.artistBrowseId,
+                )
                 activeController.commitRadioQueue()
             }
         }
@@ -3212,6 +3214,11 @@ private fun BitChordApp(
                                 LocalFolder(
                                     state = localFolderStates.getOrPut(page.browseId) {
                                         LocalFolderState().apply {
+                                            val preferences = context.getSharedPreferences("local_music_view", 0)
+                                            groupSorts = LocalFolderTab.entries.mapNotNull { group ->
+                                                val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
+                                                group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
+                                            }.toMap()
                                             if (localArtist) tab = LocalFolderTab.ALBUMS
                                             else if (isDevice) tab = context.getSharedPreferences("local_music_view", 0)
                                                 .getString("tab", null)?.let { name ->
@@ -5648,13 +5655,16 @@ private fun BitChordApp(
             BackHandler { folderMenuOpen = false }
             val downloadsFolder = menuFolder == "local:downloads"
             val viewType = folderViewTypeOf(menuFolder)
-            val recentState = localFolderStates[menuFolder]?.takeIf { it.tab == LocalFolderTab.RECENTLY_ADDED }
+            val folderState = localFolderStates[menuFolder]
+            val tab = folderState?.tab ?: LocalFolderTab.SONGS
+            val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
+            val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
             FrostedFolderMenu(
                 hazeState = hazeState,
                 sort = recentState?.let {
                     if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-                } ?: folderSortOf(menuFolder),
-                recentlyAdded = recentState != null,
+                } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSortOf(menuFolder),
+                sorts = tab.sortOptions,
                 onRefresh = if (menuFolder == "local:all") ({
                     folderMenuOpen = false
                     viewModel.refreshLocalLibrary()
@@ -5662,6 +5672,11 @@ private fun BitChordApp(
                 viewType = viewType,
                 onSort = { option ->
                     if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+                    else if (groupState != null) {
+                        groupState.groupSorts = groupState.groupSorts + (tab to option)
+                        context.getSharedPreferences("local_music_view", 0).edit()
+                            .putString("sort:$menuFolder:${tab.name}", option.name).apply()
+                    }
                     else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
                     else AppSettings.setLocalMusicSort(option)
                     folderMenuOpen = false
@@ -6210,7 +6225,7 @@ private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
-    recentlyAdded: Boolean,
+    sorts: List<LocalMusicSort>,
     onRefresh: (() -> Unit)?,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
@@ -6229,8 +6244,6 @@ private fun FrostedFolderMenu(
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
         )
-        val sorts = if (recentlyAdded) listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
-            else LocalMusicSort.entries
         sorts.forEach { option ->
             FrostedMenuRow(
                 label = option.localizedLabel(),

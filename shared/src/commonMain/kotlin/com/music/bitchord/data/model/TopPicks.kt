@@ -158,4 +158,13 @@ data class TopPick(
     val recommendations: List<Song> = emptyList(),
     val likedSeed: Boolean = false,
     val seedTitle: String? = null,
-)
+    val radioContinuation: String? = null,
+) {
+    val carouselKey: String
+        get() = "$kind:${when (kind) {
+            TopPickKind.RELATED_SONG -> recommendations.firstOrNull()?.videoId ?: title
+            TopPickKind.ARTIST_AND_SIMILAR -> artistBrowseId ?: title
+            TopPickKind.CONTINUE_LISTENING -> kind.name
+            else -> browseId ?: title
+        }}"
+}

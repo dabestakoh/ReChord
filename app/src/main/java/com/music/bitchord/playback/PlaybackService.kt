@@ -1093,6 +1093,7 @@ class PlaybackService : MediaLibraryService() {
             // session is currently pointed at.
             val exoPlayer = player ?: return
             if (state == Player.STATE_ENDED) {
+                if (SleepTimer.afterTrack.value) exoPlayer.pause()
                 SleepTimer.cancel()
                 // The queue ran dry, so no transition will ever close the last
                 // track out. Without this its history entry keeps whatever
@@ -1876,7 +1877,16 @@ class PlaybackService : MediaLibraryService() {
         player,
         crossfade,
         onUserIntent = { partySync?.onLocalIntent() },
-        onQueueReplaced = ::resetAutoplayRadio,
+        onQueueReplaced = { items ->
+            resetAutoplayRadio()
+            items.firstNotNullOfOrNull { item ->
+                val extras = item.mediaMetadata.extras ?: return@firstNotNullOfOrNull null
+                val cursor = extras.getString(EXTRA_ARTIST_RADIO_CURSOR) ?: return@firstNotNullOfOrNull null
+                autoplayRadio.continueArtistRadio(
+                    item.toSong(), cursor, extras.getString(EXTRA_ARTIST_RADIO_NAME), extras.getString(EXTRA_ARTIST_RADIO_ID),
+                )
+            }
+        },
         deferPlayToParty = { partySync?.shouldDeferPlay() == true },
         lockedTransport = { playing -> partySync?.onLockedTransport(playing) == true },
         cast = speakers,
@@ -3124,7 +3134,9 @@ class PlaybackService : MediaLibraryService() {
         // Party AutoPlay is shared state; changing it must not overwrite the
         // listener's separate local AutoPlay preference for when they leave.
         AppSettings.setAutoplay(enabled)
-        resetAutoplayRadio()
+        autoplayLoadJob?.cancel()
+        autoplayLoadJob = null
+        autoplaySeed = null
         if (enabled) {
             loadAutoplayForCurrentTrack()
         } else {
@@ -3237,7 +3249,14 @@ class PlaybackService : MediaLibraryService() {
                         val fresh = resolved
                             .filterNot { song -> queuedNow.any { QueueBuilder.isSameRecording(it, song) } }
                             .take(room.coerceAtLeast(0))
-                        if (fresh.isNotEmpty()) latestPlayer.addMediaItems(fresh.map { it.toMediaItem() })
+                        if (fresh.isNotEmpty()) {
+                            val ended = latestPlayer.playbackState == Player.STATE_ENDED
+                            latestPlayer.addMediaItems(fresh.map { it.toMediaItem() })
+                            if (shouldResumeAutoplay(ended, latestPlayer.playWhenReady, latestPlayer.hasNextMediaItem())) {
+                                latestPlayer.seekToNextMediaItem()
+                                latestPlayer.prepare()
+                            }
+                        }
                     }
                     if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += resolved
                     return@launch
@@ -8454,7 +8473,7 @@ class PlaybackService : MediaLibraryService() {
          * a listener's action from its own corrections. See [PartySync].
          */
         private val onUserIntent: () -> Unit,
-        private val onQueueReplaced: () -> Unit,
+        private val onQueueReplaced: (List<MediaItem>) -> Unit,
         /** @see PartySync.shouldDeferPlay */
         private val deferPlayToParty: () -> Boolean,
         /** @see PartySync.onLockedTransport */
@@ -8877,7 +8896,7 @@ class PlaybackService : MediaLibraryService() {
         override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
             if (locked()) return
             onUserIntent()
-            onQueueReplaced()
+            onQueueReplaced(mediaItems)
             super.setMediaItems(mediaItems, resetPosition)
         }
 
@@ -8888,7 +8907,7 @@ class PlaybackService : MediaLibraryService() {
         ) {
             if (locked()) return
             onUserIntent()
-            onQueueReplaced()
+            onQueueReplaced(mediaItems)
             super.setMediaItems(mediaItems, startIndex, startPositionMs)
         }
 
@@ -9616,6 +9635,12 @@ class PlaybackService : MediaLibraryService() {
                         val local = LocalMediaRepository.getLocalMusic(this@PlaybackService)
                         local.forEach { songCache[it.videoId] = it }
                         resolved.addAll(local.map { it.toMediaItem() })
+                    }
+                    item.mediaMetadata.extras?.containsKey(EXTRA_ARTIST_RADIO_CURSOR) == true -> {
+                        // Keep the cursor and the selected queue entry when the controller's
+                        // MediaItem crosses the session without its local URI.
+                        val playable = if (item.localConfiguration != null) item else item.toSong().toMediaItem()
+                        resolved.add(playable.buildUpon().setMediaMetadata(item.mediaMetadata).build())
                     }
                     songCache.containsKey(id) -> {
                         resolved.add(songCache[id]!!.toMediaItem())
