@@ -1465,7 +1465,7 @@
     <string name="home_trending">熱門趨勢</string>
     <string name="diagnostics">診斷</string>
     <string name="send_diagnostic_report">傳送診斷報告</string>
-    <string name="diagnostic_report_github">在 GitHub 開啟公開議題草稿，供你檢查並提交。</string>
+    <string name="diagnostic_report_github">在 GitHub 發布已移除敏感資訊的報告。</string>
     <string name="export_diagnostic_log">匯出診斷記錄</string>
     <string name="diagnostic_report_error">無法開啟或匯出診斷報告。</string>
 </resources>

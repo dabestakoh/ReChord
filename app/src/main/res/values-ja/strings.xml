@@ -1471,7 +1471,7 @@
     <string name="home_trending">急上昇</string>
     <string name="diagnostics">診断</string>
     <string name="send_diagnostic_report">診断レポートを送信</string>
-    <string name="diagnostic_report_github">GitHub で公開用の下書きを開き、確認して送信できます。</string>
+    <string name="diagnostic_report_github">機密情報を除いたレポートを GitHub に公開します。</string>
     <string name="export_diagnostic_log">診断ログをエクスポート</string>
     <string name="diagnostic_report_error">診断レポートを開くかエクスポートできませんでした。</string>
 </resources>

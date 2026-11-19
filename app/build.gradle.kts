@@ -80,6 +80,8 @@ android {
             "LISTEN_TOGETHER_SERVER",
             "\"${listenTogetherServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
         )
+        val diagnosticsServer = providers.environmentVariable("RECHORD_DIAGNOSTICS_SERVER").orNull.orEmpty()
+        buildConfigField("String", "DIAGNOSTICS_SERVER", "\"${diagnosticsServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.

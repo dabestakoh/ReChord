@@ -85,6 +85,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
 import com.music.bitchord.data.lyrics.translationLanguageName
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -1572,6 +1573,7 @@ fun SettingsScreen(
             val exportTitle = stringResource(R.string.export_diagnostic_log)
             val reportError = stringResource(R.string.diagnostic_report_error)
             val diagnosticsScope = rememberCoroutineScope()
+            var sendingReport by remember { mutableStateOf(false) }
             val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
                 if (uri != null) diagnosticsScope.launch {
                     val result = withContext(Dispatchers.IO) {
@@ -1590,14 +1592,27 @@ fun SettingsScreen(
                         icon = SfIcons.Miscellaneous,
                         title = sendTitle,
                         subtitle = stringResource(R.string.diagnostic_report_github),
+                        enabled = AppDiagnostics.canSubmit && !sendingReport,
                         onClick = {
-                            diagnosticsScope.launch {
-                                val report = withContext(Dispatchers.IO) { AppDiagnostics.report(context) }
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, AppDiagnostics.issueUri(report)))
-                                }.onFailure { Toast.makeText(context, reportError, Toast.LENGTH_SHORT).show() }
+                            if (!sendingReport) {
+                                sendingReport = true
+                                diagnosticsScope.launch {
+                                    try {
+                                        val result = withContext(Dispatchers.IO) {
+                                            runCatching { AppDiagnostics.submit(context) }
+                                        }
+                                        val message = result.fold(
+                                            onSuccess = { "${context.getString(R.string.done)} · #$it" },
+                                            onFailure = { "$sendTitle · ${context.getString(R.string.failed)}" },
+                                        )
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        sendingReport = false
+                                    }
+                                }
                             }
                         },
+                        trailing = if (sendingReport) ({ CircularProgressIndicator(Modifier.size(18.dp)) }) else null,
                     )
                 }
                 row(exportTitle, "crash", "logs") {
