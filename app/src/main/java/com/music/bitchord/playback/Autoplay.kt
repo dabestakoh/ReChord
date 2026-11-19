@@ -10,6 +10,8 @@ import com.music.bitchord.data.sources.SourceRegistry
 import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.playback.QueueCoordinator.asQueueEntry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 /** Most AutoPlay-suggested tracks kept queued ahead of the current one at once. */
 const val MAX_QUEUED_AUTOPLAY = 10
@@ -89,6 +91,87 @@ suspend fun youtubeSeedFor(song: Song): String? {
         ?.map { it.song }
         ?.let { TrackMatcher.best(it, target) }
         ?.videoId
+}
+
+/** Keeps YouTube's radio cursor with the queue that started it. */
+internal class AutoplayRadio(
+    private val page: suspend (String, String?, Boolean) -> YtMusicRepository.SongPage? =
+        { id, token, video -> YtMusicRepository.autoplayRadioPage(id, token, video).getOrNull() },
+    private val related: suspend (String) -> List<Song> =
+        { YtMusicRepository.relatedSongs(it).getOrNull().orEmpty() },
+    private val artistSongs: suspend (Song, String) -> List<Song> = { song, id ->
+        val artist = song.artistId ?: song.artists.firstNotNullOfOrNull { it.browseId }
+            ?: YtMusicRepository.trackLinks(id).getOrNull()?.artistId
+        artist?.let { YtMusicRepository.artistPage(it).getOrNull()?.songs }.orEmpty()
+    },
+) {
+    private val usedSeeds = mutableSetOf<String>()
+    private var seedSong: Song? = null
+    private var seedId: String? = null
+    private var continuation: String? = null
+    private var pending = emptyList<Song>()
+
+    suspend fun load(existing: List<Song>, queue: List<Song>, limit: Int): List<Song> {
+        fun takesVideos(seed: Song) = seed.isVideo && !MusicOnlyPlayback.isActive()
+        fun pick(source: Song, candidates: List<Song>): List<Song> =
+            QueueBuilder.extend(existing, candidates, limit, preferVideos = takesVideos(source)).map {
+                it.copy(
+                    radioName = source.radioName,
+                    playbackSource = source.playbackSource,
+                    playbackSourceType = source.playbackSourceType,
+                    playbackSourceId = source.playbackSourceId,
+                ).asQueueEntry(QueueTier.AUTOPLAY)
+            }
+
+        val active = seedSong
+        if (active != null) {
+            val ready = pick(active, pending)
+            if (ready.isNotEmpty()) return ready
+            val cursor = continuation
+            if (cursor != null) {
+                val page = page(checkNotNull(seedId), cursor, takesVideos(active))
+                coroutineContext.ensureActive()
+                continuation = page?.continuation
+                pending = page?.songs.orEmpty()
+                val continued = pick(active, pending)
+                if (continued.isNotEmpty()) return continued
+            }
+        }
+
+        val newestFirst = queue.asReversed()
+        val online = newestFirst.firstOrNull { VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds }
+        val source = online ?: newestFirst.firstOrNull {
+            SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds
+        }
+        if (source == null) {
+            usedSeeds.clear()
+            return emptyList()
+        }
+        val id = if (online != null) online.videoId else youtubeSeedFor(source)
+        coroutineContext.ensureActive()
+        usedSeeds += source.videoId
+        if (id == null) return emptyList()
+        val initial = page(id, null, takesVideos(source))
+        coroutineContext.ensureActive()
+        usedSeeds += id
+        seedSong = source
+        seedId = id
+        continuation = initial?.continuation
+        pending = initial?.songs.orEmpty()
+        pick(source, pending).takeIf { it.isNotEmpty() }?.let { return it }
+
+        val relatedTracks = related(id)
+        coroutineContext.ensureActive()
+        pick(source, relatedTracks).takeIf { it.isNotEmpty() }?.let { return it }
+
+        val artistTracks = artistSongs(source, id)
+        coroutineContext.ensureActive()
+        return pick(source, artistTracks)
+    }
+
+    private companion object {
+        val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
+    }
 }
 
 /**

@@ -1891,7 +1891,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         topPicksJob = viewModelScope.launch {
             val stored = withContext(Dispatchers.IO) {
                 runCatching { file.takeIf { it.exists() }?.readText() }.getOrNull()?.let(TopPicks::decode)
-            }?.takeIf { it.listener == identity && it.picks.isNotEmpty() }
+            }?.takeIf { it.listener == identity && it.revision == 2 && it.picks.isNotEmpty() }
+            if (identity != listenerKey()) return@launch
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
                 _topPicks.value = stored.picks
@@ -1899,23 +1900,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot && stored.revision == 1) {
+            if (!rebuild && stored?.day == slot && stored.revision == 2) {
                 _topPicksLoading.value = false
                 return@launch
             }
             _topPicksLoading.value = _topPicks.value == null
-            val picks = buildTopPicks()?.takeIf { it.isNotEmpty() }
+            var result = buildTopPicks()
+            if (result == null || !result.complete) {
+                kotlinx.coroutines.delay(1500)
+                val retry = buildTopPicks()
+                if (retry?.complete == true || retry != null && retry.picks.size > (result?.picks?.size ?: 0)) {
+                    result = retry
+                }
+            }
+            val picks = result?.picks?.takeIf { it.isNotEmpty() }
             if (identity != listenerKey()) return@launch
             _topPicksLoading.value = false
             if (picks == null) {
                 if (_topPicks.value == null) _topPicks.value = emptyList()
                 return@launch
             }
+            if (result?.complete != true && _topPicks.value.orEmpty().isNotEmpty()) return@launch
             _topPicks.value = picks
+            if (result?.complete != true) return@launch
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 1)))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, picks, AppleArtistPhotos.snapshot(), revision = 2)))
                 }
             }
         }
@@ -1931,7 +1942,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun refreshTopPicksIfStale() {
         if (topPicksJob?.isActive == true) return
-        if (topPicksSlotShown == null || topPicksSlotShown == topPicksSlot()) return
+        if (topPicksSlotShown == topPicksSlot()) return
         loadTopPicks(listenerKey(), rebuild = false)
     }
 
@@ -1939,7 +1950,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun topPicksSlot(now: LocalDateTime = LocalDateTime.now()): String =
         "${now.toLocalDate()}T%02d".format(now.hour)
 
-    private suspend fun buildTopPicks(): List<TopPick>? {
+    private suspend fun buildTopPicks(): TopPicks.Build? {
         // Home's first page may already hold the account's mixes; give it a
         // moment to land so the builder reads them off it instead of asking.
         val shelves = withTimeoutOrNull(8_000L) { _home.first { it !is UiState.Loading } }

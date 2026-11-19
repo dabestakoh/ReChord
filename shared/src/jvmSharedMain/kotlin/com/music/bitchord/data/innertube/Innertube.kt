@@ -600,6 +600,13 @@ object Innertube {
      * The watch queue that YouTube Music would play after [videoId] — the
      * "RDAMVM" radio mix. Used to keep AutoPlay going past the last track.
      */
+    suspend fun nextQueuePage(token: String): JsonObject = postMusic(
+        endpoint = "next",
+        query = mapOf("ctoken" to token, "continuation" to token, "type" to "next"),
+    ) {
+        put("continuation", token)
+    }
+
     suspend fun next(videoId: String): JsonObject = postMusic("next") {
         put("videoId", videoId)
         put("playlistId", "RDAMVM$videoId")

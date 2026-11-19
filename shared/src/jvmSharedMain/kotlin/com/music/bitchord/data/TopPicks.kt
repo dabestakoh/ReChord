@@ -10,6 +10,7 @@ import com.music.bitchord.data.model.TopPick
 import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.data.model.WatchTarget
+import com.music.bitchord.playback.QueueBuilder
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -70,19 +71,24 @@ object TopPicks {
         val playlistSongs: List<Song> = emptyList(),
     )
 
+    data class Build(val picks: List<TopPick>, val complete: Boolean)
+
     suspend fun build(
         homeShelves: List<HomeShelf>,
         local: LocalTaste,
         now: LocalDateTime = LocalDateTime.now(),
-    ): List<TopPick> = coroutineScope {
-        val historyAsync = async { YtMusicRepository.recentHistory().getOrNull().orEmpty() }
+    ): Build = coroutineScope {
+        val interrupted = java.util.concurrent.atomic.AtomicBoolean()
+        val historyAsync = async {
+            YtMusicRepository.recentHistory().onFailure { interrupted.set(true) }.getOrNull().orEmpty()
+        }
         val mixesAsync = async { findMixes(homeShelves) }
 
         val history = historyAsync.await()
-        val songPicks = async { relatedSongPicks(history, local) }
+        val songPicks = async { relatedSongPicks(history, local) { interrupted.set(true) } }
         val ranked = weightedSample(rankArtists(history, local).take(ARTIST_POOL), ARTISTS)
         val pages = ranked.map { artist ->
-            async { YtMusicRepository.artistLanding(artist.browseId!!).getOrNull() }
+            async { YtMusicRepository.artistLanding(artist.browseId!!).onFailure { interrupted.set(true) }.getOrNull() }
         }.awaitAll()
         val artists = ranked.zip(pages).mapNotNull { (ref, page) ->
             page?.let { ArtistCard(it.copy(name = it.name ?: ref.name), ref.browseId!!) }
@@ -104,7 +110,9 @@ object TopPicks {
         val artistPicks = async {
             artists.mapNotNull { andSimilar(it, photos) }.map { pick ->
                 async {
-                    val tracks = withTimeoutOrNull(3000) { queue(pick).getOrNull() }.orEmpty()
+                    val response = withTimeoutOrNull(5000) { queue(pick) }
+                    if (response == null || response.isFailure) interrupted.set(true)
+                    val tracks = response?.getOrNull().orEmpty()
                     pick.copy(recommendations = tracks.take(24))
                 }
             }.awaitAll()
@@ -136,15 +144,30 @@ object TopPicks {
                         .distinctBy { it.videoId }
                         .sortedBy { it.videoId in known }
                         .take(12)
-                    if (tracks.size < 3) continue
-                    tracks.mapTo(used) { it.videoId }
-                    add(pick.copy(recommendations = tracks))
+                    if (pick.kind == TopPickKind.RELATED_SONG) {
+                        val track = tracks.firstOrNull { candidate ->
+                            (lead == null || !sameFeaturedItem(lead, candidate)) &&
+                                none { sameFeaturedItem(it, candidate) }
+                        } ?: continue
+                        used += track.videoId
+                        add(pick.copy(
+                            title = track.title,
+                            subtitle = track.artist,
+                            images = listOfNotNull(track.thumbnailUrl),
+                            browseId = track.albumId,
+                            recommendations = listOf(track),
+                        ))
+                    } else {
+                        if (tracks.size < 3) continue
+                        tracks.mapTo(used) { it.videoId }
+                        add(pick.copy(recommendations = tracks))
+                    }
                     count++
                     if (count == group.second) break
                 }
             }
         }
-        listOfNotNull(lead) + featured + rest
+        Build(listOfNotNull(lead) + featured + rest, !interrupted.get())
     }
 
     /**
@@ -181,7 +204,19 @@ object TopPicks {
         "quick picks", "lựa chọn nhanh", "chọn nhanh đài phát", "クイック ミックス",
     )
 
-    private suspend fun relatedSongPicks(history: List<Song>, local: LocalTaste): List<TopPick> = coroutineScope {
+    internal fun sameFeaturedItem(pick: TopPick, track: Song): Boolean {
+        val cover = track.thumbnailUrl?.substringBefore('=')?.substringBefore('?')
+        return (track.albumId != null && track.albumId == pick.browseId) ||
+            (cover != null && pick.images.any { it.substringBefore('=').substringBefore('?') == cover }) ||
+            (normalizedArtistName(pick.title) in listOfNotNull(track.title, track.albumName).map(::normalizedArtistName) &&
+                normalizedArtistName(pick.artistName ?: pick.subtitle) == primaryArtist(track))
+    }
+
+    private suspend fun relatedSongPicks(
+        history: List<Song>,
+        local: LocalTaste,
+        onInterrupted: () -> Unit,
+    ): List<TopPick> = coroutineScope {
         val playlistIds = local.playlistSongs.mapTo(HashSet()) { it.videoId }
         val played = local.recent + history + local.songs
         val frequencies = history.groupingBy { it.videoId }.eachCount()
@@ -214,15 +249,11 @@ object TopPicks {
         seeds.map { seed ->
             async {
                 limiter.withPermit {
-                    val related = withTimeoutOrNull(2200) { YtMusicRepository.relatedSongs(seed.videoId).getOrNull() }.orEmpty()
-                    val radio = if (related.count { it.videoId !in known && it.videoId != seed.videoId } < 3) {
-                        withTimeoutOrNull(2500) {
-                            YtMusicRepository.watchQueue(WatchTarget(playlistId = "RDAMVM${seed.videoId}", videoId = seed.videoId))
-                                .getOrNull()
-                        }.orEmpty()
-                    } else emptyList()
+                    val response = withTimeoutOrNull(5000) { YtMusicRepository.relatedSongs(seed.videoId) }
+                    if (response == null || response.isFailure) onInterrupted()
+                    val related = response?.getOrNull().orEmpty()
                     val artistCounts = mutableMapOf<String, Int>()
-                    val tracks = (related + radio).filter { it.videoId != seed.videoId && !it.isVideo }
+                    val tracks = related.filter { !QueueBuilder.isSameRecording(seed, it) && !it.isVideo }
                         .distinctBy { it.videoId }.sortedBy { it.videoId in known }
                         .filter { song ->
                             val artist = primaryArtist(song).ifBlank { song.videoId }
@@ -230,13 +261,14 @@ object TopPicks {
                             artistCounts[artist] = count + 1
                             count < 3
                         }.take(24)
-                    if (tracks.size < 3) null else TopPick(
+                    if (tracks.isEmpty()) null else TopPick(
                         kind = TopPickKind.RELATED_SONG,
                         title = seed.title,
                         subtitle = seed.artist,
                         images = listOfNotNull(seed.thumbnailUrl ?: tracks.firstOrNull()?.thumbnailUrl),
                         recommendations = tracks,
                         likedSeed = seed.videoId in liked,
+                        seedTitle = seed.title,
                     )
                 }
             }
@@ -265,8 +297,12 @@ object TopPicks {
         if (pick.kind != TopPickKind.ARTIST_AND_SIMILAR) return tracks
         val artist = pick.artistName?.let(::normalizedArtistName)
         return tracks.map { songs ->
-            val similar = songs.distinctBy { it.videoId }.filter { primaryArtist(it) != artist }
-            similar.takeIf { it.size >= 3 } ?: songs
+            songs.distinctBy { it.videoId }
+                .filter { song ->
+                    primaryArtist(song) != artist &&
+                        song.artists.none { (pick.artistBrowseId != null && it.browseId == pick.artistBrowseId) || normalizedArtistName(it.name) == artist }
+                }
+                .distinctBy { primaryArtist(it).ifBlank { it.videoId } }
         }
     }
 

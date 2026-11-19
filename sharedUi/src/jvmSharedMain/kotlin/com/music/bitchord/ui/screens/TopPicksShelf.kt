@@ -225,7 +225,10 @@ private fun cardText(pick: TopPick, listenerName: String?): CardText {
             stringResource(Res.string.home_continue_listening), pick.title, pick.subtitle,
         )
         TopPickKind.RELATED_SONG -> CardText(
-            stringResource(if (pick.likedSeed) Res.string.home_because_you_like else Res.string.home_more_like_song),
+            listOfNotNull(
+                stringResource(if (pick.likedSeed) Res.string.home_because_you_like else Res.string.home_more_like_song),
+                pick.seedTitle,
+            ).joinToString(" "),
             pick.title,
             pick.subtitle,
         )
@@ -372,7 +375,8 @@ private fun TopPickCard(
         val action = when (pick.kind) {
             TopPickKind.CONTINUE_LISTENING -> stringResource(if (isPlaying) Res.string.home_open_player else Res.string.home_resume)
             TopPickKind.LATEST_RELEASE -> stringResource(Res.string.home_open_release)
-            TopPickKind.RELATED_SONG, TopPickKind.ARTIST_AND_SIMILAR -> stringResource(Res.string.home_play_picks)
+            TopPickKind.ARTIST_AND_SIMILAR -> stringResource(Res.string.home_play_picks)
+            TopPickKind.RELATED_SONG -> stringResource(Res.string.play)
             else -> null
         }
         CardCaption(text, eyebrowColor, Modifier.align(Alignment.BottomStart), action, compact)

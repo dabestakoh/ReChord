@@ -5,8 +5,29 @@ import com.music.bitchord.data.model.ShelfItem
 import com.music.bitchord.data.model.Song
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.TopPickKind
 
 class TopPicksTest {
+    @Test
+    fun featuredReleaseRejectsItsTrackAndSameCoverAtDifferentSizes() {
+        val release = TopPick(
+            kind = TopPickKind.LATEST_RELEASE,
+            title = "DESERVE",
+            subtitle = "Single",
+            artistName = "BABYMONSTER",
+            browseId = "MPRE1",
+            images = listOf("https://example.test/cover=w600"),
+        )
+        val other = Song("different", "Different", "Different Artist", "https://example.test/other")
+        assertTrue(TopPicks.sameFeaturedItem(release, other.copy(albumId = "MPRE1")))
+        assertTrue(TopPicks.sameFeaturedItem(release, other.copy(thumbnailUrl = "https://example.test/cover=w256")))
+        assertTrue(TopPicks.sameFeaturedItem(release, other.copy(title = "Deserve", artist = "Babymonster")))
+        assertFalse(TopPicks.sameFeaturedItem(release, other))
+    }
+
     @Test
     fun quickPicksSpreadRepeatArtistsWhileKeepingTheirRelativeOrder() {
         fun song(id: String, artist: String) = ShelfItem(id, artist, null, id, null)

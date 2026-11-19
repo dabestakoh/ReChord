@@ -157,4 +157,5 @@ data class TopPick(
     val hints: List<String> = emptyList(),
     val recommendations: List<Song> = emptyList(),
     val likedSeed: Boolean = false,
+    val seedTitle: String? = null,
 )

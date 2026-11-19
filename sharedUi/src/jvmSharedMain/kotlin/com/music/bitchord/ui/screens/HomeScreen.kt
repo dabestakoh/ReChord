@@ -210,6 +210,15 @@ fun HomeScreen(
                 songs.getOrNull(index)?.let(::add)
                 artists.getOrNull(index)?.let(::add)
             }
+        }.let { cards ->
+            val releaseArt = cards.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }
+                ?.images?.firstOrNull()?.substringBefore('=')?.substringBefore('?')
+            val usedArt = mutableSetOf<String>()
+            cards.filter { card ->
+                val cover = card.images.firstOrNull()?.substringBefore('=')?.substringBefore('?')
+                cover == null ||
+                    ((card.kind == TopPickKind.LATEST_RELEASE || cover != releaseArt) && usedArt.add(cover))
+            }
         }
     }
     val visibleFeed = remember(state, featured, carouselVisible) {
@@ -284,7 +293,7 @@ fun HomeScreen(
             }
             if (carouselVisible && onTopPickClick != null) {
                 when {
-                    feedReady && featured.isNotEmpty() -> item(key = "top-picks") {
+                    feedReady && featured.isNotEmpty() && (!carouselLoading || topPicks != null) -> item(key = "top-picks") {
                         TopPicksShelf(
                             picks = featured,
                             heightLimit = featuredHeightLimit,
@@ -294,7 +303,7 @@ fun HomeScreen(
                             onLongPress = onTopPickLongPress,
                         )
                     }
-                    !feedReady -> topPicksSkeleton(featuredHeightLimit)
+                    !feedReady || carouselLoading -> topPicksSkeleton(featuredHeightLimit)
                 }
             }
             if (!signedIn && onSignIn != null) {

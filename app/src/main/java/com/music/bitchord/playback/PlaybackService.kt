@@ -819,6 +819,7 @@ class PlaybackService : MediaLibraryService() {
     private var favoriteActionJob: Job? = null
     private var stationActionJob: Job? = null
     private var autoplayLoadJob: Job? = null
+    private var autoplayRadio = AutoplayRadio()
     /** Rate limit for listener-requested retries; automatic upgrades do not touch it. */
     private val manualUpgradeThrottle = ManualUpgradeThrottle(MANUAL_UPGRADE_COOLDOWN_MS)
     /** The upcoming ids read-ahead was last asked to warm, so an unchanged queue isn't asked again. */
@@ -1820,11 +1821,11 @@ class PlaybackService : MediaLibraryService() {
                 .map { state -> Triple(state.code, state.playback.autoplayEnabled, autoplaySupplierId(state)) }
                 .distinctUntilChanged()
                 .collectLatest { (code, enabled, supplierId) ->
-                    if (code != null && enabled && supplierId == ListenTogether.state.value.you?.memberId) {
-                        autoplayLoadJob?.cancel()
-                        autoplayLoadJob = null
-                        autoplaySeed = null
-                        loadAutoplayForCurrentTrack()
+                    if (code != null) {
+                        resetAutoplayRadio()
+                        if (enabled && supplierId == ListenTogether.state.value.you?.memberId) {
+                            loadAutoplayForCurrentTrack()
+                        }
                     }
                 }
         }
@@ -1875,6 +1876,7 @@ class PlaybackService : MediaLibraryService() {
         player,
         crossfade,
         onUserIntent = { partySync?.onLocalIntent() },
+        onQueueReplaced = ::resetAutoplayRadio,
         deferPlayToParty = { partySync?.shouldDeferPlay() == true },
         lockedTransport = { playing -> partySync?.onLockedTransport(playing) == true },
         cast = speakers,
@@ -2840,6 +2842,7 @@ class PlaybackService : MediaLibraryService() {
 
         boundedContinuationJob?.cancel()
         boundedContextWindow = window
+        if (boundedContextToken != contextToken) resetAutoplayRadio()
         boundedContextToken = contextToken
         boundedContextSource = source
         boundedContextRequest = request
@@ -2895,7 +2898,15 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** Clears local bounded state before a non-context queue replaces the player. */
+    private fun resetAutoplayRadio() {
+        autoplayLoadJob?.cancel()
+        autoplayLoadJob = null
+        autoplaySeed = null
+        autoplayRadio = AutoplayRadio()
+    }
+
     private fun clearBoundedContext() {
+        resetAutoplayRadio()
         boundedEditState = BoundedQueueEdits.invalidateContext(boundedEditState)
         boundedContextRequest?.handoffToken?.let(BoundedContextRequests::discard)
         boundedCanonicalJob?.cancel()
@@ -3113,15 +3124,10 @@ class PlaybackService : MediaLibraryService() {
         // Party AutoPlay is shared state; changing it must not overwrite the
         // listener's separate local AutoPlay preference for when they leave.
         AppSettings.setAutoplay(enabled)
+        resetAutoplayRadio()
         if (enabled) {
-            autoplayLoadJob?.cancel()
-            autoplayLoadJob = null
-            autoplaySeed = null
             loadAutoplayForCurrentTrack()
         } else {
-            autoplayLoadJob?.cancel()
-            autoplayLoadJob = null
-            autoplaySeed = null
             dropAutoplayTracksFromQueue()
             // Switching AutoPlay off is the listener saying they don't want
             // those tracks; leaving a stash behind would put them back the next
@@ -3167,16 +3173,16 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
-            // Which song seeds the radio: this one first, then — when its radio
-            // has nothing new left — the songs before it, one further back each
-            // time, as the web player's watchdog does.
-            var seedBack = 0
+            val radio = autoplayRadio
+            val contextAtStart = boundedContextToken
+            val partyAtStart = party.code
             while (isActive) {
                 val activePlayer = player ?: return@launch
                 val activeParty = ListenTogether.state.value
                 if (!autoplayEnabled(activeParty) ||
                     activePlayer.repeatMode == Player.REPEAT_MODE_ALL ||
                     activePlayer.currentMediaItem?.mediaId != current.videoId ||
+                    autoplayRadio !== radio || boundedContextToken != contextAtStart || activeParty.code != partyAtStart ||
                     (activeParty.inParty && autoplaySupplierId(activeParty) != activeParty.you?.memberId)
                 ) {
                     return@launch
@@ -3189,26 +3195,13 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     queueSongs
                 }
-                val seedSong = if (seedBack == 0) {
-                    current
-                } else {
-                    val at = activePlayer.currentMediaItemIndex - seedBack
-                    if (at >= 0) activePlayer.getMediaItemAt(at).toSong() else current
-                }
-                val result = loadAutoplayTracks(existing, seedSong, remaining)
-                val resolved = result.getOrElse {
-                    TrackLog.w(
-                        "BitChord",
-                        "notification autoplay failed: ${it.message}",
-                        about = current.videoId,
-                    )
-                    emptyList()
-                }
+                val resolved = radio.load(existing, queueSongs, remaining)
                 val latestPlayer = player ?: return@launch
                 val latestParty = ListenTogether.state.value
                 if (!autoplayEnabled(latestParty) ||
                     latestPlayer.repeatMode == Player.REPEAT_MODE_ALL ||
                     latestPlayer.currentMediaItem?.mediaId != current.videoId ||
+                    autoplayRadio !== radio || boundedContextToken != contextAtStart || latestParty.code != partyAtStart ||
                     (latestParty.inParty && autoplaySupplierId(latestParty) != latestParty.you?.memberId)
                 ) {
                     return@launch
@@ -3266,8 +3259,7 @@ class PlaybackService : MediaLibraryService() {
                     delay(AUTOPLAY_WATCHDOG_MS)
                     // Paused: wait for play rather than asking on behalf of nobody.
                     while (isActive && player?.playWhenReady == false) delay(AUTOPLAY_WATCHDOG_MS)
-                    // This song's radio came back with nothing new: seed from an earlier one.
-                    seedBack = if (at - (seedBack + 1) >= 0) seedBack + 1 else 0
+
                 }
                 remaining = MAX_QUEUED_AUTOPLAY
             }
@@ -6577,6 +6569,7 @@ class PlaybackService : MediaLibraryService() {
         if (items.size != projected.entries.size) return false
 
         boundedContextWindow = restoredWindow
+        if (boundedContextToken != contextToken) resetAutoplayRadio()
         boundedContextToken = contextToken
         boundedContextSource = persisted.source
         boundedContextRequest = BoundedContextRequests.restore(
@@ -8461,6 +8454,7 @@ class PlaybackService : MediaLibraryService() {
          * a listener's action from its own corrections. See [PartySync].
          */
         private val onUserIntent: () -> Unit,
+        private val onQueueReplaced: () -> Unit,
         /** @see PartySync.shouldDeferPlay */
         private val deferPlayToParty: () -> Boolean,
         /** @see PartySync.onLockedTransport */
@@ -8883,6 +8877,7 @@ class PlaybackService : MediaLibraryService() {
         override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
             if (locked()) return
             onUserIntent()
+            onQueueReplaced()
             super.setMediaItems(mediaItems, resetPosition)
         }
 
@@ -8893,6 +8888,7 @@ class PlaybackService : MediaLibraryService() {
         ) {
             if (locked()) return
             onUserIntent()
+            onQueueReplaced()
             super.setMediaItems(mediaItems, startIndex, startPositionMs)
         }
 
