@@ -165,6 +165,13 @@ enum class LocalFolderTab {
     FOLDERS,
     ;
 
+    val sortOptions: List<LocalMusicSort>
+        get() = when (this) {
+            RECENTLY_ADDED -> listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
+            PLAYLISTS -> listOf(LocalMusicSort.TITLE_ASC, LocalMusicSort.TITLE_DESC)
+            else -> LocalMusicSort.entries
+        }
+
     companion object {
         /** Every folder's: the three readings any set of tracks has. */
         val BASIC = listOf(SONGS, ARTISTS, ALBUMS)
@@ -186,6 +193,7 @@ enum class LocalFolderTab {
 class LocalFolderState {
     var tab by mutableStateOf(LocalFolderTab.SONGS)
     var recentAlphabetical by mutableStateOf(false)
+    var groupSorts by mutableStateOf<Map<LocalFolderTab, LocalMusicSort>>(emptyMap())
 
     var selectedIds by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -246,13 +254,7 @@ fun rememberLocalFolderGroups(
         title.contains(query, ignoreCase = true) ||
         subtitle.contains(query, ignoreCase = true)
     when (tab) {
-        LocalFolderTab.SONGS -> if (browseId == "local:all" && query.isNotBlank()) {
-            (LocalGroups.albumsOf(browseId, songs, folder.collections).filter { it.matches() }.take(4) +
-                LocalGroups.artistsOf(browseId, songs).filter { it.matches() }.take(4) +
-                LocalGroups.artistsOf(browseId, songs, albumArtists = true).filter { it.matches() }.take(4))
-                .distinctBy { it.browseId }
-        } else emptyList()
-        LocalFolderTab.RECENTLY_ADDED -> emptyList()
+        LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> emptyList()
         LocalFolderTab.ALBUM_ARTISTS -> LocalGroups.artistsOf(browseId, songs, albumArtists = true).filter { it.matches() }
         LocalFolderTab.ARTISTS -> LocalGroups.artistsOf(browseId, songs).filter { it.matches() }
         LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(LocalGroups.folderOf(browseId) ?: browseId, songs, folder.collections, singlesTitle).filter { it.matches() }
@@ -324,20 +326,9 @@ internal fun LazyListScope.localFolderItems(
         }
     }
 
-    if (state.tab == LocalFolderTab.SONGS && query.isNotBlank() && groups.isNotEmpty()) {
-        items(groups, key = { "local-search:${it.browseId}" }) { group ->
-            if (group.type == BrowseType.OTHER) {
-                ArtistRow(group, palette, onClick = { folder.onOpenGroup(group) }, onLongPress = { folder.onGroupLongPress(group) })
-            } else {
-                AlbumRow(group, palette, selected = false, onClick = folder.onOpenGroup, onLongPress = { folder.onGroupLongPress(group) })
-            }
-        }
-    }
-
     val grid = folder.viewType == LibraryViewType.GRID
     val empty = when (state.tab) {
-        LocalFolderTab.SONGS -> songs.isEmpty() && groups.isEmpty()
-        LocalFolderTab.RECENTLY_ADDED -> songs.isEmpty()
+        LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> songs.isEmpty()
         else -> groups.isEmpty()
     }
     if (empty) {

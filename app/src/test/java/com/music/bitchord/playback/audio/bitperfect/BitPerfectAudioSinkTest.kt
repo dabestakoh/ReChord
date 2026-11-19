@@ -111,6 +111,27 @@ class BitPerfectAudioSinkTest {
     }
 
     @Test
+    fun reusesDirectUsbForSamePcmWithNewTrackTrim() {
+        val outputs = FakeOutputs().apply { driver = BitPerfectDriver.USB_DIRECT }
+        val sink = BitPerfectAudioSink(outputs)
+        sink.configure(config(format(delay = 1)))
+        sink.play()
+        assertTrue(sink.handleBuffer(pcm16(4), 0, 1))
+        val transport = outputs.opened.single()
+        assertTrue(outputs.statuses.last().openingUsb)
+        transport.advance(3)
+        sink.getCurrentPositionUs(false)
+        assertTrue(outputs.statuses.last().dacOutputVerified)
+
+        sink.configure(config(format(delay = 2)))
+        assertTrue(sink.handleBuffer(pcm16(4, start = 10), 0, 1))
+        assertEquals(1, outputs.opened.size)
+        assertFalse(transport.released)
+        assertEquals(2L, transport.written)
+        assertTrue(outputs.statuses.last().openingUsb)
+    }
+
+    @Test
     fun opensAtTheFirstBufferAndWritesSamplesUnchanged() {
         val outputs = FakeOutputs()
         val sink = BitPerfectAudioSink(outputs)

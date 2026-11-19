@@ -81,11 +81,13 @@ import com.music.bitchord.ui.icons.BitChordIcons
 import coil3.compose.AsyncImage
 import com.music.bitchord.data.model.CARD_ART_PX
 import com.music.bitchord.data.model.HomeShelf
+import com.music.bitchord.data.model.HomeSections
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.ShelfItem
 import com.music.bitchord.data.model.ShelfLayout
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.TopPick
+import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.data.model.UiState
 import java.util.Locale
@@ -173,18 +175,67 @@ fun HomeScreen(
     onMoodsShowAll: () -> Unit = {},
     /** Whether the Top Picks and mood artwork may animate — see [LocalArtworkMotion]. */
     artworkMotion: Boolean = true,
+    homeSections: Map<String, Boolean> = emptyMap(),
+    featuredHeightLimit: Dp = 460.dp,
 ) {
     // Top Picks' pictures and motion wait for the feed — see LocalArtworkImages.
     val imageContext = LocalPlatformContext.current
     var revealed by remember(signedIn) { mutableStateOf(false) }
     var optionalWaitExpired by remember(signedIn) { mutableStateOf(false) }
     LaunchedEffect(signedIn) { delay(2500); optionalWaitExpired = true }
-    val dataReady = state is UiState.Success && (!topPicksLoading || optionalWaitExpired)
+    val carouselVisible = onTopPickClick != null &&
+        HomeSections.visible(HomeSections.CAROUSEL, homeSections) &&
+        HomeSections.cards.any { HomeSections.visible(it, homeSections) }
+    val carouselLoading = carouselVisible && topPicksLoading &&
+        HomeSections.cards.drop(1).any { HomeSections.visible(it, homeSections) }
+    val featured = remember(topPicks, currentSong, homeSections) {
+        buildList {
+            if (HomeSections.visible(HomeSections.CONTINUE, homeSections) && currentSong != null) {
+                add(TopPick(
+                    kind = TopPickKind.CONTINUE_LISTENING,
+                    title = currentSong.title,
+                    subtitle = currentSong.artist,
+                    images = listOfNotNull(currentSong.thumbnailUrl),
+                ))
+            }
+            val picks = topPicks.orEmpty()
+            if (HomeSections.visible(HomeSections.RELEASE, homeSections)) {
+                picks.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }?.let(::add)
+            }
+            val songs = picks.filter { it.kind == TopPickKind.RELATED_SONG }
+                .takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }.orEmpty()
+            val artists = picks.filter { it.kind == TopPickKind.ARTIST_AND_SIMILAR }
+                .take(2).takeIf { HomeSections.visible(HomeSections.ARTIST, homeSections) }.orEmpty()
+            for (index in 0 until maxOf(songs.size, artists.size)) {
+                songs.getOrNull(index)?.let(::add)
+                artists.getOrNull(index)?.let(::add)
+            }
+        }.let { cards ->
+            val releaseArt = cards.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }
+                ?.images?.firstOrNull()?.substringBefore('=')?.substringBefore('?')
+            val usedArt = mutableSetOf<String>()
+            cards.filter { card ->
+                val cover = card.images.firstOrNull()?.substringBefore('=')?.substringBefore('?')
+                cover == null ||
+                    ((card.kind == TopPickKind.LATEST_RELEASE || cover != releaseArt) && usedArt.add(cover))
+            }
+        }
+    }
+    val visibleFeed = remember(state, featured, carouselVisible) {
+        val pickedIds = if (carouselVisible) featured.flatMap { it.recommendations }.mapTo(HashSet()) { it.videoId }
+            else emptySet()
+        (state as? UiState.Success)?.data.orEmpty().mapNotNull { shelf ->
+            if (HomeSections.key(shelf) != "feed:your daily discover" || pickedIds.isEmpty()) return@mapNotNull shelf
+            val remaining = shelf.items.filterNot { it.videoId in pickedIds }
+            if (remaining.isEmpty()) null else shelf.copy(items = remaining)
+        }
+    }
+    val dataReady = state is UiState.Success && (!carouselLoading || optionalWaitExpired)
     LaunchedEffect(dataReady, signedIn) {
         if (!dataReady || revealed) return@LaunchedEffect
         // Warm only the visible opening cohort; failed images and slow optional requests cannot hold Home forever.
         val urls = buildList {
-            topPicks.orEmpty().take(2).forEach { pick -> pick.images.firstOrNull()?.let {
+            featured.take(2).filter { carouselVisible }.forEach { pick -> pick.images.firstOrNull()?.let {
                 add(it.croppedAt(HEADER_ART_PX))
                 add(it.croppedAt(HEADER_ART_PX * 3 / 4, HEADER_ART_PX))
             } }
@@ -240,6 +291,21 @@ fun HomeScreen(
                 // lives in the top bar beside the account avatar.
                 item(key = "home-header-space") { Spacer(Modifier.height(72.dp)) }
             }
+            if (carouselVisible && onTopPickClick != null) {
+                when {
+                    feedReady && featured.isNotEmpty() && (!carouselLoading || topPicks != null) -> item(key = "top-picks") {
+                        TopPicksShelf(
+                            picks = featured,
+                            heightLimit = featuredHeightLimit,
+                            isPlaying = isPlaying,
+                            listenerName = listenerName,
+                            onClick = onTopPickClick,
+                            onLongPress = onTopPickLongPress,
+                        )
+                    }
+                    !feedReady || carouselLoading -> topPicksSkeleton(featuredHeightLimit)
+                }
+            }
             if (!signedIn && onSignIn != null) {
                 item {
                     // Read in this item, so a scroll starting or ending
@@ -249,19 +315,6 @@ fun HomeScreen(
                         modifier = Modifier.padding(bottom = 8.dp),
                         motion = LocalArtworkMotion.current && !listState.isScrollInProgress,
                     )
-                }
-            }
-            if (onTopPickClick != null) {
-                when {
-                    feedReady && !topPicks.isNullOrEmpty() -> item(key = "top-picks") {
-                        TopPicksShelf(
-                            picks = topPicks,
-                            listenerName = listenerName,
-                            onClick = onTopPickClick,
-                            onLongPress = onTopPickLongPress,
-                        )
-                    }
-                    !feedReady || (topPicks == null && topPicksLoading) -> topPicksSkeleton()
                 }
             }
             when (val state = displayState) {
@@ -279,7 +332,7 @@ fun HomeScreen(
                         recentlyPlayedSkeleton()
                     }
                     itemsIndexedShelves(
-                        shelves = state.data,
+                        shelves = visibleFeed,
                         onMoodClick = onMoodClick,
                         onMoodsShowAll = onMoodsShowAll,
                         onItemClick = onItemClick,
@@ -326,12 +379,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
     onMoodClick: ((TopPickMood, String) -> Unit)? = null,
     onMoodsShowAll: () -> Unit = {},
 ) {
+    val moodPosition = shelves.indexOfFirst {
+        HomeSections.key(it) !in listOf(HomeSections.RECENTS, HomeSections.QUICK_PICKS)
+    }.takeIf { it >= 0 } ?: shelves.size
     shelves.forEachIndexed { index, shelf ->
-        // Find Your Mood follows the lead shelf, as on Apple Music's Home.
-        if (index == 1 && onMoodClick != null) {
+        if (index == moodPosition && onMoodClick != null) {
             item(key = "find-your-mood") { FindYourMoodShelf(onMoodClick, onMoodsShowAll) }
         }
-        item(key = shelf.title + index, contentType = shelf.layout) {
+        item(key = "shelf:${HomeSections.key(shelf)}:${shelf.title}", contentType = shelf.layout) {
             val openItem: (ShelfItem) -> Unit = { item -> onItemClick(item, shelf.title) }
             // Listen again and Quick picks are lists on the web player, as
             // Recents is here: one pager for all three.
@@ -355,6 +410,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedShelves(
                 )
             }
         }
+    }
+    if (moodPosition == shelves.size && onMoodClick != null) {
+        item(key = "find-your-mood") { FindYourMoodShelf(onMoodClick, onMoodsShowAll) }
     }
 }
 

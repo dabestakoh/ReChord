@@ -1,8 +1,6 @@
-name: ReChord Preview 1.9.2.3 Safe Optimizations
+name: ReChord Preview APK
 
 on:
-  push:
-    branches: [feature/1.9.2.3-safe-optimizations]
   workflow_dispatch:
 
 concurrency:
@@ -85,6 +83,7 @@ jobs:
           ./gradlew :app:assembleDevDebug -PbitchordArm64Only=true -Pbitchord.bundleWear=false \
             --build-cache --parallel --max-workers=3 --stacktrace
       - name: Verify Preview signature, package and version
+        id: verify-preview
         shell: bash
         run: |
           set -euo pipefail
@@ -108,12 +107,19 @@ jobs:
           fi
           info=$("$TOOLS/aapt" dump badging "${apks[0]}")
           grep -q "package: name='com.rechord.preview' " <<< "$info"
-          grep -q "versionName='1.9.2.3'" <<< "$info"
+          version=$(sed -nE 's/^extra\["bitchordVersionName"\] = "([^"]+)"$/\1/p' build.gradle.kts)
+          suffix=$(sed -nE 's/^extra\["bitchordBetaSuffix"\] = "([^"]*)"$/\1/p' build.gradle.kts)
+          expected_version="${version}${suffix:+-$suffix}"
+          if [ -z "$version" ] || ! grep -Fq "versionName='$expected_version'" <<< "$info"; then
+            echo "::error::Preview APK version does not match Gradle ($expected_version)"
+            exit 1
+          fi
+          echo "version=$expected_version" >> "$GITHUB_OUTPUT"
           echo "Preview signer, package and version verified"
       - name: Upload Preview APK
         uses: actions/upload-artifact@v4
         with:
-          name: ReChord-Preview-1.9.2.3-safe-optimizations-arm64
+          name: ReChord-Preview-${{ steps.verify-preview.outputs.version }}-arm64
           path: app/build/outputs/apk/dev/debug/*arm64-v8a*.apk
           if-no-files-found: error
           compression-level: 0

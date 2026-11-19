@@ -546,6 +546,7 @@ class PlaybackService : MediaLibraryService() {
     @Volatile private var measuredOutputSource: Pair<String, Format>? = null
     private val outputDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<AudioDeviceInfo>) {
+            if (foldUsbHandoffCallback(addedDevices)) return
             // Plugging something in moves the music to it. Always — a choice
             // made an hour ago about the speaker is not a standing instruction
             // to ignore the headphones now going in, and there is no row in the
@@ -555,6 +556,7 @@ class PlaybackService : MediaLibraryService() {
             requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(addedDevices))
         }
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
+            if (foldUsbHandoffCallback(removedDevices)) return
             // A chosen output that has been unplugged is no longer a choice.
             // Left set, its id matches nothing — and ids are reused, so it
             // would eventually match whatever device the framework hands that
@@ -563,6 +565,18 @@ class PlaybackService : MediaLibraryService() {
                 AudioRouting.forget()
             }
             requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(removedDevices))
+        }
+
+        private fun foldUsbHandoffCallback(devices: Array<AudioDeviceInfo>): Boolean {
+            if (devices.isEmpty() || devices.any { AudioRouting.kindOf(it.type) != AudioRouting.Kind.USB }) return false
+            val mode = AppSettings.bitPerfectMode.value
+            // Direct claims/releases the kernel interface itself. Physical USB
+            // attach/detach and permissions are handled by UsbDirectDevices.
+            if (mode != BitPerfectMode.USB_DIRECT &&
+                !(mode == BitPerfectMode.USB_ANDROID && BitPerfectOutput.directHandbackRecent)
+            ) return false
+            applyOutputRoute()
+            return true
         }
 
         private fun shouldRebuildAndroidUsb(devices: Array<AudioDeviceInfo>): Boolean =
@@ -595,6 +609,7 @@ class PlaybackService : MediaLibraryService() {
      * a running renderer. Moving the setting therefore rebuilds both players.
      */
     private var configuredFloatOutput = false
+    private var configuredBitPerfectMode = BitPerfectMode.OFF
     private var outputReconfigureJob: Job? = null
 
     /**
@@ -804,6 +819,7 @@ class PlaybackService : MediaLibraryService() {
     private var favoriteActionJob: Job? = null
     private var stationActionJob: Job? = null
     private var autoplayLoadJob: Job? = null
+    private var autoplayRadio = AutoplayRadio()
     /** Rate limit for listener-requested retries; automatic upgrades do not touch it. */
     private val manualUpgradeThrottle = ManualUpgradeThrottle(MANUAL_UPGRADE_COOLDOWN_MS)
     /** The upcoming ids read-ahead was last asked to warm, so an unchanged queue isn't asked again. */
@@ -1061,6 +1077,7 @@ class PlaybackService : MediaLibraryService() {
          * broken app looks like from the outside.
          */
         override fun onPlayerError(error: PlaybackException) {
+            com.music.bitchord.data.AppDiagnostics.record("Playback error ${error.errorCode}", error)
             // The player this fired on, which is by definition the one the
             // session is currently pointed at.
             val exoPlayer = player ?: return
@@ -1076,6 +1093,7 @@ class PlaybackService : MediaLibraryService() {
             // session is currently pointed at.
             val exoPlayer = player ?: return
             if (state == Player.STATE_ENDED) {
+                if (SleepTimer.afterTrack.value) exoPlayer.pause()
                 SleepTimer.cancel()
                 // The queue ran dry, so no transition will ever close the last
                 // track out. Without this its history entry keeps whatever
@@ -1736,6 +1754,7 @@ class PlaybackService : MediaLibraryService() {
         WearBridge.attachStreams(AudioCache.playbackFactory(defaultDataSourceFactory))
 
         configuredFloatOutput = shouldEnableFloatOutput()
+        configuredBitPerfectMode = AppSettings.bitPerfectMode.value
         val exoPlayer = buildPlayer(
             spatialAudioProcessorA,
             equalizerProcessorA,
@@ -1803,11 +1822,11 @@ class PlaybackService : MediaLibraryService() {
                 .map { state -> Triple(state.code, state.playback.autoplayEnabled, autoplaySupplierId(state)) }
                 .distinctUntilChanged()
                 .collectLatest { (code, enabled, supplierId) ->
-                    if (code != null && enabled && supplierId == ListenTogether.state.value.you?.memberId) {
-                        autoplayLoadJob?.cancel()
-                        autoplayLoadJob = null
-                        autoplaySeed = null
-                        loadAutoplayForCurrentTrack()
+                    if (code != null) {
+                        resetAutoplayRadio()
+                        if (enabled && supplierId == ListenTogether.state.value.you?.memberId) {
+                            loadAutoplayForCurrentTrack()
+                        }
                     }
                 }
         }
@@ -1858,6 +1877,16 @@ class PlaybackService : MediaLibraryService() {
         player,
         crossfade,
         onUserIntent = { partySync?.onLocalIntent() },
+        onQueueReplaced = { items ->
+            resetAutoplayRadio()
+            items.firstNotNullOfOrNull { item ->
+                val extras = item.mediaMetadata.extras ?: return@firstNotNullOfOrNull null
+                val cursor = extras.getString(EXTRA_ARTIST_RADIO_CURSOR) ?: return@firstNotNullOfOrNull null
+                autoplayRadio.continueArtistRadio(
+                    item.toSong(), cursor, extras.getString(EXTRA_ARTIST_RADIO_NAME), extras.getString(EXTRA_ARTIST_RADIO_ID),
+                )
+            }
+        },
         deferPlayToParty = { partySync?.shouldDeferPlay() == true },
         lockedTransport = { playing -> partySync?.onLockedTransport(playing) == true },
         cast = speakers,
@@ -2823,6 +2852,7 @@ class PlaybackService : MediaLibraryService() {
 
         boundedContinuationJob?.cancel()
         boundedContextWindow = window
+        if (boundedContextToken != contextToken) resetAutoplayRadio()
         boundedContextToken = contextToken
         boundedContextSource = source
         boundedContextRequest = request
@@ -2878,7 +2908,15 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** Clears local bounded state before a non-context queue replaces the player. */
+    private fun resetAutoplayRadio() {
+        autoplayLoadJob?.cancel()
+        autoplayLoadJob = null
+        autoplaySeed = null
+        autoplayRadio = AutoplayRadio()
+    }
+
     private fun clearBoundedContext() {
+        resetAutoplayRadio()
         boundedEditState = BoundedQueueEdits.invalidateContext(boundedEditState)
         boundedContextRequest?.handoffToken?.let(BoundedContextRequests::discard)
         boundedCanonicalJob?.cancel()
@@ -3096,15 +3134,12 @@ class PlaybackService : MediaLibraryService() {
         // Party AutoPlay is shared state; changing it must not overwrite the
         // listener's separate local AutoPlay preference for when they leave.
         AppSettings.setAutoplay(enabled)
+        autoplayLoadJob?.cancel()
+        autoplayLoadJob = null
+        autoplaySeed = null
         if (enabled) {
-            autoplayLoadJob?.cancel()
-            autoplayLoadJob = null
-            autoplaySeed = null
             loadAutoplayForCurrentTrack()
         } else {
-            autoplayLoadJob?.cancel()
-            autoplayLoadJob = null
-            autoplaySeed = null
             dropAutoplayTracksFromQueue()
             // Switching AutoPlay off is the listener saying they don't want
             // those tracks; leaving a stash behind would put them back the next
@@ -3150,16 +3185,16 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
-            // Which song seeds the radio: this one first, then — when its radio
-            // has nothing new left — the songs before it, one further back each
-            // time, as the web player's watchdog does.
-            var seedBack = 0
+            val radio = autoplayRadio
+            val contextAtStart = boundedContextToken
+            val partyAtStart = party.code
             while (isActive) {
                 val activePlayer = player ?: return@launch
                 val activeParty = ListenTogether.state.value
                 if (!autoplayEnabled(activeParty) ||
                     activePlayer.repeatMode == Player.REPEAT_MODE_ALL ||
                     activePlayer.currentMediaItem?.mediaId != current.videoId ||
+                    autoplayRadio !== radio || boundedContextToken != contextAtStart || activeParty.code != partyAtStart ||
                     (activeParty.inParty && autoplaySupplierId(activeParty) != activeParty.you?.memberId)
                 ) {
                     return@launch
@@ -3172,26 +3207,13 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     queueSongs
                 }
-                val seedSong = if (seedBack == 0) {
-                    current
-                } else {
-                    val at = activePlayer.currentMediaItemIndex - seedBack
-                    if (at >= 0) activePlayer.getMediaItemAt(at).toSong() else current
-                }
-                val result = loadAutoplayTracks(existing, seedSong, remaining)
-                val resolved = result.getOrElse {
-                    TrackLog.w(
-                        "BitChord",
-                        "notification autoplay failed: ${it.message}",
-                        about = current.videoId,
-                    )
-                    emptyList()
-                }
+                val resolved = radio.load(existing, queueSongs, remaining)
                 val latestPlayer = player ?: return@launch
                 val latestParty = ListenTogether.state.value
                 if (!autoplayEnabled(latestParty) ||
                     latestPlayer.repeatMode == Player.REPEAT_MODE_ALL ||
                     latestPlayer.currentMediaItem?.mediaId != current.videoId ||
+                    autoplayRadio !== radio || boundedContextToken != contextAtStart || latestParty.code != partyAtStart ||
                     (latestParty.inParty && autoplaySupplierId(latestParty) != latestParty.you?.memberId)
                 ) {
                     return@launch
@@ -3227,7 +3249,14 @@ class PlaybackService : MediaLibraryService() {
                         val fresh = resolved
                             .filterNot { song -> queuedNow.any { QueueBuilder.isSameRecording(it, song) } }
                             .take(room.coerceAtLeast(0))
-                        if (fresh.isNotEmpty()) latestPlayer.addMediaItems(fresh.map { it.toMediaItem() })
+                        if (fresh.isNotEmpty()) {
+                            val ended = latestPlayer.playbackState == Player.STATE_ENDED
+                            latestPlayer.addMediaItems(fresh.map { it.toMediaItem() })
+                            if (shouldResumeAutoplay(ended, latestPlayer.playWhenReady, latestPlayer.hasNextMediaItem())) {
+                                latestPlayer.seekToNextMediaItem()
+                                latestPlayer.prepare()
+                            }
+                        }
                     }
                     if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += resolved
                     return@launch
@@ -3249,8 +3278,7 @@ class PlaybackService : MediaLibraryService() {
                     delay(AUTOPLAY_WATCHDOG_MS)
                     // Paused: wait for play rather than asking on behalf of nobody.
                     while (isActive && player?.playWhenReady == false) delay(AUTOPLAY_WATCHDOG_MS)
-                    // This song's radio came back with nothing new: seed from an earlier one.
-                    seedBack = if (at - (seedBack + 1) >= 0) seedBack + 1 else 0
+
                 }
                 remaining = MAX_QUEUED_AUTOPLAY
             }
@@ -6560,6 +6588,7 @@ class PlaybackService : MediaLibraryService() {
         if (items.size != projected.entries.size) return false
 
         boundedContextWindow = restoredWindow
+        if (boundedContextToken != contextToken) resetAutoplayRadio()
         boundedContextToken = contextToken
         boundedContextSource = persisted.source
         boundedContextRequest = BoundedContextRequests.restore(
@@ -7458,6 +7487,9 @@ class PlaybackService : MediaLibraryService() {
         oldActive.removeListener(playbackListener)
         oldActive.removeAnalyticsListener(formatListener)
 
+        val nextMode = AppSettings.bitPerfectMode.value
+        val fromDirect = configuredBitPerfectMode == BitPerfectMode.USB_DIRECT && nextMode != BitPerfectMode.USB_DIRECT
+        configuredBitPerfectMode = nextMode
         configuredFloatOutput = enableFloat
         activeFilter = transitionFilterA
         spareFilter = transitionFilterB
@@ -7500,12 +7532,29 @@ class PlaybackService : MediaLibraryService() {
         crossfade = newCrossfade
         newCrossfade.start()
         mediaSession?.player = newSessionPlayer(newActive, newCrossfade)
+        if (fromDirect) {
+            oldActive.release()
+            oldSpare.release()
+        }
         applyOutputRoute()
-        if (items.isNotEmpty()) newActive.prepare()
         newActive.playWhenReady = playWhenReady
-
-        oldActive.release()
-        oldSpare.release()
+        if (items.isNotEmpty()) {
+            if (fromDirect && BitPerfectOutput.normalOutputPending(this)) {
+                scope.launch {
+                    while (player === newActive && BitPerfectOutput.normalOutputPending(this@PlaybackService)) delay(50)
+                    if (player === newActive && newActive.playbackState == Player.STATE_IDLE) {
+                        applyOutputRoute()
+                        newActive.prepare()
+                    }
+                }
+            } else {
+                newActive.prepare()
+            }
+        }
+        if (!fromDirect) {
+            oldActive.release()
+            oldSpare.release()
+        }
         TrackLog.i(
             "AUDIO_OUT",
             "live output switch: ${if (enableFloat) "PCM_FLOAT" else "PCM_16BIT"}",
@@ -8424,6 +8473,7 @@ class PlaybackService : MediaLibraryService() {
          * a listener's action from its own corrections. See [PartySync].
          */
         private val onUserIntent: () -> Unit,
+        private val onQueueReplaced: (List<MediaItem>) -> Unit,
         /** @see PartySync.shouldDeferPlay */
         private val deferPlayToParty: () -> Boolean,
         /** @see PartySync.onLockedTransport */
@@ -8846,6 +8896,7 @@ class PlaybackService : MediaLibraryService() {
         override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
             if (locked()) return
             onUserIntent()
+            onQueueReplaced(mediaItems)
             super.setMediaItems(mediaItems, resetPosition)
         }
 
@@ -8856,6 +8907,7 @@ class PlaybackService : MediaLibraryService() {
         ) {
             if (locked()) return
             onUserIntent()
+            onQueueReplaced(mediaItems)
             super.setMediaItems(mediaItems, startIndex, startPositionMs)
         }
 
@@ -9583,6 +9635,12 @@ class PlaybackService : MediaLibraryService() {
                         val local = LocalMediaRepository.getLocalMusic(this@PlaybackService)
                         local.forEach { songCache[it.videoId] = it }
                         resolved.addAll(local.map { it.toMediaItem() })
+                    }
+                    item.mediaMetadata.extras?.containsKey(EXTRA_ARTIST_RADIO_CURSOR) == true -> {
+                        // Keep the cursor and the selected queue entry when the controller's
+                        // MediaItem crosses the session without its local URI.
+                        val playable = if (item.localConfiguration != null) item else item.toSong().toMediaItem()
+                        resolved.add(playable.buildUpon().setMediaMetadata(item.mediaMetadata).build())
                     }
                     songCache.containsKey(id) -> {
                         resolved.add(songCache[id]!!.toMediaItem())

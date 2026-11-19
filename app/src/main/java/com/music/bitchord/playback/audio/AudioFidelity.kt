@@ -51,6 +51,7 @@ object AudioFidelity {
         val dsd: Boolean = false,
         val sourceRateHz: Int? = null,
         val outputRateHz: Int? = null,
+        val usbOpening: Boolean = false,
     )
 
     data class Deduction(val label: String, val points: Int)
@@ -87,6 +88,15 @@ object AudioFidelity {
     private const val JAMES_DSP_POINTS = 8
 
     fun assess(inputs: Inputs): Assessment {
+        if (inputs.usbOpening) {
+            return Assessment(
+                score = 100, grade = "PCM Status Pending", activeEffects = emptyList(),
+                effectsAvailable = inputs.dspAvailable, effectsBypassed = inputs.dspBypassed,
+                deductions = emptyList(), bitPerfectVerified = false,
+                verification = Verification.UNVERIFIED, verificationDetail = "Waiting for USB output",
+                outputLabel = "USB output pending",
+            )
+        }
         val deductions = mutableListOf<Deduction>()
 
         val verifiedPath = inputs.verifiedTransportActive &&
@@ -182,6 +192,7 @@ object AudioFidelity {
                 inputs.sourceRateHz == inputs.outputRateHz)
         val outputLabel = when {
             deductions.isNotEmpty() -> "Modified"
+            verified && inputs.routeKind == AudioRouting.Kind.USB -> "Bit-perfect output"
             verified -> "Bit-perfect"
             inputs.directPlaybackActual -> "Direct Output"
             else -> "Standard Output"

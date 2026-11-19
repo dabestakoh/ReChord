@@ -85,9 +85,14 @@ internal class UsbDirectTransport private constructor(
     override val bufferSizeFrames: Long = UsbDirectNative.capacity(handle).toLong()
 
     @Volatile private var failure: String? = null
+    @Volatile private var detached = false
+    private var quiesced = true
     private var lastFrames = 0L
 
-    private val control = UsbControl { input, request, value, index, data ->
+    fun accepts(rate: Int, channels: Int, sourceBits: Int): Boolean =
+        failure == null && sampleRate == rate && channelCount == channels && validBits >= sourceBits
+
+    private val control: UsbControl = UsbControl { input, request, value, index, data ->
         val reply = UsbDirectNative.control(handle, input, request, value, index, data)
         if (input) reply.copyInto(data)
     }
@@ -97,10 +102,14 @@ internal class UsbDirectTransport private constructor(
     /** Called off the playback thread; the native worker serializes it with streaming. */
     fun setVolume(db: Double): UsbVolume.Snapshot {
         val volume = volumeControl ?: throw IllegalStateException("USB hardware volume unavailable")
-        return synchronized(volume) { volume.set(control, db) }
+        return synchronized(volume) {
+            check(handle != 0L && !detached) { "USB output is closed" }
+            volume.set(control, db)
+        }
     }
 
     fun markDetached() {
+        detached = true
         failure = "USB disconnected"
     }
 
@@ -129,16 +138,21 @@ internal class UsbDirectTransport private constructor(
             scaled
         } else buffer
         val count = call { UsbDirectNative.write(handle, input, input.position(), minOf(input.remaining(), bytes)) }
+        if (count > 0) quiesced = false
         buffer.position(buffer.position() + count)
         return count
     }
 
-    override fun play() = call { UsbDirectNative.setPlaying(handle, true) }
+    override fun play() {
+        call { UsbDirectNative.setPlaying(handle, true) }
+        quiesced = false
+    }
 
     override fun pause() = call { UsbDirectNative.setPlaying(handle, false) }
 
     override fun flush() {
-        call { UsbDirectNative.flush(handle) }
+        if (!quiesced) call { UsbDirectNative.flush(handle) }
+        quiesced = true
         lastFrames = 0
     }
 
@@ -152,17 +166,38 @@ internal class UsbDirectTransport private constructor(
     }
 
     override fun release() {
-        // Leave the DAC at the volume it had before this stream lowered it;
-        // the next owner, Android's driver or another app, expects that level.
-        // Pointless once it is unplugged, and a closed handle cannot be asked.
-        if (handle != 0L && failure == null) {
-            volumeControl?.let { volume -> runCatching { synchronized(volume) { volume.restore(control) } } }
+        val closing = handle
+        if (closing == 0L) return
+        try {
+            val volume = volumeControl
+            if (volume == null) {
+                handle = 0
+                UsbDirectNative.close(closing)
+            } else synchronized(volume) {
+                // Stop sending audio before restoring the pre-Direct hardware level.
+                val restored = !detached && runCatching {
+                    flush()
+                    volume.restore(control)
+                }.isSuccess
+                handle = 0
+                UsbDirectNative.close(closing)
+                if (!restored && !detached) {
+                    // The Java descriptor is still open after libusb releases its interfaces.
+                    runCatching {
+                        volume.restore { input, request, value, index, data ->
+                            val transferred = connection.controlTransfer(
+                                if (input) 0xA1 else 0x21, request, value, index, data, data.size, 250,
+                            )
+                            check(transferred == data.size) { "USB volume control transfer failed" }
+                        }
+                    }.onFailure {
+                        com.music.bitchord.data.AppDiagnostics.record("USB volume handoff failed", it)
+                    }
+                }
+            }
+        } finally {
+            connection.close()
         }
-        // The worker joins (cancelling and acknowledging every transfer, then
-        // releasing the interfaces) before Android closes the descriptor.
-        if (handle != 0L) UsbDirectNative.close(handle)
-        handle = 0
-        runCatching { connection.close() }
     }
 
     private inline fun <T> call(block: () -> T): T {

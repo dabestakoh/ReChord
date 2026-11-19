@@ -1459,4 +1459,18 @@
     <string name="local_refresh_index">Segarkan koleksi musik</string>
     <string name="local_scan_running">Memperbarui koleksi musik…</string>
     <string name="local_scan_unavailable">Sumber musik tidak tersedia · Coba lagi</string>
+    <string name="home_featured_carousel">Karosel pilihan</string>
+    <string name="home_show_carousel">Tampilkan karosel</string>
+    <string name="home_continue_listening">Lanjutkan mendengarkan</string>
+    <string name="home_new_from_artists">Rilisan baru dari artis Anda</string>
+    <string name="home_song_recommendations">Rekomendasi lagu</string>
+    <string name="home_artist_recommendations">Rekomendasi artis</string>
+    <string name="home_shelves">Bagian Beranda</string>
+    <string name="home_recently_played">Baru diputar</string>
+    <string name="home_trending">Sedang tren</string>
+    <string name="diagnostics">Diagnostik</string>
+    <string name="send_diagnostic_report">Kirim laporan diagnostik</string>
+    <string name="diagnostic_report_github">Membuka draf publik di GitHub untuk ditinjau dan dikirim.</string>
+    <string name="export_diagnostic_log">Ekspor log diagnostik</string>
+    <string name="diagnostic_report_error">Laporan diagnostik tidak dapat dibuka atau diekspor.</string>
 </resources>

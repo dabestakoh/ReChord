@@ -69,8 +69,10 @@ internal class BitPerfectAudioSink(
         val needsTrim = format.encoderDelay > 0 || format.encoderPadding > 0
         val frameBytes = BitPerfectPcm.bytesPerSample(encoding) * channelCount
 
-        fun sameStream(other: Input?) = other != null && encoding == other.encoding &&
-            sampleRate == other.sampleRate && channelCount == other.channelCount &&
+        fun samePcm(other: Input?) = other != null && encoding == other.encoding &&
+            sampleRate == other.sampleRate && channelCount == other.channelCount
+
+        fun sameStream(other: Input?) = other != null && samePcm(other) &&
             (this === other || (!needsTrim && !other.needsTrim))
     }
 
@@ -221,7 +223,21 @@ internal class BitPerfectAudioSink(
         }
         if (transport != null && !input.sameStream(current)) {
             if (!drainForReconfiguration()) return false
-            closeTransport()
+            val active = transport
+            val usb = active?.driver == BitPerfectDriver.USB_DIRECT || active is MixerTransport
+            if (active != null && active.driver == BitPerfectDriver.USB_DIRECT &&
+                input.samePcm(current) && runCatching { active.flush() }.isSuccess
+            ) {
+                current = input
+                transportStarted = false
+                exact = true
+                configureTrimmer(input)
+                resetCounters()
+                publishStatus()
+            } else {
+                if (usb) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
+                closeTransport(publishIdle = !usb)
+            }
         }
         if (transport == null) open(input)
 
@@ -339,7 +355,7 @@ internal class BitPerfectAudioSink(
         runCatching { transport?.flush() }
         transportStarted = false
         resetCounters()
-        if (transport is MixerTransport) outputs.publishIdle()
+        if (transport is MixerTransport) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
         else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
     }
 
@@ -421,10 +437,7 @@ internal class BitPerfectAudioSink(
             null
         }
         exact = true
-        if (input.needsTrim) {
-            trimmer.setTrimFrameCount(input.format.encoderDelay, input.format.encoderPadding)
-            trimmer.configure(AudioProcessor.AudioFormat(input.sampleRate, input.channelCount, input.encoding))
-        }
+        configureTrimmer(input)
         resetCounters()
         Log.i(
             TAG,
@@ -432,18 +445,31 @@ internal class BitPerfectAudioSink(
                 "${input.sourceBits}-bit source as ${opened.outputBits}-bit" +
                 if (converter != null) " (DAC limit, source ${input.sampleRate} Hz)" else "",
         )
+        if (opened.driver == BitPerfectDriver.USB_DIRECT || opened is MixerTransport) {
+            com.music.bitchord.data.AppDiagnostics.record(
+                "USB open: ${opened.driver.name}, ${input.sampleRate} Hz → ${opened.sampleRate} Hz, " +
+                    "${input.sourceBits} → ${opened.validBits} valid bits",
+            )
+        }
         publishStatus()
         startIfReady()
     }
 
-    private fun closeTransport() {
+    private fun configureTrimmer(input: Input) {
+        trimmer.setTrimFrameCount(input.format.encoderDelay, input.format.encoderPadding)
+        if (input.needsTrim) {
+            trimmer.configure(AudioProcessor.AudioFormat(input.sampleRate, input.channelCount, input.encoding))
+        }
+    }
+
+    private fun closeTransport(publishIdle: Boolean = true) {
         suspended = false
         suspendedWire = null
         resumeTail = null
         val active = transport ?: return
         runCatching { active.release() }
         outputs.release(this)
-        outputs.publishIdle()
+        if (publishIdle) outputs.publishIdle()
         transport = null
         current = null
         converter = null
@@ -631,7 +657,10 @@ internal class BitPerfectAudioSink(
 
     private fun publishStatus() {
         val active = transport ?: return
-        if (active is MixerTransport && (!androidStatusPublished || !active.routeVerified)) return
+        if (active is MixerTransport && (!androidStatusPublished || !active.routeVerified)) {
+            outputs.publish(BitPerfectOutput.Status(openingUsb = true))
+            return
+        }
         outputs.publish(
             BitPerfectOutput.Status(
                 active = true,
@@ -642,6 +671,8 @@ internal class BitPerfectAudioSink(
                 channelCount = active.channelCount,
                 validOutputBits = active.validBits,
                 dacOutputVerified = active.driver == BitPerfectDriver.USB_DIRECT && advancingReported,
+                androidMixerOutputVerified = active is MixerTransport,
+                openingUsb = active.driver == BitPerfectDriver.USB_DIRECT && !advancingReported,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,
                 exact = exact && converter == null &&

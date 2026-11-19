@@ -1487,4 +1487,18 @@
     <string name="local_refresh_index">Atualizar biblioteca de música</string>
     <string name="local_scan_running">Atualizando a biblioteca de música…</string>
     <string name="local_scan_unavailable">Fonte de música indisponível · Tentar novamente</string>
+    <string name="home_featured_carousel">Carrossel em destaque</string>
+    <string name="home_show_carousel">Mostrar carrossel</string>
+    <string name="home_continue_listening">Continuar ouvindo</string>
+    <string name="home_new_from_artists">Novidades dos seus artistas</string>
+    <string name="home_song_recommendations">Músicas recomendadas</string>
+    <string name="home_artist_recommendations">Artistas recomendados</string>
+    <string name="home_shelves">Seções da tela inicial</string>
+    <string name="home_recently_played">Reproduzidas recentemente</string>
+    <string name="home_trending">Em alta</string>
+    <string name="diagnostics">Diagnóstico</string>
+    <string name="send_diagnostic_report">Enviar relatório de diagnóstico</string>
+    <string name="diagnostic_report_github">Abre um rascunho público no GitHub para revisão e envio.</string>
+    <string name="export_diagnostic_log">Exportar registro de diagnóstico</string>
+    <string name="diagnostic_report_error">Não foi possível abrir ou exportar o relatório de diagnóstico.</string>
 </resources>

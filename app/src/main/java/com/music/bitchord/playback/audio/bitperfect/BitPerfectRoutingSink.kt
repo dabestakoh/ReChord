@@ -246,6 +246,7 @@ internal class BitPerfectRoutingSink(
 
     /** The exclusive output failed; the stream carries on through [normal]. */
     private fun fallBack(error: Exception) {
+        com.music.bitchord.data.AppDiagnostics.record("Exclusive audio fallback", error)
         Log.w(TAG, "Bit-perfect output failed; continuing on normal output", error)
         bitPerfect.reset()
         active = normal

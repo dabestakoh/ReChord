@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Size
+import com.music.bitchord.playback.AudioRouting
 import com.music.bitchord.playback.audio.AudioFidelity
 import kotlin.math.roundToInt
 import android.media.AudioFormat
@@ -297,17 +298,19 @@ fun AudioPipelineDialog(
             // measurement of the source recording's sound quality.
             val audioTrackMatchesSource = nerdStats?.mediaId?.let { it == outputStatus.audioTrackMediaId } == true
             val comparableAudioTrackRate = outputStatus.actualSampleRateHz.takeIf { audioTrackMatchesSource }
+            val verifiedUsb = bitPerfect.dacOutputVerified || bitPerfect.androidMixerOutputVerified
             val fidelity = AudioFidelity.assess(
                 AudioFidelity.Inputs(
-                    routeKind = outputStatus.routeKind,
+                    routeKind = if (verifiedUsb) AudioRouting.Kind.USB else outputStatus.routeKind,
+                    usbOpening = bitPerfect.openingUsb,
                     // This driver owns the audio stream when active. Its telemetry,
                     // not the old AudioTrack snapshot, describes the DAC endpoint.
-                    verifiedTransportActive = bitPerfect.dacOutputVerified,
+                    verifiedTransportActive = verifiedUsb,
                     verifiedTransportExact = bitPerfect.active && bitPerfect.exact,
                     transportDescription = bitPerfect.driver,
                     dacLimited = bitPerfect.active && bitPerfect.dacLimited,
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
-                    outputBits = bitPerfect.validOutputBits.takeIf { bitPerfect.dacOutputVerified && it > 0 },
+                    outputBits = bitPerfect.validOutputBits.takeIf { verifiedUsb && it > 0 },
                     outputExact = !bitPerfect.active && outputStatus.outputExact,
                     // reset() clears the exactness detail while a new decoder/sink
                     // is being configured. Unknown is not proof of PCM loss.

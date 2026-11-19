@@ -1465,4 +1465,18 @@
     <string name="local_refresh_index">รีเฟรชคลังเพลง</string>
     <string name="local_scan_running">กำลังอัปเดตคลังเพลง…</string>
     <string name="local_scan_unavailable">แหล่งเพลงไม่พร้อมใช้งาน · ลองอีกครั้ง</string>
+    <string name="home_featured_carousel">แถบรายการแนะนำ</string>
+    <string name="home_show_carousel">แสดงแถบรายการแนะนำ</string>
+    <string name="home_continue_listening">ฟังต่อ</string>
+    <string name="home_new_from_artists">ผลงานใหม่จากศิลปินที่คุณฟัง</string>
+    <string name="home_song_recommendations">เพลงแนะนำ</string>
+    <string name="home_artist_recommendations">ศิลปินแนะนำ</string>
+    <string name="home_shelves">หมวดหมู่หน้าแรก</string>
+    <string name="home_recently_played">เล่นล่าสุด</string>
+    <string name="home_trending">กำลังมาแรง</string>
+    <string name="diagnostics">การวินิจฉัย</string>
+    <string name="send_diagnostic_report">ส่งรายงานการวินิจฉัย</string>
+    <string name="diagnostic_report_github">เปิดฉบับร่างสาธารณะบน GitHub เพื่อตรวจสอบและส่ง</string>
+    <string name="export_diagnostic_log">ส่งออกบันทึกการวินิจฉัย</string>
+    <string name="diagnostic_report_error">ไม่สามารถเปิดหรือส่งออกรายงานการวินิจฉัยได้</string>
 </resources>

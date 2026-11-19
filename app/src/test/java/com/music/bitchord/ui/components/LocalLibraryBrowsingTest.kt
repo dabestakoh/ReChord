@@ -1,6 +1,8 @@
 package com.music.bitchord.ui.screens
 
 import com.music.bitchord.data.LocalGroups
+import com.music.bitchord.data.sortedLocalGroups
+import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.model.Song
 import org.junit.Assert.assertEquals
@@ -9,6 +11,20 @@ import com.music.bitchord.data.LocalAlphabet
 import java.util.Locale
 
 class LocalLibraryBrowsingTest {
+    @Test fun groupedSortUsesDatesAndKeepsDescendingRailAligned() {
+        fun track(id: String, album: String, added: Long?) =
+            Song(id, id, "Artist", null, albumName = album, localDateAddedSeconds = added)
+        val groups = LocalGroups.albumsOf("local:all", listOf(
+            track("one", "Alpha", null), track("two", "Beta", 20), track("three", "Zeta", 10),
+        ), emptyList())
+        val alphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = false)
+        val byTitle = groups.sortedLocalGroups(LocalMusicSort.TITLE_DESC, alphabet).map { it.title }
+        val byDate = groups.sortedLocalGroups(LocalMusicSort.DATE_ADDED, alphabet).map { it.title }
+        assertEquals(listOf("Zeta", "Beta", "Alpha"), byTitle)
+        assertEquals(listOf("Z", "B", "A"), localLetterPositions(byTitle, 0, 2, alphabet).keys.toList())
+        assertEquals(listOf("Beta", "Zeta", "Alpha"), byDate)
+    }
+
     @Test fun letterJumpsTargetTheFirstMatchingGridRow() {
         assertEquals(
             mapOf("A" to 3, "B" to 4, "#" to 5),

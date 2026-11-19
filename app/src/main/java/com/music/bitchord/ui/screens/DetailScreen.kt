@@ -139,6 +139,7 @@ import com.music.bitchord.data.matchesSearch
 import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.sortedForLibrary
+import com.music.bitchord.data.sortedLocalGroups
 import com.music.bitchord.data.useTrackTags
 import com.music.bitchord.ui.components.CoverPlaceholder
 import com.music.bitchord.data.canvas.AppleArtistArt
@@ -410,6 +411,7 @@ fun DetailScreen(
     val folderSort = if (folder != null && folder.state.tab == LocalFolderTab.RECENTLY_ADDED) {
         if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
     } else folder?.sort
+    val groupSort = folder?.state?.let { it.groupSorts[it.tab] } ?: LocalMusicSort.TITLE_ASC
     val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
     val recentSongs = remember(rawSongs, recent) {
         if (recent) recentlyAddedTracks(rawSongs) else rawSongs
@@ -533,10 +535,8 @@ fun DetailScreen(
     } else {
         emptyList()
     }
-    val folderGroups = remember(rawFolderGroups, localPage, groupAlphabet, folderState?.tab) {
-        if (localPage && folderState?.tab != LocalFolderTab.SONGS) {
-            rawFolderGroups.sortedWith { a, b -> groupAlphabet.compare(a.title, b.title) }
-        } else rawFolderGroups
+    val folderGroups = remember(rawFolderGroups, groupAlphabet, groupSort) {
+        rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
     }
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
@@ -620,8 +620,9 @@ fun DetailScreen(
                 // "Show all" grids reach at this width.
                 val tab = folderState?.tab
                 val grouped = tab != null && tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED
-                val alphabetic = grouped || folderSort == LocalMusicSort.TITLE_ASC || folderSort == LocalMusicSort.TITLE_DESC ||
-                    (folderSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
+                val titleSort = if (grouped) groupSort else folderSort
+                val alphabetic = titleSort == LocalMusicSort.TITLE_ASC || titleSort == LocalMusicSort.TITLE_DESC ||
+                    (titleSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
                 val names = remember(alphabetic, grouped, folderGroups, queue) {
                     if (!alphabetic) emptyList()
                     else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
@@ -974,8 +975,7 @@ fun DetailScreen(
                     val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
                         (if ((folder?.tabs?.size ?: 0) > 1) 1 else 0) +
                         (if (scanStatus != com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE) 1 else 0) +
-                        (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0) +
-                        (if (tab == LocalFolderTab.SONGS && query.isNotBlank()) folderGroups.size else 0)
+                        (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0)
                     val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
                     val positions = remember(names, start, columns, indexAlphabet) {
                         localLetterPositions(names, start, columns, indexAlphabet)

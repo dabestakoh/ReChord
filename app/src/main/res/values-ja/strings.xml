@@ -1460,4 +1460,18 @@
     <string name="local_refresh_index">音楽ライブラリを更新</string>
     <string name="local_scan_running">音楽ライブラリを更新中…</string>
     <string name="local_scan_unavailable">音楽ソースを利用できません · 再試行</string>
+    <string name="home_featured_carousel">おすすめカルーセル</string>
+    <string name="home_show_carousel">カルーセルを表示</string>
+    <string name="home_continue_listening">再生を続ける</string>
+    <string name="home_new_from_artists">よく聴くアーティストの新作</string>
+    <string name="home_song_recommendations">おすすめの曲</string>
+    <string name="home_artist_recommendations">おすすめのアーティスト</string>
+    <string name="home_shelves">ホームのセクション</string>
+    <string name="home_recently_played">最近再生した曲</string>
+    <string name="home_trending">急上昇</string>
+    <string name="diagnostics">診断</string>
+    <string name="send_diagnostic_report">診断レポートを送信</string>
+    <string name="diagnostic_report_github">GitHub で公開用の下書きを開き、確認して送信できます。</string>
+    <string name="export_diagnostic_log">診断ログをエクスポート</string>
+    <string name="diagnostic_report_error">診断レポートを開くかエクスポートできませんでした。</string>
 </resources>

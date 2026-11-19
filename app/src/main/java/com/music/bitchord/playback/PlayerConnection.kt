@@ -892,7 +892,17 @@ fun mediaIdIn(uri: Uri): String? = if (uri.authority == "source") {
  * starts. Built off the main thread and handed to the player back on it, which
  * is where Media3 requires the call to be made.
  */
-suspend fun MediaController.playSongs(songs: List<Song>, startIndex: Int) {
+internal const val EXTRA_ARTIST_RADIO_CURSOR = "rechord.artistRadioCursor"
+internal const val EXTRA_ARTIST_RADIO_NAME = "rechord.artistRadioName"
+internal const val EXTRA_ARTIST_RADIO_ID = "rechord.artistRadioId"
+
+suspend fun MediaController.playSongs(
+    songs: List<Song>,
+    startIndex: Int,
+    artistRadioCursor: String? = null,
+    radioArtistName: String? = null,
+    radioArtistId: String? = null,
+) {
     if (songs.isEmpty()) return
     sendCustomCommand(
         SessionCommand(ACTION_CLEAR_BOUNDED_CONTEXT, Bundle.EMPTY),
@@ -929,7 +939,17 @@ suspend fun MediaController.playSongs(songs: List<Song>, startIndex: Int) {
 
         mediaItems
     }
-    setMediaItems(items, queueStartIndex(startIndex, items.size, shuffled), 0L)
+    val start = queueStartIndex(startIndex, items.size, shuffled)
+    val playable = if (artistRadioCursor == null) items else items.toMutableList().apply {
+        val seed = get(start)
+        val extras = Bundle(seed.mediaMetadata.extras ?: Bundle.EMPTY).apply {
+            putString(EXTRA_ARTIST_RADIO_CURSOR, artistRadioCursor)
+            putString(EXTRA_ARTIST_RADIO_NAME, radioArtistName)
+            putString(EXTRA_ARTIST_RADIO_ID, radioArtistId)
+        }
+        set(start, seed.buildUpon().setMediaMetadata(seed.mediaMetadata.buildUpon().setExtras(extras).build()).build())
+    }
+    setMediaItems(playable, start, 0L)
     prepare()
     play()
 }

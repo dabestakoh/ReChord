@@ -1482,4 +1482,18 @@
     <string name="local_refresh_index">संगीत लाइब्रेरी रीफ़्रेश करें</string>
     <string name="local_scan_running">संगीत लाइब्रेरी अपडेट हो रही है…</string>
     <string name="local_scan_unavailable">संगीत स्रोत उपलब्ध नहीं है · फिर कोशिश करें</string>
+    <string name="home_featured_carousel">चुनिंदा कार्ड</string>
+    <string name="home_show_carousel">कार्ड दिखाएँ</string>
+    <string name="home_continue_listening">सुनना जारी रखें</string>
+    <string name="home_new_from_artists">आपके कलाकारों की नई रिलीज़</string>
+    <string name="home_song_recommendations">गानों के सुझाव</string>
+    <string name="home_artist_recommendations">कलाकारों के सुझाव</string>
+    <string name="home_shelves">होम के सेक्शन</string>
+    <string name="home_recently_played">हाल में सुने गए</string>
+    <string name="home_trending">चर्चित</string>
+    <string name="diagnostics">निदान</string>
+    <string name="send_diagnostic_report">निदान रिपोर्ट भेजें</string>
+    <string name="diagnostic_report_github">समीक्षा और सबमिट करने के लिए GitHub पर सार्वजनिक ड्राफ़्ट खोलता है।</string>
+    <string name="export_diagnostic_log">निदान लॉग निर्यात करें</string>
+    <string name="diagnostic_report_error">निदान रिपोर्ट खोली या निर्यात नहीं की जा सकी।</string>
 </resources>

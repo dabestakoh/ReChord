@@ -95,7 +95,6 @@ object YtMusicRepository {
     }
 
     val HOME_SUPPLEMENT_BROWSE_IDS = listOf(
-        "FEmusic_new_releases",
         "FEmusic_explore",
     )
 
@@ -1186,6 +1185,39 @@ object YtMusicRepository {
      * Mix or Shuffle button. Music videos are dropped, as everywhere a queue is
      * built for the listener rather than picked by them.
      */
+    suspend fun autoplayRadioPage(
+        seed: String,
+        token: String? = null,
+        preferVideo: Boolean = false,
+    ): Result<SongPage> = call("autoplay-radio:$seed") {
+        val response = if (token == null) Innertube.nextPlaylist("RDAMVM$seed", seed)
+            else Innertube.nextQueuePage(token)
+        SongPage(
+            songs = InnertubeParser.parseWatchQueue(response, preferAudio = !preferVideo, preferVideo = preferVideo),
+            continuation = InnertubeParser.watchQueueContinuation(response)?.takeUnless { it == token },
+        )
+    }
+
+    suspend fun relatedSongs(videoId: String): Result<List<Song>> = call("related:$videoId") {
+        val browseId = InnertubeParser.relatedBrowseId(Innertube.next(videoId)) ?: return@call emptyList()
+        val related = Innertube.browse(browseId)
+        InnertubeParser.relatedTrackRows(related)
+    }
+
+    suspend fun newReleases(): Result<List<ShelfItem>> = call("explore:new-releases") {
+        shelvesOf("FEmusic_new_releases").flatMap { it.items }
+            .filter { it.browseId?.startsWith("MPRE") == true }
+            .distinctBy { it.browseId }
+    }
+
+    suspend fun watchRadioPage(target: WatchTarget): Result<SongPage> = call("watch-radio:${target.playlistId}") {
+        val response = Innertube.nextPlaylist(target.playlistId, target.videoId, target.params)
+        SongPage(
+            songs = InnertubeParser.parseWatchQueue(response).filterNot { it.isVideo },
+            continuation = InnertubeParser.watchQueueContinuation(response),
+        )
+    }
+
     suspend fun watchQueue(target: WatchTarget): Result<List<Song>> = call("watch:${target.playlistId}") {
         InnertubeParser.parseWatchQueue(
             Innertube.nextPlaylist(target.playlistId, target.videoId, target.params),
