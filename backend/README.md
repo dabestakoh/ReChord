@@ -14,6 +14,20 @@ go test -v ./...
 
 ---
 
+## Diagnostic reports
+
+Deploy this backend on a ReChord-controlled HTTPS host. Set
+`RECHORD_DIAGNOSTICS_GITHUB_TOKEN` in the server environment to a fine-grained
+GitHub token scoped to `dabestakoh/ReChord` with Issues write permission. For the
+systemd deployment, set it through a server-managed EnvironmentFile or service
+override. Keep the token out of the repository and Android build settings.
+
+Set the repository Actions variable `RECHORD_DIAGNOSTICS_SERVER` to that HTTPS
+base URL. Both Preview and production workflows pass it to Android as the
+public submission endpoint. Local builds can supply the same environment
+variable. The endpoint sends reports only when explicitly requested from
+Settings and returns the published issue number.
+
 ## How devices stay in time
 
 This is the part worth reading before changing anything. Nothing here is

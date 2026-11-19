@@ -62,7 +62,19 @@ jobs:
             exit 1
           fi
           echo "RECHORD_VERSION=$version" >> "$GITHUB_ENV"
-          echo "RECHORD_TAG=v$version" >> "$GITHUB_ENV"
+          code="$(sed -nE 's/.*bitchordVersionCode.*= *([0-9]+).*/\1/p' build.gradle.kts | head -n 1)"
+          hotfix="$(sed -nE 's/.*bitchordReleaseHotfix.*= *([0-9]+).*/\1/p' build.gradle.kts | head -n 1)"
+          [[ "$code" =~ ^[1-9][0-9]*$ ]]
+          title="ReChord $version"
+          tag="v$version"
+          if [ -n "$hotfix" ]; then
+            [[ "$hotfix" =~ ^[1-9][0-9]*$ ]]
+            title+=" Hotfix $hotfix"
+            tag+="-hotfix.$hotfix"
+          fi
+          echo "RECHORD_VERSION_CODE=$code" >> "$GITHUB_ENV"
+          echo "RECHORD_RELEASE_TITLE=$title" >> "$GITHUB_ENV"
+          echo "RECHORD_TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Restore persistent production signing certificate
         shell: bash
@@ -90,6 +102,8 @@ jobs:
             "$RELEASE_STORE_PASSWORD" "$RELEASE_KEY_ALIAS" "$RELEASE_KEY_PASSWORD" > keystore.properties
 
       - name: Build signed production APK
+        env:
+          RECHORD_DIAGNOSTICS_SERVER: ${{ vars.RECHORD_DIAGNOSTICS_SERVER }}
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleProdRelease -Pbitchord.bundleWear=false \
@@ -118,7 +132,8 @@ jobs:
             if [ "$signer" != "$expected" ]; then echo "::error::Signing mismatch: $apk"; exit 1; fi
             info="$("$tools/aapt" dump badging "$apk")"
             grep -q "package: name='com.music.rechord' " <<< "$info"
-            grep -q "versionName='$RECHORD_VERSION'" <<< "$info"
+            grep -Fq "versionCode='$RECHORD_VERSION_CODE'" <<< "$info"
+            grep -Fq "versionName='$RECHORD_VERSION'" <<< "$info"
             name="$(basename "$apk")"
             case "$name" in
               *arm64-v8a*) suffix="_arm64-v8a" ;;
@@ -158,7 +173,7 @@ jobs:
             # A previously published build is immutable, but its release notes
             # can be clarified without changing the APKs or tag.
             gh release edit "$RECHORD_TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "ReChord $RECHORD_VERSION" --notes-file "$notes"
+              --title "$RECHORD_RELEASE_TITLE" --notes-file "$notes"
             echo "Updated existing release notes; APK assets unchanged."
             exit 0
           fi
@@ -169,6 +184,6 @@ jobs:
           gh release create "$RECHORD_TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "ReChord $RECHORD_VERSION" \
+            --title "$RECHORD_RELEASE_TITLE" \
             --notes-file "$notes" \
             --latest

@@ -1896,12 +1896,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (identity != listenerKey()) return@launch
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
-                _topPicks.value = stored.picks
-                topPicksSlotShown = stored.day.takeIf { stored.revision == 4 }
+                _topPicks.value = TopPicks.fillFeaturedFromArtistPicks(stored.picks)
+                topPicksSlotShown = stored.day.takeIf { stored.revision == 5 }
             } else if (!rebuild) {
                 _topPicks.value = null
             }
-            if (!rebuild && stored?.day == slot && stored.revision == 4) {
+            if (!rebuild && stored?.day == slot && stored.revision == 5) {
                 _topPicksLoading.value = false
                 return@launch
             }
@@ -1938,7 +1938,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             topPicksSlotShown = slot
             withContext(Dispatchers.IO) {
                 runCatching {
-                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, built, AppleArtistPhotos.snapshot(), revision = 4)))
+                    file.writeText(TopPicks.encode(TopPicks.Stored(identity, slot, built, AppleArtistPhotos.snapshot(), revision = 5)))
                 }
             }
         }

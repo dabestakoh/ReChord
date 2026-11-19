@@ -1450,7 +1450,7 @@
     <string name="home_trending">Trendler</string>
     <string name="diagnostics">Tanılama</string>
     <string name="send_diagnostic_report">Tanılama raporu gönder</string>
-    <string name="diagnostic_report_github">İnceleyip göndermeniz için GitHub’da herkese açık bir taslak açar.</string>
+    <string name="diagnostic_report_github">Hassas bilgileri çıkarılmış raporu GitHub üzerinde yayımlar.</string>
     <string name="export_diagnostic_log">Tanılama günlüğünü dışa aktar</string>
     <string name="diagnostic_report_error">Tanılama raporu açılamadı veya dışa aktarılamadı.</string>
 </resources>

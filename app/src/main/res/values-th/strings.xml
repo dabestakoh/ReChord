@@ -1476,7 +1476,7 @@
     <string name="home_trending">กำลังมาแรง</string>
     <string name="diagnostics">การวินิจฉัย</string>
     <string name="send_diagnostic_report">ส่งรายงานการวินิจฉัย</string>
-    <string name="diagnostic_report_github">เปิดฉบับร่างสาธารณะบน GitHub เพื่อตรวจสอบและส่ง</string>
+    <string name="diagnostic_report_github">เผยแพร่รายงานที่ตัดข้อมูลส่วนตัวออกแล้วบน GitHub</string>
     <string name="export_diagnostic_log">ส่งออกบันทึกการวินิจฉัย</string>
     <string name="diagnostic_report_error">ไม่สามารถเปิดหรือส่งออกรายงานการวินิจฉัยได้</string>
 </resources>

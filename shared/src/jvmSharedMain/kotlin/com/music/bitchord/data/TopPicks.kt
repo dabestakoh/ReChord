@@ -232,7 +232,7 @@ object TopPicks {
                 if (++artistCards == 2) break
             }
         }
-        return listOfNotNull(lead) + featured
+        return fillFeaturedFromArtistPicks(listOfNotNull(lead) + featured)
     }
 
     /**
@@ -268,6 +268,32 @@ object TopPicks {
     private val quickPicksTitles = setOf(
         "quick picks", "lựa chọn nhanh", "chọn nhanh đài phát", "クイック ミックス",
     )
+
+    /** Surface tracks already vetted by the artist radio when song Related runs short. */
+    fun fillFeaturedFromArtistPicks(picks: List<TopPick>): List<TopPick> {
+        val wanted = 6
+        if (picks.count { it.kind == TopPickKind.RELATED_SONG } >= wanted) return picks
+        val stations = picks.filter { it.kind == TopPickKind.ARTIST_AND_SIMILAR }
+        var filled = picks
+        for (index in 0 until (stations.maxOfOrNull { it.recommendations.size } ?: 0)) {
+            for (station in stations) {
+                val song = station.recommendations.getOrNull(index) ?: continue
+                if (song.isVideo) continue
+                val card = TopPick(
+                    kind = TopPickKind.RELATED_SONG,
+                    title = song.title,
+                    subtitle = song.artist,
+                    images = listOfNotNull(song.thumbnailUrl),
+                    browseId = song.albumId,
+                    seedTitle = station.artistName ?: station.title,
+                    recommendations = listOf(song),
+                )
+                filled = appendFeaturedCards(filled, listOf(card))
+                if (filled.count { it.kind == TopPickKind.RELATED_SONG } >= wanted) return filled
+            }
+        }
+        return filled
+    }
 
     /** Keep cards in place as slower sources deliver results or better artwork. */
     fun appendFeaturedCards(shown: List<TopPick>, ready: List<TopPick>): List<TopPick> = buildList {

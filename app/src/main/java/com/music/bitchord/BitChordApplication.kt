@@ -253,10 +253,22 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
      * Naming a directory alongside it keeps that cache somewhere identifiable
      * rather than in the process's temp dir.
      */
+    private val artworkMemoryCache by lazy {
+        val budget = com.music.bitchord.playback.PlaybackMemoryBudget(
+            Runtime.getRuntime().maxMemory(),
+            getSystemService(ActivityManager::class.java)?.isLowRamDevice == true,
+        )
+        MemoryCache.Builder().maxSizeBytes(budget.artworkCacheBytes).build()
+    }
+
     @Suppress("DEPRECATION")
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (shouldTrimUiMemory(level)) trimUiCaches()
+        if (shouldTrimUiMemory(level)) {
+            trimUiCaches()
+        } else if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            artworkMemoryCache.trimToSize(artworkMemoryCache.maxSize / 2)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -266,6 +278,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
     }
 
     private fun trimUiCaches() {
+        artworkMemoryCache.clear()
         com.music.bitchord.ui.theme.clearArtworkAnalysisCache()
         com.music.bitchord.widget.MediaWidgetArt.clear()
     }
@@ -288,11 +301,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
                 // Wikimedia 403s Coil's default client; see [coilHttpClient].
                 add(OkHttpNetworkFetcherFactory(callFactory = { coilHttpClient }))
             }
-            .memoryCache {
-                MemoryCache.Builder()
-                    .maxSizePercent(context, if ((getSystemService(ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice) 0.15 else 0.20)
-                    .build()
-            }
+            .memoryCache { artworkMemoryCache }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))

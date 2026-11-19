@@ -3,14 +3,16 @@ package com.music.bitchord.data
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.Context
-import android.net.Uri
+import java.net.URI
+import javax.net.ssl.HttpsURLConnection
+import org.json.JSONObject
 import android.os.Build
 import android.util.AtomicFile
 import com.music.bitchord.BuildConfig
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Collects bounded diagnostics for an explicit user export or GitHub draft. */
+/** Collects bounded diagnostics for an explicit user export or submission. */
 internal object AppDiagnostics {
     private const val MAX_EVENTS = 24
     private const val MAX_FRAMES = 16
@@ -75,15 +77,37 @@ internal object AppDiagnostics {
         }
     }
 
-    fun issueUri(report: String): Uri =
-        Uri.parse("https://github.com/dabestakoh/ReChord/issues/new").buildUpon()
-            .appendQueryParameter("title", "ReChord diagnostic report (${BuildConfig.VERSION_NAME})")
-            .appendQueryParameter(
-                "body",
-                "### Diagnostics\n\n```text\n" + report.take(1400) + "\n```\n\n" +
-                    if (report.length > 1400) "Export the diagnostic log in ReChord for the full report." else "",
-            )
-            .build()
+    private val submitUrl = runCatching {
+        val base = URI(BuildConfig.DIAGNOSTICS_SERVER.trim().trimEnd('/'))
+        require(base.scheme == "https" && base.host != null && base.userInfo == null &&
+            base.query == null && base.fragment == null)
+        URI(base.toString() + "/api/diagnostics").toURL()
+    }.getOrNull()
+
+    val canSubmit: Boolean get() = submitUrl != null
+
+    /** The caller runs this on the IO dispatcher. */
+    fun submit(context: Context): Int {
+        val url = checkNotNull(submitUrl)
+        val connection = url.openConnection() as HttpsURLConnection
+        try {
+            val body = JSONObject().put("report", report(context).take(10_000)).toString().toByteArray()
+            connection.requestMethod = "POST"
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 15_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setFixedLengthStreamingMode(body.size)
+            connection.outputStream.use { it.write(body) }
+            check(connection.responseCode == 201)
+            return connection.inputStream.bufferedReader().use {
+                JSONObject(it.readText()).getInt("number").also { number -> check(number > 0) }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     internal fun formatEvent(label: String, error: Throwable?): String = buildString {
         appendLine(label)
@@ -115,6 +139,7 @@ internal object AppDiagnostics {
                         ApplicationExitInfo.REASON_CRASH -> "App crash"
                         ApplicationExitInfo.REASON_CRASH_NATIVE -> "Native crash"
                         ApplicationExitInfo.REASON_ANR -> "App not responding"
+                        ApplicationExitInfo.REASON_LOW_MEMORY -> "Low memory kill"
                         else -> return@mapNotNull null
                     }
                     "$reason (time: ${exit.timestamp})"

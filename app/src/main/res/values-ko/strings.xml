@@ -1343,7 +1343,7 @@
     <string name="home_trending">인기 급상승</string>
     <string name="diagnostics">진단</string>
     <string name="send_diagnostic_report">진단 보고서 보내기</string>
-    <string name="diagnostic_report_github">검토 후 제출할 수 있도록 GitHub 공개 초안을 엽니다.</string>
+    <string name="diagnostic_report_github">민감한 정보를 제거한 보고서를 GitHub에 게시합니다.</string>
     <string name="export_diagnostic_log">진단 로그 내보내기</string>
     <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
 </resources>

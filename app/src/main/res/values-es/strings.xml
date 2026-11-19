@@ -1465,7 +1465,7 @@
     <string name="home_trending">Tendencias</string>
     <string name="diagnostics">Diagnóstico</string>
     <string name="send_diagnostic_report">Enviar informe de diagnóstico</string>
-    <string name="diagnostic_report_github">Abre un borrador público de GitHub para revisarlo y enviarlo.</string>
+    <string name="diagnostic_report_github">Publica un informe sin datos sensibles en GitHub.</string>
     <string name="export_diagnostic_log">Exportar registro de diagnóstico</string>
     <string name="diagnostic_report_error">No se pudo abrir ni exportar el informe de diagnóstico.</string>
 </resources>
