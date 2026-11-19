@@ -229,6 +229,7 @@ import com.music.bitchord.playback.toggleAutoplay
 import com.music.bitchord.playback.toggleShuffle
 import com.music.bitchord.playback.upgradeQuality
 import com.music.bitchord.playback.revertToOriginal
+import com.music.bitchord.playback.VersionDisplayAction
 import com.music.bitchord.playback.swapToVersion
 import com.music.bitchord.playback.smart.VersionAudioAligner
 import com.music.bitchord.download.DownloadSession
@@ -1446,7 +1447,7 @@ private fun BitChordApp(
 
             // The original MediaItem was never removed, so failure only needs
             // to release the loading state and resume it immediately.
-            if (audio == null || audio.videoId == song.videoId) {
+            if (audio == null || audio.videoId == song.videoId || audio.isVideo) {
                 TrackLog.w("Player", "audio switch found no distinct official song", song.videoId)
                 // The switch is always offered now, so say when there was nothing to switch to.
                 if (song.videoId !in missingVersions) missingVersions += song.videoId
@@ -4388,70 +4389,62 @@ private fun BitChordApp(
                 val art = song.thumbnailUrl.takeUnless { type == BrowseType.ARTIST }
                 viewModel.openDetail(id, title, sub, art, type)
             }
-            // Video vs audio, moved here from the player's own controls: it is
-            // the same kind of choice as Revert to original / Upgrade
-            // quality just above it — which recording is playing — so it now
-            // sits in the same list rather than as a control of its own.
-            //
-            // Mirrors what the pill used to compute, keyed to this sheet's
-            // own [song] rather than a `nowPlaying` lambda parameter: an
-            // in-flight optimistic swap is still read off [optimisticVersionSong]
-            // so a menu opened mid-switch describes the version actually
-            // becoming current, not the one about to be left.
-            val versionEffectiveSong = optimisticVersionSong?.takeIf {
-                it.videoId == convertedAudioId ||
-                    it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
-                    it.videoId == YtMusicRepository.cachedVideoVersion(song.videoId)?.videoId
-            } ?: song
-            fun versionAlignmentPending(targetId: String): Boolean =
-                AppSettings.smartVersionAlignment.value &&
-                    VersionAudioAligner.getCachedOffsetMs(song.videoId, targetId) == null &&
-                    YtMusicRepository.versionTimeMap(song.videoId, targetId) == null
-            val showingCompanion = companionVideoId != null && controller?.currentMediaItem?.mediaId == song.videoId
-            val menuIsAudioVersion = !showingCompanion && !versionEffectiveSong.isVideo
-            // Offered for the playing track wherever its menu is opened,
-            // whether or not the other version has been found yet: the
-            // switch looks it up, and says so when there isn't one.
-            val onToggleVersion: (() -> Unit)? = if (
-                controller?.currentMediaItem?.mediaId == song.videoId
-            ) {
+            // Label and dispatch describe the same committed playback item.
+            // During an audio-version handoff the optimistic artwork may
+            // already describe a different recording.
+            val versionMenuSong = player.song?.takeIf { it.videoId == song.videoId }
+            val versionMenuAction = versionMenuSong?.let {
+                VersionDisplayAction.forPlayback(it.isVideo, companionVideoId != null)
+            }
+            val menuIsAudioVersion = versionMenuAction == VersionDisplayAction.SHOW_PICTURE
+            val onToggleVersion: (() -> Unit)? = versionMenuAction?.let { action ->
                 toggle@{
                     songActions = null
-                    // A party plays one cut for everyone in it — see
-                    // [PlaybackService.smoothSwapCurrentTrackVersion].
                     if (partyState.inParty) {
                         showQueueNotice(versionContext.getString(R.string.version_switch_in_party))
                         return@toggle
                     }
                     if (switchingAudioVersion) return@toggle
-                    when {
-                        showingCompanion -> MusicVideoEngine.clearCompanion()
-                        versionEffectiveSong.isVideo || song.isVideo -> {
-                            val cached = YtMusicRepository.cachedAudioVersion(song.videoId)
-                                ?: YtMusicRepository.cachedAudioVersion(versionEffectiveSong.videoId)
-                            if (cached != null && cached.videoId != song.videoId &&
-                                !versionAlignmentPending(cached.videoId)
+                    val current = controller?.currentMediaItem?.toSong() ?: return@toggle
+                    val currentAction = VersionDisplayAction.forPlayback(
+                        current.isVideo, MusicVideoEngine.companionVideoId.value != null,
+                    )
+                    if (current.videoId != song.videoId ||
+                        current.queueEntryId != versionMenuSong?.queueEntryId ||
+                        currentAction != action
+                    ) {
+                        TrackLog.d("Player", "discarded stale version menu action $action", song.videoId)
+                        return@toggle
+                    }
+
+                    TrackLog.d("Player", "version menu action=$action", current.videoId)
+                    when (action) {
+                        VersionDisplayAction.HIDE_PICTURE -> MusicVideoEngine.clearCompanion()
+                        VersionDisplayAction.SHOW_PICTURE -> {
+                            val original = convertedFromVideo?.takeIf { convertedAudioId == current.videoId }
+                            scope.launch { switchToVideo(current, original) }
+                        }
+                        VersionDisplayAction.PLAY_AUDIO_VERSION -> {
+                            val cached = YtMusicRepository.cachedAudioVersion(current.videoId)
+                            if (cached != null && cached.videoId != current.videoId && !cached.isVideo &&
+                                (!AppSettings.smartVersionAlignment.value ||
+                                    VersionAudioAligner.getCachedOffsetMs(current.videoId, cached.videoId) != null ||
+                                    YtMusicRepository.versionTimeMap(current.videoId, cached.videoId) != null)
                             ) {
                                 optimisticVersionSong = cached.copy(
                                     isVideoOrigin = true,
-                                    queueTier = song.queueTier,
-                                    queueEntryId = song.queueEntryId,
-                                    radioName = song.radioName,
-                                    playbackSource = song.playbackSource,
-                                    playbackSourceType = song.playbackSourceType,
-                                    playbackSourceId = song.playbackSourceId,
+                                    queueTier = current.queueTier,
+                                    queueEntryId = current.queueEntryId,
+                                    radioName = current.radioName,
+                                    playbackSource = current.playbackSource,
+                                    playbackSourceType = current.playbackSourceType,
+                                    playbackSourceId = current.playbackSourceId,
                                 )
                             }
-                            scope.launch { switchToMusicOnly(song, pauseWhileResolving = false) }
-                        }
-                        else -> {
-                            val original = convertedFromVideo?.takeIf { convertedAudioId == song.videoId }
-                            scope.launch { switchToVideo(song, original) }
+                            scope.launch { switchToMusicOnly(current, pauseWhileResolving = false) }
                         }
                     }
                 }
-            } else {
-                null
             }
             // The library toggle needs tokens only YouTube can mint, and the
             // rating it comes back with is more authoritative than anything

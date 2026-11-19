@@ -2739,6 +2739,10 @@ class PlaybackService : MediaLibraryService() {
         val targetIsVideo = args.getBoolean("targetIsVideo", false)
 
         if (targetVideoId == null || targetVideoId == song.videoId) return
+        if (targetIsVideo) {
+            TrackLog.w("BitChord", "blocked legacy video request from replacing the audio item", song.videoId)
+            return
+        }
 
         val position = activePlayer.currentPosition
         val wasPlaying = activePlayer.isPlaying
@@ -6885,6 +6889,7 @@ class PlaybackService : MediaLibraryService() {
         // Only already audible when the setting was turned on with a video
         // playing: that one is switched over like the player menu's switch.
         if (isCurrent && exoPlayer.isPlaying) {
+            TrackLog.d("BitChord", "automatic music-only audio swap to ${audio.videoId}", video.videoId)
             smoothSwapCurrentTrackVersion(replacement)
             return
         }
@@ -9122,13 +9127,14 @@ class PlaybackService : MediaLibraryService() {
                     val bundle = args.getBundle(EXTRA_SWAP_MEDIA_ITEM)
                     if (bundle != null) {
                         val targetSong = songFromBundle(bundle)
-                        // The listener's own choice outranks the music-only setting.
+                        val currentId = session.player.currentMediaItem?.mediaId
                         if (targetSong.isVideo) {
-                            MusicOnlyPlayback.keep(targetSong.videoId)
+                            TrackLog.w("BitChord", "blocked video version request from replacing the audio item", currentId)
                         } else {
-                            session.player.currentMediaItem?.mediaId?.let(MusicOnlyPlayback::letGo)
+                            currentId?.let(MusicOnlyPlayback::letGo)
+                            TrackLog.d("BitChord", "requested audio version swap to ${targetSong.videoId}", currentId)
+                            smoothSwapCurrentTrackVersion(targetSong.toMediaItem())
                         }
-                        smoothSwapCurrentTrackVersion(targetSong.toMediaItem())
                     }
                 }
                 ACTION_QUEUE_DRAG -> {
