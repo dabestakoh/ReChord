@@ -2,7 +2,7 @@
   <img src="ReChordIcon.svg" alt="ReChord app icon" width="128" />
   <h1>ReChord</h1>
   <p>Music on your terms. An Android player for YouTube Music, local tracks and compatible custom audio sources.</p>
-  <p><a href="https://github.com/dabestakoh/ReChord/releases">Releases</a> · <a href="https://github.com/dabestakoh/ReChord/actions/workflows/playlist-cache-preview.yml">Preview builds</a> · <a href="https://github.com/dabestakoh/ReChord/issues">Issues</a></p>
+  <p><a href="https://github.com/dabestakoh/ReChord/releases">Releases</a> · <a href="https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml">Preview builds</a> · <a href="https://github.com/dabestakoh/ReChord/issues">Issues</a></p>
 </div>
 
 ## About
@@ -45,7 +45,7 @@ Compatible third-party add-on servers can supply music search and playback strea
 
 ## Installation
 
-Download a published build from [Releases](https://github.com/dabestakoh/ReChord/releases), or a testing APK from the [Preview workflow](https://github.com/dabestakoh/ReChord/actions/workflows/playlist-cache-preview.yml) when an artifact is available.
+Download a published build from [Releases](https://github.com/dabestakoh/ReChord/releases), or a testing APK from the [Develop Preview workflow](https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml) when an artifact is available.
 
 | Build | Android package | Purpose |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ Download a published build from [Releases](https://github.com/dabestakoh/ReChord
 
 Preview and Release use separate application data. APK upgrades require a matching signing certificate; do not uninstall a build containing important unbacked-up data merely to replace it.
 
-For implementation and testing conventions, see the [ReChord engineering standards](docs/RECHORD-STANDARDS.md).
+For implementation and testing conventions, see the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) and the [contributor guide](CONTRIBUTING.md).
 
 ## Build from source
 
@@ -63,7 +63,7 @@ For implementation and testing conventions, see the [ReChord engineering standar
 3. Configure signing for the intended build variant.
 4. Use Gradle to build `devDebug` for Preview or the appropriate `prod` variant for Release.
 
-GitHub Actions runs the branch's playlist, add-on and Preview build checks. A successful workflow does not replace device-level playback and performance testing.
+GitHub Actions runs unit tests on feature and fix branch pushes. Pushes to `develop` normally build the arm64 Preview APK. Feature and fix branch APKs are available through manual workflow runs. Verify playback and performance on the affected devices.
 
 ## Project status
 
