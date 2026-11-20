@@ -1723,7 +1723,7 @@ fun NowPlayingScreen(
         { haptics.play(Haptic.Select); open() }
     }
     val layoutHold = Modifier.openLayoutOnHold(openLayoutPicker)
-    val playerActions: @Composable () -> Unit = {
+    val playerActions: @Composable (Boolean) -> Unit = { keepModeControlsInPane ->
         PlayerActionRow(
             lyricsOpen = lyricsOpen,
             queueOpen = queueOpen,
@@ -1736,6 +1736,7 @@ fun NowPlayingScreen(
             onCycleRepeat = onCycleRepeat,
             onToggleAutoplay = onToggleAutoplay,
             onOpenOutput = openAudioOutput,
+            showModesInActionRow = !keepModeControlsInPane,
         )
         // Keep the current output caption visible in every state.
         Spacer(Modifier.height(if (compactPortrait) 8.dp else 18.dp))
@@ -2039,6 +2040,94 @@ fun NowPlayingScreen(
         overlayOpen = { overlayOpen.value && !currentMenuOpen() },
         overlays = playerOverlays,
     ) {
+        val embeddedLyrics: @Composable (Boolean, (Boolean) -> Unit) -> Unit = { active, onScroll ->
+            LandscapeLyricsPane(
+                hasLyrics = lyricsTranslation.displayedLyrics.isNotEmpty(),
+                placeholder = if (lyricsUnavailable) {
+                    stringResource(Res.string.lyrics_not_available)
+                } else {
+                    lyricsLoadingText
+                },
+                status = lyricsTranslation.status,
+                onStatusClick = { showLyricsProviders = true },
+                picking = lyricPicker.picking,
+                pickBar = {
+                    LyricsPickBar(
+                        shareEnabled = lyricPicker.picks.isNotEmpty() &&
+                            !lyricPicker.overBudget,
+                        onCancel = lyricPicker.cancel,
+                        onShare = lyricPicker.share,
+                    )
+                },
+                romanizationToggle = {
+                    RomanizationToggleButton(
+                        state = lyricsTranslation.romanizationState,
+                        showingRomanization = lyricsTranslation.showingRomanization,
+                        enabled = !lyrics.isNullOrEmpty(),
+                        onClick = lyricsTranslation.toggleRomanization,
+                    )
+                },
+                translationToggle = {
+                    TranslationToggleButton(
+                        state = lyricsTranslation.translationState,
+                        showingTranslation = lyricsTranslation.showingTranslation,
+                        enabled = !lyrics.isNullOrEmpty(),
+                        onClick = lyricsTranslation.toggleTranslation,
+                    )
+                },
+            ) { panelModifier ->
+                LyricsTranslationMotion(
+                    trigger = lyricsTranslation.transition,
+                    reduceMotion = lyricsTranslation.reduceMotion,
+                    modifier = panelModifier,
+                ) { particleProgress ->
+                    // [controlsOpen] is a constant `true`: that flag
+                    // exists because the portrait player hides its
+                    // transport behind the lyrics and needs a tap to
+                    // bring it back. Here there is nothing hidden for
+                    // a tap to reveal, and leaving the reveal gesture
+                    // armed would only eat taps meant for the lines.
+                    LyricsPanel(
+                        lines = lyrics.orEmpty(),
+                        subLines = lyricsTranslation.subLines,
+                        trackKey = song.videoId,
+                        playhead = lyricsPlayhead,
+                        looking = !lyricsUnavailable,
+                        isPlaying = isPlaying && position.advancing,
+                        active = active,
+                        onSeekToLine = seekToLyric,
+                        controlsOpen = true,
+                        onRevealControls = {},
+                        onHideControls = {},
+                        translationProgress = particleProgress,
+                        canPick = lyricsShareEnabled,
+                        picking = lyricPicker.picking,
+                        picked = lyricPicker.picks,
+                        onPickLine = lyricPicker.pick,
+                        onTogglePick = lyricPicker.toggle,
+                        centerFocus = true,
+                        onScrollingChange = onScroll,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val embeddedQueue: @Composable (Boolean, (Boolean) -> Unit) -> Unit = { active, onScroll ->
+            InlineQueue(
+                queue = queue,
+                currentIndex = queueIndex,
+                autoplayEnabled = autoplayEnabled,
+                controlsLocked = controlsLocked || !active,
+                onJumpTo = onJumpTo,
+                onRemove = onRemoveFromQueue,
+                onMove = onMoveInQueue,
+                onClear = onClearQueue,
+                onDragActiveChange = onQueueDragActiveChange,
+                onScrollingChange = onScroll,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         if (fullVideoMode || (landscape && videoMode)) {
             val versionAligning by PlayerSettings.versionAlignmentInProgress.collectAsStateWithLifecycle()
             val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
@@ -2091,7 +2180,7 @@ fun NowPlayingScreen(
                     },
                 )
             }
-        } else if (alternateLayout && !lyricsOpen && !queueOpen && !queueDragging) {
+        } else if (alternateLayout) {
             val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
             AlternateNowPlaying(
                 layout = layout,
@@ -2115,6 +2204,26 @@ fun NowPlayingScreen(
                 onOpenPicker = openLayoutPicker,
                 reduceAnimation = reduceAnimation,
                 artworkBackdrop = trackAccent,
+                statusScrimAlpha = artworkStatusScrimAlpha,
+                pane = when {
+                    lyricsOpen -> PlayerPane.Lyrics
+                    queueOpen -> PlayerPane.Queue
+                    else -> PlayerPane.Main
+                },
+                lyricsPane = { active -> embeddedLyrics(active) { lyricsScrolling = it } },
+                queuePane = { active ->
+                    Column(Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxWidth().padding(bottom = 4.dp), contentAlignment = Alignment.Center) {
+                            PlayerQueueModes(
+                                shuffleEnabled, repeatMode, autoplayEnabled,
+                                onToggleShuffle, onCycleRepeat, onToggleAutoplay,
+                            )
+                        }
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            embeddedQueue(active) { queueScrolling = it }
+                        }
+                    }
+                },
                 lyrics = {
                     if (layout == NowPlayingLayout.POSTER) {
                         PosterLyricSpotlight(
@@ -2122,8 +2231,6 @@ fun NowPlayingScreen(
                             trackKey = song.videoId,
                             playhead = lyricsPlayhead,
                             isPlaying = isPlaying && position.advancing,
-                            title = song.title,
-                            artist = song.artist,
                             onOpenLyrics = openLyrics,
                         )
                     } else if (syncedLyricsEnabled) {
@@ -2158,7 +2265,7 @@ fun NowPlayingScreen(
                         )
                     }
                 },
-                actions = playerActions,
+                actions = { playerActions(true) },
                 modifier = Modifier.then(dockHost).then(skipSwipeGesture),
             )
         } else if (landscape) {
@@ -2314,7 +2421,7 @@ fun NowPlayingScreen(
                             )
                         }
                     },
-                    actions = playerActions,
+                    actions = { playerActions(false) },
                     mainPane = { compact ->
                         LandscapeMainPane(
                             compact = compact,
@@ -2395,90 +2502,8 @@ fun NowPlayingScreen(
                             },
                         )
                     },
-                    lyricsPane = {
-                        LandscapeLyricsPane(
-                            hasLyrics = lyricsTranslation.displayedLyrics.isNotEmpty(),
-                            placeholder = if (lyricsUnavailable) {
-                                stringResource(Res.string.lyrics_not_available)
-                            } else {
-                                lyricsLoadingText
-                            },
-                            status = lyricsTranslation.status,
-                            onStatusClick = { showLyricsProviders = true },
-                            picking = lyricPicker.picking,
-                            pickBar = {
-                                LyricsPickBar(
-                                    shareEnabled = lyricPicker.picks.isNotEmpty() &&
-                                        !lyricPicker.overBudget,
-                                    onCancel = lyricPicker.cancel,
-                                    onShare = lyricPicker.share,
-                                )
-                            },
-                            romanizationToggle = {
-                                RomanizationToggleButton(
-                                    state = lyricsTranslation.romanizationState,
-                                    showingRomanization = lyricsTranslation.showingRomanization,
-                                    enabled = !lyrics.isNullOrEmpty(),
-                                    onClick = lyricsTranslation.toggleRomanization,
-                                )
-                            },
-                            translationToggle = {
-                                TranslationToggleButton(
-                                    state = lyricsTranslation.translationState,
-                                    showingTranslation = lyricsTranslation.showingTranslation,
-                                    enabled = !lyrics.isNullOrEmpty(),
-                                    onClick = lyricsTranslation.toggleTranslation,
-                                )
-                            },
-                        ) { panelModifier ->
-                            LyricsTranslationMotion(
-                                trigger = lyricsTranslation.transition,
-                                reduceMotion = lyricsTranslation.reduceMotion,
-                                modifier = panelModifier,
-                            ) { particleProgress ->
-                                // [controlsOpen] is a constant `true`: that flag
-                                // exists because the portrait player hides its
-                                // transport behind the lyrics and needs a tap to
-                                // bring it back. Here there is nothing hidden for
-                                // a tap to reveal, and leaving the reveal gesture
-                                // armed would only eat taps meant for the lines.
-                                LyricsPanel(
-                                    lines = lyrics.orEmpty(),
-                                    subLines = lyricsTranslation.subLines,
-                                    trackKey = song.videoId,
-                                    playhead = lyricsPlayhead,
-                                    looking = !lyricsUnavailable,
-                                    isPlaying = isPlaying && position.advancing,
-                                    onSeekToLine = seekToLyric,
-                                    controlsOpen = true,
-                                    onRevealControls = {},
-                                    onHideControls = {},
-                                    translationProgress = particleProgress,
-                                    canPick = lyricsShareEnabled,
-                                    picking = lyricPicker.picking,
-                                    picked = lyricPicker.picks,
-                                    onPickLine = lyricPicker.pick,
-                                    onTogglePick = lyricPicker.toggle,
-                                    centerFocus = true,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
-                    },
-                    queuePane = {
-                        InlineQueue(
-                            queue = queue,
-                            currentIndex = queueIndex,
-                            autoplayEnabled = autoplayEnabled,
-                            controlsLocked = controlsLocked,
-                            onJumpTo = onJumpTo,
-                            onRemove = onRemoveFromQueue,
-                            onMove = onMoveInQueue,
-                            onClear = onClearQueue,
-                            onDragActiveChange = onQueueDragActiveChange,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    },
+                    lyricsPane = { embeddedLyrics(true) {} },
+                    queuePane = { embeddedQueue(true) {} },
                 )
             }
         } else {
@@ -4310,7 +4335,7 @@ fun NowPlayingScreen(
                         Spacer(Modifier.height(run / 2 + lift))
                     }
 
-                    playerActions()
+                    playerActions(false)
                     Spacer(Modifier.height(deckBottomPadding))
                     }
                     }

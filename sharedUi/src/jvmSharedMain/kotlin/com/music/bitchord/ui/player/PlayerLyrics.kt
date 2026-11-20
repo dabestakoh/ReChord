@@ -810,10 +810,11 @@ private fun SweptLyricLine(
     color: Color = Color.Unspecified,
     shimmer: Boolean = false,
     styledText: AnnotatedString? = null,
+    riseAmount: Dp = WORD_RISE,
 ) {
     val lyricInk = if (color == Color.Unspecified) LocalPlayerAccent.current else color
     val text = styledText ?: remember(line.text) { AnnotatedString(line.text) }
-    var layout by remember(line, text) { mutableStateOf<TextLayoutResult?>(null) }
+    var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
 
     // Filled in and read back a letter at a time inside the draw lambdas, and
     // shared by all three copies of the line — they draw one after another on
@@ -888,7 +889,7 @@ private fun SweptLyricLine(
                             line = line,
                             positionMs = drawnAt(),
                             inset = glowRoom.toPx(),
-                            peak = if (rise) WORD_RISE.toPx() else 0f,
+                            peak = if (rise) riseAmount.toPx() else 0f,
                             growth = growth,
                         )
                     }
@@ -954,7 +955,7 @@ private fun SweptLyricLine(
                             line = line,
                             positionMs = drawnAt(),
                             inset = glowRoom.toPx(),
-                            peak = if (rise) WORD_RISE.toPx() else 0f,
+                            peak = if (rise) riseAmount.toPx() else 0f,
                             growth = growth,
                         )
                     },
@@ -1613,8 +1614,6 @@ internal fun PosterLyricSpotlight(
     trackKey: String,
     playhead: LyricPlayhead,
     isPlaying: Boolean,
-    title: String,
-    artist: String,
     onOpenLyrics: () -> Unit,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
@@ -1627,38 +1626,73 @@ internal fun PosterLyricSpotlight(
     val style by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
-    val active = line
-    Column(Modifier.fillMaxSize()) {
-        BoxWithConstraints(
-            Modifier.fillMaxWidth().weight(1f).clipToBounds()
-                .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            val type = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold)
-            val maxLines = with(LocalDensity.current) {
-                (maxHeight.toPx() / (type.lineHeight.toPx() * 1.25f)).toInt().coerceIn(1, 3)
-            }
+    BoxWithConstraints(
+        Modifier.fillMaxSize().clipToBounds()
+            .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val size = with(LocalDensity.current) {
+            val widthSize = (maxWidth.toPx() * 0.105f).toSp().value.coerceIn(23f, 52f)
+            val heightSize = (maxHeight.toPx() / 2.4f).toSp().value.coerceAtLeast(18f)
+            minOf(widthSize, heightSize).sp
+        }
+        val type = MaterialTheme.typography.headlineLarge.copy(
+            fontSize = size, lineHeight = size * 1.21f, fontWeight = FontWeight.ExtraBold,
+        )
+        val maxLines = with(LocalDensity.current) {
+            (maxHeight.toPx() / type.lineHeight.toPx()).toInt().coerceIn(1, 3)
+        }
+        AnimatedContent(
+            targetState = line,
+            transitionSpec = {
+                val motion = !reduceAnimation && style.rises
+                if (!motion) {
+                    fadeIn(snap()) togetherWith fadeOut(snap())
+                } else {
+                    (slideInVertically(tween(260, easing = LYRIC_EASING)) { it / 4 } + fadeIn(tween(230)))
+                        .togetherWith(slideOutVertically(tween(180)) { -it / 6 } + fadeOut(tween(170)))
+                        .using(SizeTransform(clip = false) { _, _ -> snap() })
+                }
+            },
+            label = "posterLyric",
+        ) { active ->
             if (active?.isWordSynced == true) {
-                val styled = remember(active.text, type.fontSize, maxLines) {
-                    val emphasis = Regex("\\S+").findAll(active.text).maxByOrNull { it.value.length }
-                    val spans = if (emphasis != null && maxLines > 1) {
-                        listOf(AnnotatedString.Range(SpanStyle(fontSize = type.fontSize * 1.21f), emphasis.range.first, emphasis.range.last + 1))
-                    } else emptyList()
-                    AnnotatedString(active.text, spanStyles = spans)
+                val index = remember(active, maxLines, style, reduceAnimation) {
+                    if (maxLines < 2 || !style.rises || reduceAnimation || active.words.size < 2) null
+                    else active.wordSpans.indices.maxByOrNull { active.wordSpans[it].count() }
+                }
+                // The layout stays stable between the few visible steps of the swell.
+                val emphasisStep by remember(active, clock, index) {
+                    derivedStateOf {
+                        val word = index?.let(active.words::get) ?: return@derivedStateOf 0
+                        val spanMs = maxOf(450f, (word.endMs - word.startMs) * 0.76f)
+                        val progress = ((clock.longValue - word.startMs) / spanMs).coerceIn(0f, 1f)
+                        (LYRIC_EASING.transform(progress) * 8).toInt()
+                    }
+                }
+                val styled = remember(active, size, index, emphasisStep) {
+                    if (index == null || emphasisStep == 0) null else {
+                        val range = active.wordSpans[index]
+                        AnnotatedString(active.text, spanStyles = listOf(
+                            AnnotatedString.Range(
+                                SpanStyle(fontSize = size * (1f + emphasisStep * 0.053f)),
+                                range.first, range.last + 1,
+                            ),
+                        ))
+                    }
                 }
                 PresetLyricLine(
                     active, clock, style, type, maxLines, styled,
-                    color = LocalPlayerAccent.current, effects = !reduceAnimation, blur = !reduceBlur,
+                    color = lerp(LocalPlayerAccent.current, Color.White, 0.55f),
+                    effects = !reduceAnimation, blur = !reduceBlur,
                 )
-            } else {
-                val text = active?.text ?: title
+            } else if (active != null) {
                 Text(
-                    text = text, style = voiceStyle(type, text, false, false), maxLines = maxLines,
-                    color = LocalPlayerAccent.current, overflow = TextOverflow.Ellipsis,
+                    text = active.text, style = voiceStyle(type, active.text, false, false), maxLines = maxLines,
+                    color = lerp(LocalPlayerAccent.current, Color.White, 0.55f), overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        PlayerLayoutCredits(title.takeIf { active != null }, artist)
     }
 }
 
@@ -1716,13 +1750,14 @@ private fun PresetLyricLine(
     blur: Boolean,
 ) {
     SweptLyricLine(
-        line = line, clock = clock, style = voiceStyle(type, line.text, false, false), dimAlpha = 0.46f,
+        line = line, clock = clock, style = voiceStyle(type, line.text, false, false), dimAlpha = if (style == LyricsStyle.DEFAULT) 0.46f else 0.34f,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis,
         styledText = styled, color = color,
         rise = style.rises && effects,
         feather = style != LyricsStyle.PLAIN,
         shimmer = style.shimmers && effects && blur,
-        glowAlpha = if (style.blooms && effects && blur) 0.72f else 0f,
+        glowAlpha = if (style.blooms && effects && blur) 0.92f else 0f,
+        riseAmount = if (style == LyricsStyle.DEFAULT) WORD_RISE else 4.dp,
     )
 }
 
@@ -2416,8 +2451,15 @@ internal fun LyricsPanel(
                 // Rows behind the one being scrolled to are the ones that
                 // fan out; the ones it is moving away from arrive together.
                 val behind = if (run.delta >= 0f) index - focusLine else focusLine - index
+                val intenseMotion = lyricsStyle.rises && lyricsStyle != LyricsStyle.DEFAULT && !reduceAnimation
+                val lineLift by animateFloatAsState(
+                    targetValue = if (intenseMotion && isSynced && !line.isWordSynced && !isActive && !sung) 6f else 0f,
+                    animationSpec = tween(if (intenseMotion) 300 else 0, easing = LYRIC_EASING),
+                    label = "lineLyricLift",
+                )
                 val staggerDelay = if (lyricsStyle.rises && !reduceAnimation) {
-                    behind.coerceIn(0, STAGGER_STEPS) * STAGGER_FRACTION * run.durationMs
+                    val stagger = if (intenseMotion) STAGGER_FRACTION * 1.35f else STAGGER_FRACTION
+                    behind.coerceIn(0, STAGGER_STEPS) * stagger * run.durationMs
                 } else 0f
                 val interaction = remember { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
@@ -2439,7 +2481,7 @@ internal fun LyricsPanel(
                 val glow by animateFloatAsState(
                     targetValue = when {
                         !isActive || !glowing -> 0f
-                        lyricsStyle == LyricsStyle.MOTION -> 0.80f
+                        lyricsStyle == LyricsStyle.MOTION -> 0.94f
                         else -> GLOW_ALPHA
                     },
                     animationSpec = tween(durationMillis = 420),
@@ -2472,7 +2514,7 @@ internal fun LyricsPanel(
                         // Rows with nothing to catch up on never read the clock
                         // at all, so a handover only invalidates the handful of
                         // layers that are actually fanning out.
-                        translationY = if (staggerDelay <= 0f) {
+                        translationY = lineLift.dp.toPx() + if (staggerDelay <= 0f) {
                             0f
                         } else {
                             val elapsed = since.floatValue
@@ -2599,6 +2641,7 @@ internal fun LyricsPanel(
                         browsing = browsing,
                         glowAlpha = glow,
                         rise = lyricsStyle.rises && !reduceAnimation,
+                        riseAmount = if (intenseMotion) 4.dp else WORD_RISE,
                         shimmer = shimmer,
                         feather = lyricsStyle != LyricsStyle.PLAIN,
                         room = GLOW_ROOM,
@@ -2741,6 +2784,7 @@ private fun PanelVoice(
      * movement competes with the line being read and makes the row look busy.
      */
     rise: Boolean = true,
+    riseAmount: Dp = WORD_RISE,
     shimmer: Boolean = false,
     feather: Boolean = true,
     modifier: Modifier = Modifier,
@@ -2776,6 +2820,7 @@ private fun PanelVoice(
             feather = feather && isActive,
             shimmer = shimmer && isActive,
             rise = rise,
+            riseAmount = riseAmount,
             alignEnd = alignEnd,
             laneLocked = laneLocked,
             translationProgress = translationProgress,
@@ -2799,6 +2844,7 @@ private fun PanelVoice(
             glowAlpha = 0f,
             glowRoom = room,
             rise = rise,
+            riseAmount = riseAmount,
             alignEnd = alignEnd,
             laneLocked = laneLocked,
             translationProgress = translationProgress,
@@ -3126,7 +3172,7 @@ private fun CurrentLyricLine(
                     rise = false,
                     feather = lyricsStyle == LyricsStyle.WAVE,
                     shimmer = lyricsStyle.shimmers && !reduceAnimation && !lessBlur,
-                    glowAlpha = if (lyricsStyle == LyricsStyle.MOTION && !reduceAnimation && !lessBlur) 0.68f else 0f,
+                    glowAlpha = if (lyricsStyle == LyricsStyle.MOTION && !reduceAnimation && !lessBlur) 0.90f else 0f,
                     glowRadius = 4.dp,
                     modifier = fading,
                 )

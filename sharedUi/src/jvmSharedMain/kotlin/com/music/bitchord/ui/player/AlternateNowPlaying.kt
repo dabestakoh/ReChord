@@ -1,5 +1,13 @@
 package com.music.bitchord.ui.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -43,17 +51,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,6 +129,10 @@ internal fun AlternateNowPlaying(
     onOpenPicker: (() -> Unit)?,
     reduceAnimation: Boolean,
     artworkBackdrop: Color,
+    statusScrimAlpha: Float,
+    pane: PlayerPane,
+    lyricsPane: @Composable (Boolean) -> Unit,
+    queuePane: @Composable (Boolean) -> Unit,
     lyrics: @Composable () -> Unit,
     scrubber: @Composable () -> Unit,
     actions: @Composable () -> Unit,
@@ -126,92 +142,168 @@ internal fun AlternateNowPlaying(
     val haptics = rememberHaptics()
     val topHold = Modifier.openLayoutOnHold(onOpenPicker)
     val artHold = Modifier.openLayoutOnHold(onOpenPicker)
-    Column(
-        modifier.fillMaxSize()
-            .background(Brush.linearGradient(listOf(lerp(Color(0xFF16161B), artworkBackdrop, 0.32f), Color(0xFF111113))))
-            .windowInsetsPadding(stableStatusBarInsets())
-            .navigationBarsPadding(),
-    ) {
-        Box(Modifier.fillMaxWidth().height(40.dp).then(topHold), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier.size(42.dp, 5.dp).clip(CircleShape)
-                    .background(LocalPlayerAccent.current.copy(alpha = 0.55f)),
+    val accent = LocalPlayerAccent.current
+    val base = Color(0xFF141417)
+    val backdrop = remember(artworkBackdrop, vinyl) {
+        if (vinyl) {
+            Brush.verticalGradient(listOf(lerp(base, artworkBackdrop, 0.30f), base))
+        } else {
+            Brush.linearGradient(
+                0f to lerp(base, artworkBackdrop, 0.28f),
+                0.41f to lerp(base, artworkBackdrop, 0.45f),
+                1f to lerp(base, artworkBackdrop, 0.14f),
             )
-            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
-                Icon(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), tint = LocalPlayerAccent.current)
-            }
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val compact = maxHeight < 330.dp
-            val controlsHeight = if (compact) 100.dp else 204.dp
-            val artHeight = (maxHeight - controlsHeight).coerceAtLeast(0.dp)
-            Column(Modifier.fillMaxSize()) {
-                val artModifier = Modifier.fillMaxWidth().height(artHeight).then(artHold)
-                val drag = if (canSeek) onScrub else null
-                if (vinyl) {
-                    VinylArtwork(
-                        artwork, isPlaying && !reduceAnimation, shown, artModifier,
-                        drag, onScrubFinished, onScrubCanceled, song.videoId,
-                    )
-                } else {
-                    PosterArtwork(artwork, shown, artModifier, drag, onScrubFinished, onScrubCanceled)
-                }
-                Row(
-                    Modifier.fillMaxWidth().weight(1f).padding(start = 20.dp, end = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        if (vinyl) PlayerLayoutCredits(song.title, song.artist) else lyrics()
+    }
+    Box(modifier.fillMaxSize().clipToBounds().background(backdrop)) {
+        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                val compact = maxHeight < 364.dp
+                val controlsHeight = if (compact) 100.dp else 192.dp
+                val prominentPoster = !vinyl && maxHeight >= 298.dp
+                Column(Modifier.fillMaxSize()) {
+                    AnimatedContent(
+                        targetState = pane,
+                        modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds(),
+                        transitionSpec = {
+                            if (reduceAnimation) {
+                                fadeIn(snap()) togetherWith fadeOut(snap())
+                            } else {
+                                val forward = targetState != PlayerPane.Main
+                                val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
+                                    if (forward) min(it / 4, 132) else -it / 12
+                                } + fadeIn(spring(stiffness = 285f))
+                                val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
+                                    if (forward) -it / 12 else min(it / 4, 132)
+                                } + fadeOut(spring(stiffness = 420f))
+                                enter togetherWith exit
+                            }
+                        },
+                        label = "alternatePlayerPane",
+                    ) { shownPane ->
+                        val active = shownPane == pane
+                        val paneModifier = if (active) Modifier else {
+                            Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                    }
+                                }
+                            }
+                        }
+                        Box(Modifier.fillMaxSize().then(paneModifier)) {
+                            when (shownPane) {
+                                PlayerPane.Main -> {
+                                    val artModifier = Modifier.fillMaxSize().then(artHold)
+                                    val drag = onScrub.takeIf { canSeek && active }
+                                    if (vinyl) {
+                                        VinylArtwork(
+                                            artwork, active && isPlaying && !reduceAnimation, shown, artModifier,
+                                            drag, onScrubFinished, onScrubCanceled, song.videoId,
+                                        )
+                                    } else {
+                                        PosterArtwork(artwork, shown, artModifier, drag, onScrubFinished, onScrubCanceled)
+                                    }
+                                    if (statusScrimAlpha > 0f) {
+                                        Box(
+                                            Modifier.fillMaxWidth().height(80.dp).background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color.Black.copy(alpha = statusScrimAlpha), Color.Transparent),
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                }
+                                PlayerPane.Lyrics, PlayerPane.Queue -> Box(
+                                    Modifier.fillMaxSize()
+                                        .windowInsetsPadding(stableStatusBarInsets())
+                                        .padding(start = 18.dp, top = 48.dp, end = 18.dp),
+                                ) {
+                                    if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
+                                }
+                            }
+                        }
                     }
-                    val favorite: @Composable () -> Unit = {
-                        PlaybackPill(
-                            icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                            description = stringResource(if (liked) Res.string.remove_from_liked else Res.string.like),
-                            onClick = { haptics.play(Haptic.Tap); onFavorite() },
-                        )
+                    if (prominentPoster) {
+                        Box(
+                            Modifier.fillMaxWidth().height(if (compact) 78.dp else 112.dp)
+                                .padding(horizontal = if (compact) 20.dp else 24.dp),
+                        ) {
+                            lyrics()
+                        }
                     }
-                    val previous: @Composable () -> Unit = {
-                        PlaybackPill(
-                            Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
-                        ) { haptics.play(Haptic.SkipPrevious); onPrevious() }
-                    }
-                    val play: @Composable () -> Unit = {
-                        if (isLoading) {
-                            Box(Modifier.size(52.dp, 48.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(21.dp), color = LocalPlayerAccent.current, strokeWidth = 2.dp)
+                    Row(
+                        Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (!vinyl && !prominentPoster) {
+                                Box(Modifier.fillMaxWidth().weight(1f, fill = false)) { lyrics() }
+                            }
+                            PlayerLayoutCredits(song.title, song.artist)
+                            if (vinyl) {
+                                Box(Modifier.fillMaxWidth().height(32.dp).clipToBounds(), contentAlignment = Alignment.CenterStart) {
+                                    lyrics()
+                                }
+                            }
+                        }
+                        val favorite: @Composable () -> Unit = {
+                            PlaybackPill(
+                                icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                description = stringResource(if (liked) Res.string.remove_from_liked else Res.string.like),
+                                onClick = { haptics.play(Haptic.Tap); onFavorite() },
+                            )
+                        }
+                        val previous: @Composable () -> Unit = {
+                            PlaybackPill(
+                                Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
+                            ) { haptics.play(Haptic.SkipPrevious); onPrevious() }
+                        }
+                        val play: @Composable () -> Unit = {
+                            if (isLoading) {
+                                Box(Modifier.size(52.dp, 48.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(21.dp), color = LocalPlayerAccent.current, strokeWidth = 2.dp)
+                                }
+                            } else {
+                                PlaybackPill(
+                                    if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
+                                    stringResource(if (isPlaying) Res.string.pause else Res.string.play),
+                                    true,
+                                ) { haptics.play(if (isPlaying) Haptic.Pause else Haptic.Resume); onPlayPause() }
+                            }
+                        }
+                        val next: @Composable () -> Unit = {
+                            PlaybackPill(
+                                Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
+                            ) { haptics.play(Haptic.SkipNext); onNext() }
+                        }
+                        if (compact) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Column { favorite(); previous() }
+                                Column { play(); next() }
                             }
                         } else {
-                            PlaybackPill(
-                                if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
-                                stringResource(if (isPlaying) Res.string.pause else Res.string.play),
-                                true,
-                            ) { haptics.play(if (isPlaying) Haptic.Pause else Haptic.Resume); onPlayPause() }
+                            Column { favorite(); previous(); play(); next() }
                         }
-                    }
-                    val next: @Composable () -> Unit = {
-                        PlaybackPill(
-                            Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
-                        ) { haptics.play(Haptic.SkipNext); onNext() }
-                    }
-                    if (compact) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Column { favorite(); previous() }
-                            Column { play(); next() }
-                        }
-                    } else {
-                        Column { favorite(); previous(); play(); next() }
                     }
                 }
             }
-        }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            if (vinyl) Box(Modifier.fillMaxWidth().height(36.dp).clipToBounds(), contentAlignment = Alignment.CenterStart) {
-                lyrics()
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                scrubber()
+                actions()
+                Spacer(Modifier.height(6.dp))
             }
-            scrubber()
-            actions()
-            Spacer(Modifier.height(6.dp))
+        }
+        Box(
+            Modifier.fillMaxWidth().windowInsetsPadding(stableStatusBarInsets())
+                .height(44.dp).then(topHold),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
+            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
+                Icon(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), tint = accent)
+            }
         }
     }
 }
@@ -279,11 +371,11 @@ internal fun LayoutArtwork(artwork: Any?, modifier: Modifier) {
 
 private const val ArmTravelRadians = 0.42f
 
-private fun armPivot(size: Size) = Offset(size.width * 0.83f, size.height * 0.13f)
-private fun vinylCenter(size: Size) = Offset(size.width * 0.23f, size.height * 0.51f)
+private fun armPivot(size: Size) = Offset(size.width * 0.89f, size.height * 0.30f)
+private fun vinylCenter(size: Size) = Offset(size.width * 0.27f, size.height * 0.50f)
 
 private fun armTip(size: Size, progress: Float): Offset {
-    val radius = min(size.width * 0.64f, size.height * 0.61f)
+    val radius = min(size.width * 0.64f, size.height * 0.497f)
     val firstGroove = vinylCenter(size) + Offset(radius * 0.94f, radius * 0.30f)
     val fromPivot = firstGroove - armPivot(size)
     val angle = atan2(fromPivot.y, fromPivot.x) + progress * ArmTravelRadians
@@ -312,16 +404,16 @@ internal fun VinylArtwork(
         }
     }
     BoxWithConstraints(modifier.clipToBounds()) {
-        val radius = minOf(maxWidth * 0.64f, maxHeight * 0.61f)
+        val radius = minOf(maxWidth * 0.64f, maxHeight * 0.497f)
         val labelRadius = radius * 0.50f
         Canvas(Modifier.fillMaxSize()) {
             val center = vinylCenter(size)
             val r = radius.toPx()
             if (r <= 0f) return@Canvas
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF34343B), Color(0xFF101015), Color(0xFF24242A)), center, r), r, center)
+            drawCircle(Brush.radialGradient(listOf(Color(0xFF27272C), Color(0xFF0E0E12), Color(0xFF1B1B20)), center, r), r, center)
             for (groove in 0..28) {
                 val spoke = r * (0.52f + groove * 0.016f)
-                drawCircle(Color.Black.copy(alpha = if (groove % 7 == 0) 0.65f else 0.30f), spoke, center, style = Stroke(0.8.dp.toPx()))
+                drawCircle(Color.Black.copy(alpha = if (groove % 7 == 0) 0.54f else 0.26f), spoke, center, style = Stroke(0.8.dp.toPx()))
             }
             drawCircle(
                 Brush.sweepGradient(
@@ -334,7 +426,7 @@ internal fun VinylArtwork(
         }
         LayoutArtwork(
             artwork,
-            Modifier.offset(x = maxWidth * 0.23f - labelRadius, y = maxHeight * 0.51f - labelRadius)
+            Modifier.offset(x = maxWidth * 0.27f - labelRadius, y = maxHeight * 0.50f - labelRadius)
                 .size(labelRadius * 2)
                 .graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true },
         )
@@ -360,11 +452,50 @@ internal fun VinylArtwork(
         Canvas(Modifier.fillMaxSize().then(armGesture)) {
             val pivot = armPivot(size)
             val tip = armTip(size, shown())
-            drawCircle(Color(0xFF17171E), 19.dp.toPx(), pivot)
-            drawCircle(Color(0xFF4A4851), 10.dp.toPx(), pivot)
-            drawLine(Color.Black.copy(alpha = 0.62f), pivot + Offset(3f, 4f), tip + Offset(3f, 4f), 9.dp.toPx(), StrokeCap.Round)
-            drawLine(Color(0xFFC2BEC9), pivot, tip, 5.dp.toPx(), StrokeCap.Round)
-            drawLine(Color(0xFF2C2B35), pivot + (tip - pivot) * 0.90f, tip, 12.dp.toPx(), StrokeCap.Round)
+            val length = (tip - pivot).getDistance()
+            if (length < 1f) return@Canvas
+            val angle = atan2(tip.y - pivot.y, tip.x - pivot.x) * (180f / kotlin.math.PI.toFloat())
+            val unit = min(size.width, size.height)
+            val housing = Size(unit * 0.17f, unit * 0.24f)
+            val base = pivot - Offset(housing.width / 2f, housing.height * 0.38f)
+            drawRoundRect(
+                Brush.verticalGradient(listOf(Color(0xFF292A2F), Color(0xFF0C0D10)), base.y, base.y + housing.height),
+                topLeft = base, size = housing, cornerRadius = CornerRadius(housing.width * 0.43f),
+            )
+            rotate(angle, pivot) {
+                val shaftWidth = unit * 0.025f
+                val shaft = pivot + Offset(length * 0.10f, -shaftWidth / 2f)
+                val shaftSize = Size(length * 0.73f, shaftWidth)
+                drawRoundRect(
+                    Color.Black.copy(alpha = 0.55f), shaft + Offset(0f, shaftWidth * 0.45f),
+                    shaftSize, CornerRadius(shaftWidth / 2f),
+                )
+                drawRoundRect(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF4B4D54), Color(0xFFB9BEC5), Color(0xFFE4E6EA), Color(0xFF727780)),
+                        shaft.y, shaft.y + shaftWidth,
+                    ),
+                    shaft, shaftSize, CornerRadius(shaftWidth / 2f),
+                )
+                val counterweight = Size(unit * 0.11f, unit * 0.092f)
+                drawRoundRect(
+                    Brush.verticalGradient(listOf(Color(0xFF54565E), Color(0xFF212228)), pivot.y - counterweight.height / 2f, pivot.y + counterweight.height / 2f),
+                    pivot - Offset(counterweight.width * 0.55f, counterweight.height / 2f),
+                    counterweight, CornerRadius(unit * 0.024f),
+                )
+                val joint = pivot + Offset(length * 0.81f, 0f)
+                rotate(18f, joint) {
+                    val cartridge = Size(length * 0.19f, unit * 0.051f)
+                    val left = joint - Offset(0f, cartridge.height / 2f)
+                    drawLine(Color(0xFFBCC4C9), joint, joint + Offset(cartridge.width + unit * 0.018f, 0f), unit * 0.008f, StrokeCap.Round)
+                    drawRoundRect(
+                        Brush.verticalGradient(listOf(Color(0xFF61636D), Color(0xFF21232A)), left.y, left.y + cartridge.height),
+                        left, cartridge, CornerRadius(unit * 0.012f),
+                    )
+                    drawLine(Color.White.copy(alpha = 0.22f), left + Offset(cartridge.width * 0.75f, 2f),
+                        left + Offset(cartridge.width * 0.75f, cartridge.height - 2f), unit * 0.003f)
+                }
+            }
         }
     }
 }

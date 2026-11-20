@@ -589,9 +589,11 @@ internal fun PlayerActionRow(
     onCycleRepeat: () -> Unit,
     onToggleAutoplay: () -> Unit,
     onOpenOutput: () -> Unit,
+    showModesInActionRow: Boolean = true,
 ) {
     // Just the output glyph in the middle.
-    val compact = !queueOpen
+    val showModes = queueOpen && showModesInActionRow
+    val compact = !showModes
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Sized for the wider of the two capsules — the three-up one — whether
         // that or the output one is up, so the lyrics and queue glyphs
@@ -629,7 +631,7 @@ internal fun PlayerActionRow(
                 )
             }
             AnimatedContent(
-                targetState = queueOpen,
+                targetState = showModes,
                 transitionSpec = {
                     (fadeIn(tween(180, delayMillis = 140)) togetherWith fadeOut(tween(140)))
                         // Unclipped: the capsule's own rounded ends are what
@@ -642,50 +644,10 @@ internal fun PlayerActionRow(
                 if (showQueueModes) {
                     // Spaced the same as the output capsule, so the two
                     // read as one control growing a segment.
-                    Pill {
-                        PillSegment(
-                            icon = BitChordIcons.Shuffle,
-                            contentDescription = stringResource(
-                                if (shuffleEnabled) Res.string.shuffle_on else Res.string.shuffle_off,
-                            ),
-                            onClick = onToggleShuffle,
-                            highlighted = shuffleEnabled,
-                            haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
-                            tapWindowMs = SHUFFLE_TAP_WINDOW_MS,
-                        )
-                        PillDivider()
-                        PillSegment(
-                            icon = if (repeatMode == RepeatModes.ONE) null else BitChordIcons.Repeat,
-                            label = if (repeatMode == RepeatModes.ONE) "1" else null,
-                            contentDescription = when (repeatMode) {
-                                RepeatModes.ONE -> stringResource(Res.string.repeat_one)
-                                RepeatModes.ALL -> stringResource(Res.string.repeat_all)
-                                else -> stringResource(Res.string.repeat_off)
-                            },
-                            onClick = onCycleRepeat,
-                            highlighted = repeatMode != RepeatModes.OFF,
-                            // Three states, so the buzz tracks the edges of the
-                            // cycle: leaving off rises, returning to off falls,
-                            // and the step between the two repeat modes is just
-                            // a selection.
-                            haptic = when (repeatMode) {
-                                RepeatModes.OFF -> Haptic.ToggleOn
-                                RepeatModes.ONE -> Haptic.ToggleOff
-                                else -> Haptic.Select
-                            },
-                        )
-                        PillDivider()
-                        PillSegment(
-                            icon = BitChordIcons.Infinity,
-                            contentDescription = stringResource(
-                                if (autoplayEnabled) Res.string.autoplay_on else Res.string.autoplay_off,
-                            ),
-                            onClick = onToggleAutoplay,
-                            highlighted = autoplayEnabled,
-                            haptic = if (autoplayEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
-                            tapWindowMs = AUTOPLAY_TAP_WINDOW_MS,
-                        )
-                    }
+                    PlayerQueueModes(
+                        shuffleEnabled, repeatMode, autoplayEnabled,
+                        onToggleShuffle, onCycleRepeat, onToggleAutoplay,
+                    )
                 } else {
                     val output = rememberOutputGlyph()
                     BottomGlyph(
@@ -710,6 +672,61 @@ internal fun PlayerActionRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun PlayerQueueModes(
+    shuffleEnabled: Boolean,
+    repeatMode: Int,
+    autoplayEnabled: Boolean,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    onToggleAutoplay: () -> Unit,
+) {
+    Pill {
+        PillSegment(
+            icon = BitChordIcons.Shuffle,
+            contentDescription = stringResource(
+                if (shuffleEnabled) Res.string.shuffle_on else Res.string.shuffle_off,
+            ),
+            onClick = onToggleShuffle,
+            highlighted = shuffleEnabled,
+            haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
+            tapWindowMs = SHUFFLE_TAP_WINDOW_MS,
+        )
+        PillDivider()
+        PillSegment(
+            icon = if (repeatMode == RepeatModes.ONE) null else BitChordIcons.Repeat,
+            label = if (repeatMode == RepeatModes.ONE) "1" else null,
+            contentDescription = when (repeatMode) {
+                RepeatModes.ONE -> stringResource(Res.string.repeat_one)
+                RepeatModes.ALL -> stringResource(Res.string.repeat_all)
+                else -> stringResource(Res.string.repeat_off)
+            },
+            onClick = onCycleRepeat,
+            highlighted = repeatMode != RepeatModes.OFF,
+            // Three states, so the buzz tracks the edges of the
+            // cycle: leaving off rises, returning to off falls,
+            // and the step between the two repeat modes is just
+            // a selection.
+            haptic = when (repeatMode) {
+                RepeatModes.OFF -> Haptic.ToggleOn
+                RepeatModes.ONE -> Haptic.ToggleOff
+                else -> Haptic.Select
+            },
+        )
+        PillDivider()
+        PillSegment(
+            icon = BitChordIcons.Infinity,
+            contentDescription = stringResource(
+                if (autoplayEnabled) Res.string.autoplay_on else Res.string.autoplay_off,
+            ),
+            onClick = onToggleAutoplay,
+            highlighted = autoplayEnabled,
+            haptic = if (autoplayEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
+            tapWindowMs = AUTOPLAY_TAP_WINDOW_MS,
+        )
     }
 }
 
