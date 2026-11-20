@@ -33,12 +33,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -55,14 +57,17 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
+private const val RECORD_WIDTH_FRACTION = 0.682f
+private const val RECORD_HEIGHT_FRACTION = 0.446f
+
 private class RecordGeometry(size: Size) {
-    val radius = minOf(size.width * 0.698f, size.height * 0.468f)
+    val radius = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
     val center = Offset(size.width * 0.163f, radius)
     val pivot = Offset(size.width * 0.887f, minOf(size.width * 0.148f, size.height * 0.19f))
     val unit = minOf(size.width, size.height)
     private val distance = (center - pivot).getDistance()
     private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
-    val reach = (distance - radius * 0.23f).coerceAtLeast(1f)
+    val reach = (distance - radius * 0.33f).coerceAtLeast(1f)
     val outer = radius * 0.952f
     val inner = radius * 0.565f
 
@@ -148,22 +153,22 @@ internal fun VinylDisc(
     val base = if (neutral) Color(0xFF17181A) else {
         lerp(raw.copy(alpha = 1f), Color(0xFF141416), if (raw.luminance() > 0.55f) 0.39f else 0.19f)
     }
-    val tint = if (neutral) Color(0xFF66666B) else when (style.colorMode) {
-        VinylColorMode.CUSTOM -> style.secondaryColor?.let { Color(it) } ?: lerp(base, Color.White, 0.43f)
-        else -> lerp(base, Color.White, 0.43f)
-    }
+    val customTint = style.secondaryColor.takeIf { style.colorMode == VinylColorMode.CUSTOM }
+    val tint = customTint?.let { Color(it) } ?: lerp(base, Color.White, if (neutral) 0.41f else 0.60f)
+    val darkTint = lerp(base, Color.Black, 0.74f)
 
     BoxWithConstraints(modifier) {
-        val radius = minOf(maxWidth * 0.698f, maxHeight * 0.468f)
+        val radius = minOf(maxWidth * RECORD_WIDTH_FRACTION, maxHeight * RECORD_HEIGHT_FRACTION)
         val at = Modifier.offset(x = maxWidth * 0.163f - radius)
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
         Box(Modifier.fillMaxSize().drawWithCache {
             val g = RecordGeometry(size)
-            val shadowAt = g.center + Offset(g.radius * 0.02f, g.radius * 0.046f)
-            val outer = (g.radius * 1.12f).coerceAtLeast(1f)
+            val shadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
+            val outer = (g.radius * 1.16f).coerceAtLeast(1f)
             val shadow = Brush.radialGradient(
-                0.82f to Color.Black.copy(alpha = 0.65f), 1f to Color.Transparent,
+                0.84f to Color.Black.copy(alpha = 0.70f),
+                0.93f to Color.Black.copy(alpha = 0.19f), 1f to Color.Transparent,
                 center = shadowAt, radius = outer,
             )
             onDrawBehind { if (g.radius > 0f) drawCircle(shadow, outer, shadowAt) }
@@ -177,18 +182,19 @@ internal fun VinylDisc(
                 val r = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
                 val baseFill = when (style.finish) {
-                    VinylFinish.TRANSLUCENT, VinylFinish.SMOKED -> base.copy(alpha = 0.76f)
-                    VinylFinish.PICTURE_DISC -> if (artwork != null) base.copy(alpha = 0.48f) else base
+                    VinylFinish.TRANSLUCENT -> base.copy(alpha = 0.45f)
+                    VinylFinish.SMOKED -> base.copy(alpha = 0.67f)
+                    VinylFinish.PICTURE_DISC -> if (artwork != null) base.copy(alpha = 0.21f) else base
                     else -> base
                 }
-                val swirlPaths = List(15) { i ->
+                val swirlPaths = List(12) { i ->
                     val start = random.nextFloat() * 6.283f
-                    val winding = if (style.finish == VinylFinish.SWIRL) 4.8f else 1.25f + random.nextFloat() * 2.2f
+                    val winding = if (style.finish == VinylFinish.SWIRL) 4.8f else 0.45f + random.nextFloat() * 1.1f
                     val inner = r * (0.43f + random.nextFloat() * 0.34f)
                     Path().apply {
                         for (step in 0..35) {
                             val t = step / 35f
-                            val distance = inner + (r - inner) * t + sin((t * 12f) + i) * r * 0.035f
+                            val distance = inner + (r - inner) * t + sin((t * 12f) + i) * r * 0.079f
                             val pt = polar(center, distance, start + winding * t)
                             if (step == 0) moveTo(pt.x, pt.y) else lineTo(pt.x, pt.y)
                         }
@@ -198,9 +204,14 @@ internal fun VinylDisc(
                     val radial = r * (0.54f + 0.48f * random.nextFloat())
                     polar(center, radial, random.nextFloat() * 6.283f) to (0.18f + random.nextFloat())
                 }
-                val haze = List(8) {
+                val haze = List(9) { i ->
                     val pt = polar(center, r * (0.62f + random.nextFloat() * 0.30f), random.nextFloat() * 6.283f)
-                    Brush.radialGradient(listOf(tint.copy(alpha = 0.29f), tint.copy(alpha = 0f)), pt, (r * 0.37f).coerceAtLeast(1f))
+                    val ink = when {
+                        style.finish == VinylFinish.SMOKED -> darkTint
+                        i % 2 == 0 -> tint
+                        else -> lerp(tint, Color(0xFF8D57BD), 0.62f)
+                    }
+                    Brush.radialGradient(listOf(ink.copy(alpha = 0.83f), ink.copy(alpha = 0f)), pt, (r * 0.41f).coerceAtLeast(1f))
                 }
                 onDrawBehind {
                     if (r <= 0f) return@onDrawBehind
@@ -208,7 +219,11 @@ internal fun VinylDisc(
                     when (style.finish) {
                         VinylFinish.TRANSLUCENT, VinylFinish.SMOKED -> {
                             drawCircle(
-                                Brush.radialGradient(listOf(base, tint.copy(alpha = 0.34f), Color.Transparent), center, r),
+                                Brush.radialGradient(
+                                    0.46f to base, 0.58f to tint.copy(alpha = 0.50f),
+                                    0.86f to Color.Transparent, 1f to tint.copy(alpha = 0.44f),
+                                    center = center, radius = r,
+                                ),
                                 r,
                             )
                             if (style.finish == VinylFinish.SMOKED) {
@@ -217,38 +232,57 @@ internal fun VinylDisc(
                         }
                         VinylFinish.MARBLED, VinylFinish.SWIRL -> {
                             for ((i, path) in swirlPaths.withIndex()) {
-                                val strength = if (style.finish == VinylFinish.MARBLED) 0.16f else 0.24f
-                                drawPath(path, tint.copy(alpha = strength + (i % 3) * 0.04f),
-                                    style = Stroke(r * (0.012f + (i % 4) * 0.014f), cap = StrokeCap.Round))
+                                val ink = if (i % 3 == 0) darkTint else tint
+                                val width = if (style.finish == VinylFinish.MARBLED) 0.018f else 0.05f
+                                drawPath(path, ink.copy(alpha = 0.43f + (i % 3) * 0.13f),
+                                    style = Stroke(r * (width + (i % 4) * width), cap = StrokeCap.Round))
                             }
                         }
-                        VinylFinish.GALAXY -> for (cloud in haze) drawRect(cloud)
+                        VinylFinish.GALAXY -> {
+                            drawCircle(darkTint, r)
+                            for (cloud in haze) drawRect(cloud)
+                            for ((point, amount) in spots) {
+                                drawCircle(Color.White.copy(alpha = 0.52f * amount), r * 0.003f * amount, point)
+                            }
+                        }
                         VinylFinish.SPLATTER, VinylFinish.GLITTER -> {
                             val glitter = style.finish == VinylFinish.GLITTER
                             for ((point, amount) in spots) {
                                 if (glitter) {
-                                    drawCircle(lerp(tint, Color.White, 0.38f).copy(alpha = amount * 0.44f), r * 0.009f * amount, point)
+                                    val sparkle = lerp(tint, Color.White, 0.68f).copy(alpha = amount * 0.77f)
+                                    val fleck = r * 0.006f * amount
+                                    drawCircle(sparkle, fleck, point)
+                                    if (amount > 1f) {
+                                        drawLine(sparkle, point - Offset(fleck * 2, 0f), point + Offset(fleck * 2, 0f), fleck * 0.5f)
+                                        drawLine(sparkle, point - Offset(0f, fleck * 2), point + Offset(0f, fleck * 2), fleck * 0.5f)
+                                    }
                                 } else {
-                                    drawOval(tint.copy(alpha = 0.36f), point,
-                                        Size(r * 0.042f * amount, r * 0.015f * amount))
+                                    val ink = if (amount > 0.8f) tint else darkTint
+                                    rotate(degrees(atan2(point.y - center.y, point.x - center.x)), point) {
+                                        drawOval(ink.copy(alpha = 0.80f), point,
+                                            Size(r * 0.077f * amount, r * 0.028f * amount))
+                                    }
                                 }
                             }
                         }
-                        VinylFinish.SPLIT -> drawArc(tint.copy(alpha = 0.60f), 21f, 180f, true,
+                        VinylFinish.SPLIT -> drawArc(lerp(base, tint, 0.92f), 21f, 180f, true,
                             size = Size(r * 2f, r * 2f))
                         VinylFinish.COLOR_IN_COLOR -> drawCircle(
                             Brush.radialGradient(
-                                0.58f to tint.copy(alpha = 0.52f), 0.69f to tint.copy(alpha = 0.33f),
-                                0.80f to Color.Transparent, center = center, radius = r,
+                                0.62f to tint.copy(alpha = 0.88f), 0.68f to tint.copy(alpha = 0.75f),
+                                0.75f to Color.Transparent, center = center, radius = r,
                             ), r,
                         )
                         VinylFinish.SHIMMER, VinylFinish.METALLIC -> {
                             val strong = style.finish == VinylFinish.METALLIC
                             drawCircle(
-                                Brush.sweepGradient(
-                                    listOf(Color.Transparent, tint.copy(alpha = if (strong) 0.52f else 0.26f),
-                                        Color.Transparent, tint.copy(alpha = 0.22f), Color.Transparent),
-                                    center,
+                                if (strong) Brush.sweepGradient(
+                                    0f to darkTint, 0.14f to tint, 0.24f to base, 0.39f to darkTint,
+                                    0.61f to tint, 0.71f to base, 1f to darkTint, center = center,
+                                ) else Brush.linearGradient(
+                                    listOf(darkTint, tint.copy(alpha = 0.14f), tint.copy(alpha = 0.73f),
+                                        base.copy(alpha = 0.5f), tint.copy(alpha = 0.44f)),
+                                    start = Offset(0f, r * 2f), end = Offset(r * 2f, 0f),
                                 ), r,
                             )
                             if (!strong) for ((point, amount) in spots) {
@@ -270,7 +304,7 @@ internal fun VinylDisc(
                     Color.Transparent, Color.White.copy(alpha = 0.12f), Color.Transparent), c,
             )
             val fine = Brush.radialGradient(
-                0f to Color.Transparent, 0.53f to Color.Black.copy(alpha = 0.23f), 1f to Color.Transparent,
+                0f to Color.Transparent, 0.53f to Color.Black.copy(alpha = 0.18f), 1f to Color.Transparent,
                 center = c, radius = 2.35.dp.toPx(), tileMode = TileMode.Repeated,
             )
             val band = Stroke(r * 0.415f)
@@ -351,7 +385,7 @@ internal fun VinylTonearm(
         val g = RecordGeometry(size)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
-        val mountSize = Size(u * 0.154f, u * 0.265f)
+        val mountSize = Size(u * 0.143f, u * 0.245f)
         val mount = g.pivot - Offset(mountSize.width * 0.5f, mountSize.height * 0.34f)
         val round = CornerRadius(mountSize.width * 0.45f)
         for (i in 1..5) {
@@ -363,6 +397,8 @@ internal fun VinylTonearm(
             Brush.verticalGradient(listOf(Color(0xFF27292D), Color(0xFF0D0E11)), mount.y, mount.y + mountSize.height),
             mount, mountSize, round,
         )
+        drawCircle(Color(0xFF101217), u * 0.050f, g.pivot)
+        drawCircle(Color(0xFF454953), u * 0.043f, g.pivot, style = Stroke(u * 0.002f))
         val raised = if (reduced) 0f else maxOf(lift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
         val swing = degrees(g.angle(shown()))
         val dim = if (blurReduced) 0.34f else 0.52f
@@ -402,43 +438,83 @@ internal fun VinylTonearm(
 }
 
 private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow: Color?) {
-    val shaftWidth = unit * 0.026f
-    val shaftStart = minOf(length * 0.10f, unit * 0.080f)
-    val shaft = pivot + Offset(shaftStart, -shaftWidth / 2f)
-    val shaftSize = Size(length * 0.85f - shaftStart, shaftWidth)
-    val shaftBrush = shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
-        listOf(Color(0xFF42464C), Color(0xFFA7ADB4), Color(0xFFE9E9ED), Color(0xFF6E747B)),
-        shaft.y, shaft.y + shaftWidth,
-    )
-    drawRoundRect(shaftBrush, shaft, shaftSize, CornerRadius(shaftWidth * 0.4f))
-    val weight = Size(unit * 0.14f, unit * 0.095f)
-    val top = pivot - Offset(weight.width * 0.32f, weight.height / 2f)
+    val tip = pivot + Offset(length, 0f)
+    val bend = 13f
+    val radians = bend * (PI / 180).toFloat()
+    val headLength = unit * 0.094f
+    val socket = polar(tip, -unit * 0.128f, radians)
+    val tangent = polar(socket, -unit * 0.047f, radians)
+    val shaftWidth = unit * 0.020f
+    val shaftAt = pivot.y - unit * 0.045f
+    val tube = Path().apply {
+        moveTo(pivot.x, shaftAt)
+        lineTo(tangent.x - unit * 0.02f, shaftAt)
+        quadraticTo(tangent.x, shaftAt, socket.x, socket.y)
+    }
+    val tubeStroke = Stroke(shaftWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    if (shadow != null) {
+        drawPath(tube, shadow, style = tubeStroke)
+    } else {
+        drawPath(tube, Color(0xFF343941), style = tubeStroke)
+        drawPath(tube, Color(0xFF848C95), style = Stroke(shaftWidth * 0.79f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        translate(top = -shaftWidth * 0.18f) {
+            drawPath(tube, Color(0xFFE5EBF0), style = Stroke(shaftWidth * 0.26f, cap = StrokeCap.Round))
+        }
+    }
+    val bearing = Size(unit * 0.105f, unit * 0.086f)
+    val bearingAt = pivot - Offset(bearing.width * 0.5f, bearing.height * 0.65f)
     drawRoundRect(
         shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
-            listOf(Color(0xFF50525B), Color(0xFF1C1F25)),
-            top.y, top.y + weight.height,
-        ), top, weight, CornerRadius(unit * 0.014f),
+            listOf(Color(0xFF676D78), Color(0xFF30343C), Color(0xFF171A20)),
+            bearingAt.y, bearingAt.y + bearing.height,
+        ), bearingAt, bearing, CornerRadius(unit * 0.017f),
     )
-    val tip = pivot + Offset(length, 0f)
-    val head = Size(length * 0.165f, unit * 0.060f)
-    val bend = (16f * PI / 180f).toFloat()
-    val collar = polar(tip, -(head.width + unit * 0.006f), bend)
-    drawLine(
-        shadow ?: Color(0xFF444850), pivot + Offset(length * 0.815f, 0f), collar,
-        shaftWidth * 1.17f, StrokeCap.Round,
-    )
-    rotate(16f, tip) {
-        val left = tip - Offset(head.width + unit * 0.012f, head.height / 2f)
-        drawLine(shadow ?: Color(0xFFE1E5EA), tip - Offset(unit * 0.033f, 0f), tip, unit * 0.009f, StrokeCap.Round)
+    if (shadow == null) {
+        drawCircle(Color(0xFF80848D), unit * 0.010f, pivot - Offset(unit * 0.017f, unit * 0.009f))
+        drawCircle(Color(0xFF242830), unit * 0.005f, pivot - Offset(unit * 0.017f, unit * 0.009f))
+    }
+    rotate(bend, tip) {
+        val collarAt = tip - Offset(unit * 0.135f, unit * 0.014f)
         drawRoundRect(
-            shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
-                listOf(Color(0xFF545862), Color(0xFF272A30), Color(0xFF17191D)), left.y, left.y + head.height,
-            ), left, head, CornerRadius(unit * 0.011f),
+            shadow ?: Color(0xFF292F37), collarAt, Size(unit * 0.038f, unit * 0.028f),
+            CornerRadius(unit * 0.004f),
         )
         if (shadow == null) {
-            val seam = left.x + head.width * 0.73f
-            drawLine(Color.White.copy(alpha = 0.18f), Offset(seam, left.y + 2f),
-                Offset(seam, left.y + head.height - 2f), unit * 0.002f)
+            val ringAt = collarAt + Offset(unit * 0.012f, 0f)
+            drawRect(Color(0xFF9399A2), ringAt, Size(unit * 0.007f, unit * 0.028f))
+        }
+        val left = tip - Offset(unit * 0.109f, unit * 0.024f)
+        val height = unit * 0.048f
+        val nose = left + Offset(headLength, height * 0.14f)
+        val shell = Path().apply {
+            moveTo(left.x + unit * 0.01f, left.y)
+            lineTo(nose.x - unit * 0.012f, left.y)
+            quadraticTo(nose.x, left.y, nose.x, nose.y)
+            lineTo(nose.x, left.y + height * 0.78f)
+            quadraticTo(nose.x, left.y + height, nose.x - unit * 0.014f, left.y + height)
+            lineTo(left.x + unit * 0.01f, left.y + height * 0.83f)
+            quadraticTo(left.x, left.y + height * 0.8f, left.x, left.y + height * 0.65f)
+            lineTo(left.x, left.y + height * 0.24f)
+            quadraticTo(left.x, left.y, left.x + unit * 0.01f, left.y)
+            close()
+        }
+        drawLine(
+            shadow ?: Color(0xFFBFC7CD), tip - Offset(unit * 0.024f, -unit * 0.005f), tip,
+            unit * 0.0055f, StrokeCap.Round,
+        )
+        drawRoundRect(
+            shadow ?: Color(0xFF171B21), tip - Offset(unit * 0.075f, unit * 0.014f),
+            Size(unit * 0.064f, unit * 0.033f), CornerRadius(unit * 0.005f),
+        )
+        if (shadow != null) drawPath(shell, shadow) else {
+            drawPath(shell, Brush.verticalGradient(
+                listOf(Color(0xFF676E79), Color(0xFF3C424B), Color(0xFF232831)), left.y, left.y + height,
+            ))
+            drawPath(shell, Color(0xFF868B95).copy(alpha = 0.65f), style = Stroke(unit * 0.002f))
+            val fastener = left + Offset(headLength * 0.42f, height * 0.39f)
+            drawCircle(Color(0xFFACB2BC), unit * 0.0038f, fastener)
+            drawLine(Color(0xFF2E333A), fastener - Offset(unit * 0.0026f, 0f),
+                fastener + Offset(unit * 0.0026f, 0f), unit * 0.0013f)
         }
     }
 }

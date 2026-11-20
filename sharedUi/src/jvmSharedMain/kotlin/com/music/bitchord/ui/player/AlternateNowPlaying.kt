@@ -393,6 +393,9 @@ internal fun AlternateNowPlaying(
                 }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                if (!preview) {
+                    SleeveNerdStats(song, Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                }
                 scrubber()
                 actions()
                 Spacer(Modifier.height(6.dp))

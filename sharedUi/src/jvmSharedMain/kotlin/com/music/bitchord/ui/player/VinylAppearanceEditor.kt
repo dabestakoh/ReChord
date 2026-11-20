@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -53,11 +56,14 @@ fun VinylAppearanceEditor(
         Box(
             Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
         ) {
-            VinylArtwork(
-                artwork, false, { 0.35f }, Modifier.fillMaxWidth().height(200.dp),
-                appearance = value, palette = palette ?: sample,
-            )
+            Box(Modifier.aspectRatio(0.76f, matchHeightConstraintsFirst = true).clip(RoundedCornerShape(12.dp))) {
+                VinylArtwork(
+                    artwork, false, { 0.35f }, Modifier.fillMaxSize(),
+                    appearance = value, palette = palette ?: sample,
+                )
+            }
         }
         Text(
             stringResource(Res.string.vinyl_color),
