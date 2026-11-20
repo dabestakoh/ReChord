@@ -339,7 +339,14 @@ internal fun AlternateNowPlaying(
                             }
                             if (vinyl) {
                                 // Reserve the same placement for the credits across all three panes.
-                                Box(Modifier.fillMaxWidth().height(32.dp).clipToBounds(), contentAlignment = Alignment.CenterStart) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
+                                        // A neighboring record can reach the center before the
+                                        // playback queue commits. Fade the old strip out on the way.
+                                        alpha = (1f - kotlin.math.abs(swipe.offset) * 4f).coerceIn(0f, 1f)
+                                    },
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
                                     if (pane == PlayerPane.Main) lyrics()
                                 }
                             }
