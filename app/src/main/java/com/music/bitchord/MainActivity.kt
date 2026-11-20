@@ -2836,7 +2836,8 @@ private fun BitChordApp(
                     PlaybackSourceType.QUEUE -> Unit
                 }
             },
-            lyrics = lyrics,
+            // The player can receive the next item one frame before the lyric request changes.
+            lyrics = lyrics?.takeIf { it == viewModel.lyricsForVideoAlignment(song.videoId) },
             lyricsSource = lyricsSource,
             lyricsProviderStates = lyricsProviderStates,
             onSelectLyricsProvider = viewModel::selectLyricsProvider,

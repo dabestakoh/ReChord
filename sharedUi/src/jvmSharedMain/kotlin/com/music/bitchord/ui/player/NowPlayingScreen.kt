@@ -2232,25 +2232,27 @@ fun NowPlayingScreen(
                     }
                 },
                 lyrics = {
-                    if (layout == NowPlayingLayout.POSTER) {
-                        PosterLyricSpotlight(
-                            lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
-                            trackKey = song.videoId,
-                            playhead = lyricsPlayhead,
-                            isPlaying = isPlaying && position.advancing,
-                            onOpenLyrics = openLyrics,
-                        )
-                    } else if (syncedLyricsEnabled) {
-                        CurrentLyricStrip(
-                            lines = lyricsTranslation.displayedLyrics,
-                            trackKey = song.videoId,
-                            playhead = lyricsPlayhead,
-                            isPlaying = isPlaying && position.advancing,
-                            durationMs = durationMs,
-                            lyricsUnavailable = lyricsUnavailable,
-                            loadingText = lyricsLoadingText,
-                            onClick = openLyrics,
-                        )
+                    key(song.videoId) {
+                        if (layout == NowPlayingLayout.POSTER) {
+                            PosterLyricSpotlight(
+                                lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                                trackKey = song.videoId,
+                                playhead = lyricsPlayhead,
+                                isPlaying = isPlaying && position.advancing,
+                                onOpenLyrics = openLyrics,
+                            )
+                        } else if (syncedLyricsEnabled) {
+                            CurrentLyricStrip(
+                                lines = lyricsTranslation.displayedLyrics,
+                                trackKey = song.videoId,
+                                playhead = lyricsPlayhead,
+                                isPlaying = isPlaying && position.advancing,
+                                durationMs = durationMs,
+                                lyricsUnavailable = lyricsUnavailable,
+                                loadingText = lyricsLoadingText,
+                                onClick = openLyrics,
+                            )
+                        }
                     }
                 },
                 scrubber = {
