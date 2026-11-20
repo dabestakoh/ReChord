@@ -9046,7 +9046,7 @@ class PlaybackService : MediaLibraryService() {
                 castPrevious()
                 return
             }
-            wrappedPlayer.seekToPrevious()
+            wrappedPlayer.seekToPreviousMediaItem()
         }
 
         override fun seekToNextMediaItem() {

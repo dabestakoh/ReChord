@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">ตามจังหวะไป</string>
     <string name="enter_full_screen">เต็มหน้าจอ</string>
     <string name="exit_full_screen">ออกจากโหมดเต็มหน้าจอ</string>
+    <string name="vinyl_appearance">รูปลักษณ์แผ่นเสียง</string>
+    <string name="vinyl_color">สีแผ่นเสียง</string>
+    <string name="vinyl_black">ดำ</string>
+    <string name="vinyl_album">ตามสีปกอัลบั้ม</string>
+    <string name="vinyl_custom">กำหนดเอง</string>
+    <string name="vinyl_finish">ลวดลายแผ่นเสียง</string>
+    <string name="vinyl_plain">สีพื้น</string>
+    <string name="vinyl_translucent">โปร่งแสง</string>
+    <string name="vinyl_smoked">ลายควัน</string>
+    <string name="vinyl_marbled">ลายหินอ่อน</string>
+    <string name="vinyl_swirl">ลายหมุน</string>
+    <string name="vinyl_galaxy">กาแล็กซี</string>
+    <string name="vinyl_splatter">ลายกระเซ็น</string>
+    <string name="vinyl_split">แบ่งครึ่งสี</string>
+    <string name="vinyl_color_in_color">สีซ้อนสี</string>
+    <string name="vinyl_shimmer">เหลือบมุก</string>
+    <string name="vinyl_metallic">เมทัลลิก</string>
+    <string name="vinyl_glitter">กลิตเตอร์</string>
+    <string name="vinyl_picture_disc">แผ่นลายภาพ</string>
+    <string name="vinyl_custom_hex">สีที่กำหนดเอง (hex)</string>
+    <string name="vinyl_secondary_hex">สีรอง (hex)</string>
+    <string name="vinyl_automatic">อัตโนมัติ</string>
+    <string name="vinyl_hex_error">ป้อนเลขฐานสิบหกหกหลัก</string>
 </resources>

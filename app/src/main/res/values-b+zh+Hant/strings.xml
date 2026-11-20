@@ -1472,4 +1472,5 @@
     <string name="now_playing_layout">現正播放版面</string>
     <string name="lyrics_style">歌詞樣式</string>
     <string name="video_mode">影片模式</string>
+    <string name="vinyl_appearance">黑膠外觀</string>
 </resources>

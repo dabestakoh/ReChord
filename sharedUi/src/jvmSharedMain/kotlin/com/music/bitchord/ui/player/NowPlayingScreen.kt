@@ -793,6 +793,7 @@ fun NowPlayingScreen(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onSwipePrevious: () -> Unit = onPrevious,
     /**
      * A control the host has taken away was reached for anyway.
      *
@@ -2185,7 +2186,11 @@ fun NowPlayingScreen(
             AlternateNowPlaying(
                 layout = layout,
                 song = song,
+                previousSong = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious },
+                nextSong = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext },
+                durationMs = durationMs,
                 artwork = art.request.takeIf { remoteArt != null },
+                artworkUrl = remoteArt,
                 isPlaying = isPlaying,
                 isLoading = isLoading || audioVersionSwitching,
                 liked = likeStatus == LikeStatus.LIKE,
@@ -2198,12 +2203,14 @@ fun NowPlayingScreen(
                 onScrubCanceled = scrub::cancel,
                 onFavorite = onToggleLike,
                 onPrevious = onPrevious,
+                onSwipePrevious = onSwipePrevious,
                 onPlayPause = onPlayPause,
                 onNext = onNext,
                 onMenu = onOpenMenu,
                 onOpenPicker = openLayoutPicker,
                 reduceAnimation = reduceAnimation,
                 artworkBackdrop = trackAccent,
+                recordPalette = resolvedAccent ?: Color.Unspecified,
                 statusScrimAlpha = artworkStatusScrimAlpha,
                 pane = when {
                     lyricsOpen -> PlayerPane.Lyrics
@@ -2266,7 +2273,7 @@ fun NowPlayingScreen(
                     }
                 },
                 actions = { playerActions(true) },
-                modifier = Modifier.then(dockHost).then(skipSwipeGesture),
+                modifier = Modifier.then(dockHost),
             )
         } else if (landscape) {
             // Paused always wins outright over a scrub in progress — see

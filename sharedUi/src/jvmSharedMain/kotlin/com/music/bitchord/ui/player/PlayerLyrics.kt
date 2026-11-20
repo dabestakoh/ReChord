@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -113,6 +114,8 @@ import org.jetbrains.compose.resources.stringArrayResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -125,9 +128,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.LineBreak
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.playback.PlaybackPosition
 import com.music.bitchord.sharedui.resources.*
@@ -1626,71 +1631,129 @@ internal fun PosterLyricSpotlight(
     val style by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val measurer = rememberTextMeasurer(cacheSize = 24)
+    val base = MaterialTheme.typography.headlineLarge
+    val ink = lerp(LocalPlayerAccent.current, Color.White, 0.66f)
     BoxWithConstraints(
-        Modifier.fillMaxSize().clipToBounds()
-            .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics),
+        Modifier.fillMaxSize()
+            .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics)
+            .padding(vertical = 8.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        val size = with(LocalDensity.current) {
-            val widthSize = (maxWidth.toPx() * 0.105f).toSp().value.coerceIn(23f, 52f)
-            val heightSize = (maxHeight.toPx() / 2.4f).toSp().value.coerceAtLeast(18f)
-            minOf(widthSize, heightSize).sp
-        }
-        val type = MaterialTheme.typography.headlineLarge.copy(
-            fontSize = size, lineHeight = size * 1.21f, fontWeight = FontWeight.ExtraBold,
-        )
-        val maxLines = with(LocalDensity.current) {
-            (maxHeight.toPx() / type.lineHeight.toPx()).toInt().coerceIn(1, 3)
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        val maxSize = with(LocalDensity.current) {
+            val widthSize = (width * 0.103f).toSp().value.coerceIn(20f, 52f)
+            val heightSize = (height / 2.36f).toSp().value.coerceAtLeast(12f)
+            minOf(widthSize, heightSize)
         }
         AnimatedContent(
             targetState = line,
+            modifier = Modifier.fillMaxWidth().clipToBounds(),
             transitionSpec = {
-                val motion = !reduceAnimation && style.rises
-                if (!motion) {
+                if (reduceAnimation || !style.rises) {
                     fadeIn(snap()) togetherWith fadeOut(snap())
                 } else {
-                    (slideInVertically(tween(260, easing = LYRIC_EASING)) { it / 4 } + fadeIn(tween(230)))
-                        .togetherWith(slideOutVertically(tween(180)) { -it / 6 } + fadeOut(tween(170)))
+                    (slideInVertically(tween(250, easing = LYRIC_EASING)) { it / 8 } + fadeIn(tween(220)))
+                        .togetherWith(slideOutVertically(tween(160)) { -it / 10 } + fadeOut(tween(150)))
                         .using(SizeTransform(clip = false) { _, _ -> snap() })
                 }
             },
             label = "posterLyric",
         ) { active ->
-            if (active?.isWordSynced == true) {
-                val index = remember(active, maxLines, style, reduceAnimation) {
-                    if (maxLines < 2 || !style.rises || reduceAnimation || active.words.size < 2) null
+            if (active != null && width > 0 && height > 0) {
+                val index = remember(active, style, reduceAnimation) {
+                    if (!active.isWordSynced || !style.rises || reduceAnimation || active.words.size < 2) null
                     else active.wordSpans.indices.maxByOrNull { active.wordSpans[it].count() }
                 }
-                // The layout stays stable between the few visible steps of the swell.
-                val emphasisStep by remember(active, clock, index) {
-                    derivedStateOf {
-                        val word = index?.let(active.words::get) ?: return@derivedStateOf 0
-                        val spanMs = maxOf(450f, (word.endMs - word.startMs) * 0.76f)
-                        val progress = ((clock.longValue - word.startMs) / spanMs).coerceIn(0f, 1f)
-                        (LYRIC_EASING.transform(progress) * 8).toInt()
-                    }
-                }
-                val styled = remember(active, size, index, emphasisStep) {
-                    if (index == null || emphasisStep == 0) null else {
-                        val range = active.wordSpans[index]
-                        AnnotatedString(active.text, spanStyles = listOf(
-                            AnnotatedString.Range(
-                                SpanStyle(fontSize = size * (1f + emphasisStep * 0.053f)),
-                                range.first, range.last + 1,
+                val range = index?.let(active.wordSpans::get)
+                val typeset = remember(active, range, width, height, maxSize, base, measurer) {
+                    var size = maxSize
+                    var type: TextStyle
+                    var peak: AnnotatedString
+                    var measured: TextLayoutResult
+                    do {
+                        type = base.copy(
+                            fontSize = size.sp,
+                            lineHeight = (size * if (range == null) 1.22f else 1.41f).sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineBreak = LineBreak.Heading,
+                        )
+                        peak = if (range == null) AnnotatedString(active.text) else AnnotatedString(
+                            active.text, spanStyles = listOf(
+                                AnnotatedString.Range(SpanStyle(fontSize = (size * 1.40f).sp), range.first, range.last + 1),
                             ),
-                        ))
-                    }
+                        )
+                        measured = measurer.measure(
+                            peak, voiceStyle(type, active.text, false, false),
+                            maxLines = 3, constraints = Constraints(maxWidth = width),
+                        )
+                        if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 12f) break
+                        size = (size - 1.25f).coerceAtLeast(12f)
+                    } while (true)
+                    Triple(type, peak, measured)
                 }
-                PresetLyricLine(
-                    active, clock, style, type, maxLines, styled,
-                    color = lerp(LocalPlayerAccent.current, Color.White, 0.55f),
-                    effects = !reduceAnimation, blur = !reduceBlur,
-                )
-            } else if (active != null) {
-                Text(
-                    text = active.text, style = voiceStyle(type, active.text, false, false), maxLines = maxLines,
-                    color = lerp(LocalPlayerAccent.current, Color.White, 0.55f), overflow = TextOverflow.Ellipsis,
-                )
+                val (type, peak, textLayout) = typeset
+                if (active.isWordSynced) {
+                    // Plant the emphasized word in a space measured at peak size. Animate
+                    // its ink separately, so the other words never reflow or get sliced.
+                    val word = index?.let(active.words::get)
+                    val isolated = remember(range, peak, textLayout, type, measurer) {
+                        val first = range?.first ?: return@remember null
+                        val last = range.last + 1
+                        val row = textLayout.getLineForOffset(first)
+                        if (last > textLayout.getLineEnd(row, visibleEnd = true) ||
+                            textLayout.getParagraphDirection(first) != ResolvedTextDirection.Ltr
+                        ) return@remember null
+                        val x0 = textLayout.getHorizontalPosition(first, true)
+                        val x1 = textLayout.getHorizontalPosition(last, true)
+                        if (x1 <= x0) return@remember null
+                        val peakSize = type.fontSize * 1.40f
+                        val label = measurer.measure(
+                            active.text.substring(first, last), type.copy(fontSize = peakSize), maxLines = 1,
+                        )
+                        val silent = AnnotatedString(
+                            active.text, spanStyles = listOf(
+                                AnnotatedString.Range(
+                                    SpanStyle(fontSize = peakSize, color = Color.Transparent), first, last,
+                                ),
+                            ),
+                        )
+                        Triple(label, silent, Offset(x0, textLayout.getLineBaseline(row)))
+                    }
+                    Box(Modifier.fillMaxWidth()) {
+                        PresetLyricLine(
+                            active, clock, style, type, 3, isolated?.second ?: peak,
+                            color = ink, effects = !reduceAnimation, blur = !reduceBlur, liftWords = false,
+                        )
+                        if (isolated != null && word != null) {
+                            val (label, _, anchor) = isolated
+                            Canvas(Modifier.matchParentSize()) {
+                                val elapsed = (clock.longValue - word.startMs).toFloat()
+                                val duration = (word.endMs - word.startMs).coerceAtLeast(1L).toFloat()
+                                val completion = (elapsed / duration).coerceIn(0f, 1f)
+                                val growth = LYRIC_EASING.transform(
+                                    (elapsed / maxOf(420f, duration * 0.76f)).coerceIn(0f, 1f),
+                                )
+                                val scale = (1f + 0.40f * growth) / 1.40f
+                                val top = anchor - Offset(0f, label.firstBaseline)
+                                scale(scale, scale, anchor) {
+                                    drawText(label, color = ink.copy(alpha = 0.36f), topLeft = top)
+                                    if (completion > 0f) {
+                                        clipRect(right = anchor.x + label.size.width * completion) {
+                                            drawText(label, color = ink, topLeft = top)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = active.text, style = voiceStyle(type, active.text, false, false),
+                        maxLines = 3, color = ink, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -1748,12 +1811,13 @@ private fun PresetLyricLine(
     color: Color,
     effects: Boolean,
     blur: Boolean,
+    liftWords: Boolean = true,
 ) {
     SweptLyricLine(
         line = line, clock = clock, style = voiceStyle(type, line.text, false, false), dimAlpha = if (style == LyricsStyle.DEFAULT) 0.46f else 0.34f,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis,
         styledText = styled, color = color,
-        rise = style.rises && effects,
+        rise = liftWords && style.rises && effects,
         feather = style != LyricsStyle.PLAIN,
         shimmer = style.shimmers && effects && blur,
         glowAlpha = if (style.blooms && effects && blur) 0.92f else 0f,

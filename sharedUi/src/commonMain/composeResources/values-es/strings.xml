@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">Sigue el ritmo</string>
     <string name="enter_full_screen">Pantalla completa</string>
     <string name="exit_full_screen">Salir de pantalla completa</string>
+    <string name="vinyl_appearance">Aspecto del vinilo</string>
+    <string name="vinyl_color">Color del disco</string>
+    <string name="vinyl_black">Negro</string>
+    <string name="vinyl_album">Según la portada</string>
+    <string name="vinyl_custom">Personalizado</string>
+    <string name="vinyl_finish">Acabado del disco</string>
+    <string name="vinyl_plain">Liso</string>
+    <string name="vinyl_translucent">Translúcido</string>
+    <string name="vinyl_smoked">Ahumado</string>
+    <string name="vinyl_marbled">Marmoleado</string>
+    <string name="vinyl_swirl">Remolino</string>
+    <string name="vinyl_galaxy">Galaxia</string>
+    <string name="vinyl_splatter">Salpicado</string>
+    <string name="vinyl_split">Bicolor dividido</string>
+    <string name="vinyl_color_in_color">Color sobre color</string>
+    <string name="vinyl_shimmer">Iridescente</string>
+    <string name="vinyl_metallic">Metálico</string>
+    <string name="vinyl_glitter">Purpurina</string>
+    <string name="vinyl_picture_disc">Disco ilustrado</string>
+    <string name="vinyl_custom_hex">Color personalizado (hex)</string>
+    <string name="vinyl_secondary_hex">Color secundario (hex)</string>
+    <string name="vinyl_automatic">Automático</string>
+    <string name="vinyl_hex_error">Introduce seis dígitos hexadecimales</string>
 </resources>

@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">Ikuti irama</string>
     <string name="enter_full_screen">Layar penuh</string>
     <string name="exit_full_screen">Keluar dari layar penuh</string>
+    <string name="vinyl_appearance">Tampilan vinil</string>
+    <string name="vinyl_color">Warna piringan</string>
+    <string name="vinyl_black">Hitam</string>
+    <string name="vinyl_album">Ikuti sampul album</string>
+    <string name="vinyl_custom">Kustom</string>
+    <string name="vinyl_finish">Tampilan permukaan</string>
+    <string name="vinyl_plain">Polos</string>
+    <string name="vinyl_translucent">Tembus cahaya</string>
+    <string name="vinyl_smoked">Berasap</string>
+    <string name="vinyl_marbled">Marmer</string>
+    <string name="vinyl_swirl">Pusaran</string>
+    <string name="vinyl_galaxy">Galaksi</string>
+    <string name="vinyl_splatter">Percikan</string>
+    <string name="vinyl_split">Dua belahan</string>
+    <string name="vinyl_color_in_color">Warna dalam warna</string>
+    <string name="vinyl_shimmer">Kilau halus</string>
+    <string name="vinyl_metallic">Metalik</string>
+    <string name="vinyl_glitter">Gliter</string>
+    <string name="vinyl_picture_disc">Piringan bergambar</string>
+    <string name="vinyl_custom_hex">Warna kustom (heks)</string>
+    <string name="vinyl_secondary_hex">Warna sekunder (heks)</string>
+    <string name="vinyl_automatic">Otomatis</string>
+    <string name="vinyl_hex_error">Masukkan enam digit heksadesimal</string>
 </resources>

@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -28,6 +31,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Constraints
+import com.music.bitchord.data.model.Song
+import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -78,17 +87,22 @@ fun NowPlayingLayoutPicker(
                 modifier = Modifier.padding(top = 20.dp, bottom = 12.dp),
             )
         }
-        HorizontalPager(
-            state = pages,
-            contentPadding = PaddingValues(horizontal = 30.dp),
-            pageSpacing = 12.dp,
-            modifier = Modifier.fillMaxWidth(),
-        ) { page ->
-            LayoutPreview(
-                layout = layouts[page],
-                artwork = artwork,
-                modifier = Modifier.fillMaxWidth().height(252.dp),
-            )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val cardHeight = (maxWidth * 0.87f).coerceIn(240.dp, 355.dp)
+            val cardWidth = cardHeight * 0.56f
+            HorizontalPager(
+                state = pages,
+                pageSize = PageSize.Fixed(cardWidth),
+                contentPadding = PaddingValues(horizontal = ((maxWidth - cardWidth) / 2).coerceAtLeast(0.dp)),
+                pageSpacing = 12.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) { page ->
+                LayoutPreview(
+                    layout = layouts[page],
+                    artwork = artwork,
+                    modifier = Modifier.fillMaxWidth().height(cardHeight),
+                )
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             layouts.forEach { layout ->
@@ -125,25 +139,68 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
     val shape = RoundedCornerShape(22.dp)
     val tint = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
+    if (layout != NowPlayingLayout.DEFAULT) {
+        val track = Song("layout-preview", nowPlayingLayoutLabel(layout), "", artwork as? String)
+        val palette = rememberArtworkPlayerAnalysis(track.thumbnailUrl).accent ?: tint
+        val line = stringResource(Res.string.lyrics_style_sample)
+        Layout(
+            modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, ink.copy(alpha = 0.16f), shape).clearAndSetSemantics {},
+            content = {
+                androidx.compose.runtime.CompositionLocalProvider(LocalPlayerAccent provides palette) {
+                    AlternateNowPlaying(
+                        layout = layout, song = track, previousSong = null, nextSong = null,
+                        artwork = artwork, durationMs = 225_000L, isPlaying = false, isLoading = false,
+                        liked = false, previousEnabled = true, nextEnabled = true, canSeek = false,
+                        shown = { 0.38f }, onScrub = {}, onScrubFinished = {}, onScrubCanceled = {},
+                        onFavorite = {}, onPrevious = {}, onPlayPause = {}, onNext = {}, onMenu = {},
+                        onOpenPicker = null, reduceAnimation = true, artworkBackdrop = palette,
+                        statusScrimAlpha = 0f, pane = PlayerPane.Main, lyricsPane = {}, queuePane = {},
+                        lyrics = {
+                            Text(
+                                line, color = palette, maxLines = if (layout == NowPlayingLayout.VINYL) 1 else 3,
+                                style = if (layout == NowPlayingLayout.VINYL) MaterialTheme.typography.titleMedium
+                                else MaterialTheme.typography.headlineLarge,
+                            )
+                        },
+                        scrubber = {
+                            PlayerScrubber(
+                                shown = { 0.38f }, durationMs = 225_000L, loading = false,
+                                mixing = false, transitionWindow = null, onScrub = {}, onScrubFinished = {},
+                            )
+                        },
+                        actions = { Box(Modifier.height(44.dp)) },
+                        preview = true,
+                    )
+                }
+            },
+        ) { children, bounds ->
+            val height = 776.dp.roundToPx()
+            val width = minOf(408.dp.roundToPx(), (height * bounds.maxWidth.toFloat() / bounds.maxHeight).toInt())
+                .coerceAtLeast(1)
+            val stage = children.single().measure(Constraints.fixed(width, height))
+            val factor = minOf(bounds.maxWidth.toFloat() / width, bounds.maxHeight.toFloat() / height)
+            layout(bounds.maxWidth, bounds.maxHeight) {
+                stage.placeRelativeWithLayer(((bounds.maxWidth - width * factor) / 2f).toInt(), 0) {
+                    scaleX = factor
+                    scaleY = factor
+                    transformOrigin = TransformOrigin(0f, 0f)
+                }
+            }
+        }
+        return
+    }
     Box(
         modifier.clip(shape)
             .border(1.dp, ink.copy(alpha = 0.16f), shape)
             .background(Brush.linearGradient(listOf(tint.copy(alpha = 0.32f), MaterialTheme.colorScheme.surface))),
     ) {
-        Box(Modifier.fillMaxWidth().height(145.dp)) {
-            when (layout) {
-                NowPlayingLayout.DEFAULT -> LayoutArtwork(
-                    artwork,
-                    Modifier.align(Alignment.Center).padding(horizontal = 38.dp, vertical = 16.dp)
-                        .fillMaxSize().clip(RoundedCornerShape(12.dp)),
-                )
-                NowPlayingLayout.VINYL -> VinylArtwork(
-                    artwork = artwork, isPlaying = false, shown = { 0.35f }, modifier = Modifier.fillMaxSize(),
-                )
-                NowPlayingLayout.POSTER -> PosterArtwork(
-                    artwork = artwork, shown = { 0.46f }, modifier = Modifier.fillMaxSize(),
-                )
-            }
+        Box(Modifier.fillMaxWidth().fillMaxHeight(0.58f)) {
+            LayoutArtwork(
+                artwork,
+                Modifier.align(Alignment.Center).padding(horizontal = 38.dp, vertical = 16.dp)
+                    .fillMaxSize().clip(RoundedCornerShape(12.dp)),
+            )
         }
         Canvas(Modifier.fillMaxSize()) {
             fun bar(x: Float, y: Float, w: Float, opacity: Float) = drawRoundRect(
@@ -152,14 +209,11 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
                 size = Size(size.width * w, 4.dp.toPx()),
                 cornerRadius = CornerRadius(4.dp.toPx()),
             )
-            bar(0.10f, 0.66f, if (layout == NowPlayingLayout.POSTER) 0.49f else 0.36f, 0.84f)
+            bar(0.10f, 0.66f, 0.36f, 0.84f)
             bar(0.10f, 0.72f, 0.22f, 0.42f)
-            if (layout == NowPlayingLayout.DEFAULT) {
-                bar(0.10f, 0.79f, 0.80f, 0.25f)
-                for (i in 0..2) drawCircle(ink.copy(alpha = 0.76f), 5.dp.toPx(), Offset(size.width * (0.32f + i * 0.18f), size.height * 0.88f))
-            } else {
-                for (i in 0..3) drawCircle(ink.copy(alpha = 0.68f), 5.dp.toPx(), Offset(size.width * 0.84f, size.height * (0.65f + i * 0.075f)))
-                if (layout == NowPlayingLayout.VINYL) bar(0.10f, 0.86f, 0.51f, 0.48f)
+            bar(0.10f, 0.79f, 0.80f, 0.25f)
+            for (i in 0..2) {
+                drawCircle(ink.copy(alpha = 0.76f), 5.dp.toPx(), Offset(size.width * (0.32f + i * 0.18f), size.height * 0.88f))
             }
         }
     }

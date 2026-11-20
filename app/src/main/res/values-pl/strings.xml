@@ -1540,4 +1540,5 @@
     <string name="now_playing_layout">Układ odtwarzacza</string>
     <string name="lyrics_style">Styl tekstu piosenki</string>
     <string name="video_mode">Tryb wideo</string>
+    <string name="vinyl_appearance">Wygląd winylu</string>
 </resources>

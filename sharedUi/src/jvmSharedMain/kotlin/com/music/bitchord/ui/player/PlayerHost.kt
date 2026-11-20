@@ -12,6 +12,7 @@ import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.LastPlayerScreen
 import com.music.bitchord.data.settings.LyricsStyle
+import com.music.bitchord.data.settings.VinylAppearance
 import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.settings.SmartAnalysis
 import com.music.bitchord.data.settings.MixBlend
@@ -252,6 +253,7 @@ interface PlayerSettingsSource {
     val hideStatusBar: StateFlow<Boolean>
     val lastPlayerScreen: StateFlow<LastPlayerScreen>
     val lyricsStyle: StateFlow<LyricsStyle> get() = DefaultLyricsStyle
+    val vinylAppearance: StateFlow<VinylAppearance> get() = DefaultVinylAppearance
     val playerTheme: StateFlow<PlayerTheme>
     val lyricsBlur: StateFlow<Boolean>
     val lyricsOffsetMs: StateFlow<Int>
@@ -297,6 +299,7 @@ interface PlayerSettingsSource {
 }
 
 private val DefaultLyricsStyle = MutableStateFlow(LyricsStyle.DEFAULT)
+private val DefaultVinylAppearance = MutableStateFlow(VinylAppearance())
 
 /** The player's name for the installed host's settings, read where AppSettings used to be. */
 internal val PlayerSettings: PlayerSettingsSource

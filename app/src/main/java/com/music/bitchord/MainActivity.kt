@@ -2632,6 +2632,7 @@ private fun BitChordApp(
             },
             onNext = { controller?.seekToNextMediaItem() },
             onPrevious = { controller?.seekToPrevious() },
+            onSwipePrevious = { controller?.seekToPreviousMediaItem() },
             onBlockedControl = showHostOnlyNotice,
             onSeekFraction = { fraction ->
                 controller?.let { player ->
@@ -3184,6 +3185,7 @@ private fun BitChordApp(
                                 onChosen = { navigator.pop() },
                                 onConfirmBitPerfect = { confirmBitPerfect = it },
                                 contentPadding = listPadding,
+                                currentArtwork = com.music.bitchord.ui.components.rememberRemoteArtworkUrl(player.song),
                             )
                         } else if (pageRoute == AppRoute.Settings || pageRoute is AppRoute.SettingsSection) {
                             // The main page and every category's page are the

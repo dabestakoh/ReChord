@@ -1500,4 +1500,5 @@
     <string name="now_playing_layout">Wiedergabelayout</string>
     <string name="lyrics_style">Liedtextstil</string>
     <string name="video_mode">Videomodus</string>
+    <string name="vinyl_appearance">Vinyl-Darstellung</string>
 </resources>

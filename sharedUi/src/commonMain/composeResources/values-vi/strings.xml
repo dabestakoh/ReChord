@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">Theo nhịp điệu</string>
     <string name="enter_full_screen">Toàn màn hình</string>
     <string name="exit_full_screen">Thoát toàn màn hình</string>
+    <string name="vinyl_appearance">Giao diện đĩa than</string>
+    <string name="vinyl_color">Màu đĩa</string>
+    <string name="vinyl_black">Đen</string>
+    <string name="vinyl_album">Theo bìa album</string>
+    <string name="vinyl_custom">Tùy chỉnh</string>
+    <string name="vinyl_finish">Kiểu bề mặt đĩa</string>
+    <string name="vinyl_plain">Trơn</string>
+    <string name="vinyl_translucent">Trong mờ</string>
+    <string name="vinyl_smoked">Vân khói</string>
+    <string name="vinyl_marbled">Vân đá cẩm thạch</string>
+    <string name="vinyl_swirl">Xoáy</string>
+    <string name="vinyl_galaxy">Thiên hà</string>
+    <string name="vinyl_splatter">Vệt loang</string>
+    <string name="vinyl_split">Hai nửa màu</string>
+    <string name="vinyl_color_in_color">Màu lồng màu</string>
+    <string name="vinyl_shimmer">Ánh ngọc trai</string>
+    <string name="vinyl_metallic">Ánh kim</string>
+    <string name="vinyl_glitter">Kim tuyến</string>
+    <string name="vinyl_picture_disc">Đĩa in hình</string>
+    <string name="vinyl_custom_hex">Màu tùy chỉnh (hex)</string>
+    <string name="vinyl_secondary_hex">Màu phụ (hex)</string>
+    <string name="vinyl_automatic">Tự động</string>
+    <string name="vinyl_hex_error">Nhập sáu chữ số thập lục phân</string>
 </resources>

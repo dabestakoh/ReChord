@@ -1472,4 +1472,5 @@
     <string name="now_playing_layout">Diseño del reproductor</string>
     <string name="lyrics_style">Estilo de letras</string>
     <string name="video_mode">Modo de vídeo</string>
+    <string name="vinyl_appearance">Aspecto del vinilo</string>
 </resources>

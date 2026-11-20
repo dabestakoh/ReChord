@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">लय के साथ चलें</string>
     <string name="enter_full_screen">पूर्ण स्क्रीन</string>
     <string name="exit_full_screen">पूर्ण स्क्रीन से बाहर निकलें</string>
+    <string name="vinyl_appearance">विनाइल का रूप</string>
+    <string name="vinyl_color">रिकॉर्ड का रंग</string>
+    <string name="vinyl_black">काला</string>
+    <string name="vinyl_album">एल्बम कवर के अनुसार</string>
+    <string name="vinyl_custom">कस्टम</string>
+    <string name="vinyl_finish">रिकॉर्ड की फ़िनिश</string>
+    <string name="vinyl_plain">सादा</string>
+    <string name="vinyl_translucent">अर्धपारदर्शी</string>
+    <string name="vinyl_smoked">धुँधला</string>
+    <string name="vinyl_marbled">संगमरमर जैसा</string>
+    <string name="vinyl_swirl">घुमावदार</string>
+    <string name="vinyl_galaxy">आकाशगंगा</string>
+    <string name="vinyl_splatter">छींटे</string>
+    <string name="vinyl_split">दो हिस्से</string>
+    <string name="vinyl_color_in_color">रंग के भीतर रंग</string>
+    <string name="vinyl_shimmer">हल्की चमक</string>
+    <string name="vinyl_metallic">धातुई</string>
+    <string name="vinyl_glitter">चमकीले कण</string>
+    <string name="vinyl_picture_disc">चित्र वाला रिकॉर्ड</string>
+    <string name="vinyl_custom_hex">कस्टम रंग (हेक्स)</string>
+    <string name="vinyl_secondary_hex">दूसरा रंग (हेक्स)</string>
+    <string name="vinyl_automatic">स्वचालित</string>
+    <string name="vinyl_hex_error">छह हेक्स अंक डालें</string>
 </resources>

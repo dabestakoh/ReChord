@@ -76,6 +76,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val hideStatusBar get() = AppSettings.hideStatusBarInPlayer
         override val lastPlayerScreen get() = AppSettings.lastPlayerScreen
         override val lyricsStyle get() = AppSettings.lyricsStyle
+        override val vinylAppearance get() = AppSettings.vinylAppearance
         override val playerTheme get() = AppSettings.playerTheme
         override val lyricsBlur get() = AppSettings.lyricsBlur
         override val lyricsOffsetMs get() = AppSettings.lyricsOffsetMs

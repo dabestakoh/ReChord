@@ -599,6 +599,11 @@ object AppSettings {
      */
     val nowPlayingLayout = MutableStateFlow(NowPlayingLayout.DEFAULT)
     val lyricsStyle = MutableStateFlow(LyricsStyle.DEFAULT)
+    val vinylAppearance = MutableStateFlow(VinylAppearance())
+    private const val VINYL_COLOR_MODE = "vinyl_color_mode"
+    private const val VINYL_FINISH = "vinyl_finish"
+    private const val VINYL_CUSTOM_COLOR = "vinyl_custom_color"
+    private const val VINYL_SECONDARY_COLOR = "vinyl_secondary_color"
     val playerTheme = MutableStateFlow(PlayerTheme.DEFAULT)
 
     /** Restores the expanded player to the surface the listener left open. */
@@ -1092,6 +1097,15 @@ object AppSettings {
         val savedLayout = prefs.getString(KEY_NOW_PLAYING_LAYOUT, null)
         nowPlayingLayout.value = NowPlayingLayout.entries.firstOrNull { it.name == savedLayout }
             ?: NowPlayingLayout.DEFAULT
+        val defaultVinyl = VinylAppearance()
+        val vinylColor = prefs.getString(VINYL_COLOR_MODE, null)
+        val vinylFinish = prefs.getString(VINYL_FINISH, null)
+        vinylAppearance.value = VinylAppearance(
+            colorMode = VinylColorMode.entries.firstOrNull { it.name == vinylColor } ?: defaultVinyl.colorMode,
+            finish = VinylFinish.entries.firstOrNull { it.name == vinylFinish } ?: defaultVinyl.finish,
+            customColor = prefs.getInt(VINYL_CUSTOM_COLOR, defaultVinyl.customColor),
+            secondaryColor = if (prefs.contains(VINYL_SECONDARY_COLOR)) prefs.getInt(VINYL_SECONDARY_COLOR, 0) else null,
+        )
         val savedLyricsStyle = prefs.getString(KEY_LYRICS_STYLE, null)
         lyricsStyle.value = LyricsStyle.entries.firstOrNull { it.name == savedLyricsStyle }
             ?: LyricsStyle.DEFAULT
@@ -1773,6 +1787,18 @@ object AppSettings {
         if (nowPlayingLayout.value == value) return
         nowPlayingLayout.value = value
         prefs.edit().putString(KEY_NOW_PLAYING_LAYOUT, value.name).apply()
+    }
+
+    fun setVinylAppearance(value: VinylAppearance) {
+        if (vinylAppearance.value == value) return
+        vinylAppearance.value = value
+        val editor = prefs.edit()
+            .putString(VINYL_COLOR_MODE, value.colorMode.name)
+            .putString(VINYL_FINISH, value.finish.name)
+            .putInt(VINYL_CUSTOM_COLOR, value.customColor)
+        val secondary = value.secondaryColor
+        if (secondary == null) editor.remove(VINYL_SECONDARY_COLOR) else editor.putInt(VINYL_SECONDARY_COLOR, secondary)
+        editor.apply()
     }
 
     fun setLyricsStyle(value: LyricsStyle) {

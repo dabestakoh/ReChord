@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">跟随节奏</string>
     <string name="enter_full_screen">全屏</string>
     <string name="exit_full_screen">退出全屏</string>
+    <string name="vinyl_appearance">黑胶外观</string>
+    <string name="vinyl_color">唱片颜色</string>
+    <string name="vinyl_black">黑色</string>
+    <string name="vinyl_album">跟随专辑封面</string>
+    <string name="vinyl_custom">自定义</string>
+    <string name="vinyl_finish">唱片效果</string>
+    <string name="vinyl_plain">纯色</string>
+    <string name="vinyl_translucent">半透明</string>
+    <string name="vinyl_smoked">烟熏</string>
+    <string name="vinyl_marbled">大理石纹</string>
+    <string name="vinyl_swirl">旋涡</string>
+    <string name="vinyl_galaxy">银河</string>
+    <string name="vinyl_splatter">泼溅</string>
+    <string name="vinyl_split">双色拼接</string>
+    <string name="vinyl_color_in_color">色中嵌色</string>
+    <string name="vinyl_shimmer">珠光</string>
+    <string name="vinyl_metallic">金属光泽</string>
+    <string name="vinyl_glitter">闪粉</string>
+    <string name="vinyl_picture_disc">图片唱片</string>
+    <string name="vinyl_custom_hex">自定义颜色（十六进制）</string>
+    <string name="vinyl_secondary_hex">辅助颜色（十六进制）</string>
+    <string name="vinyl_automatic">自动</string>
+    <string name="vinyl_hex_error">请输入六位十六进制数</string>
 </resources>

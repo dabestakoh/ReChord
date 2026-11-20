@@ -1500,4 +1500,5 @@
     <string name="now_playing_layout">प्लेयर का लेआउट</string>
     <string name="lyrics_style">गीत के बोलों की शैली</string>
     <string name="video_mode">वीडियो मोड</string>
+    <string name="vinyl_appearance">विनाइल का रूप</string>
 </resources>

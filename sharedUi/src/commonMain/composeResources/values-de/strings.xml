@@ -216,4 +216,27 @@
     <string name="lyrics_style_sample">Dem Rhythmus folgen</string>
     <string name="enter_full_screen">Vollbild</string>
     <string name="exit_full_screen">Vollbild verlassen</string>
+    <string name="vinyl_appearance">Vinyl-Darstellung</string>
+    <string name="vinyl_color">Plattenfarbe</string>
+    <string name="vinyl_black">Schwarz</string>
+    <string name="vinyl_album">Passend zum Albumcover</string>
+    <string name="vinyl_custom">Benutzerdefiniert</string>
+    <string name="vinyl_finish">Platteneffekt</string>
+    <string name="vinyl_plain">Einfarbig</string>
+    <string name="vinyl_translucent">Durchscheinend</string>
+    <string name="vinyl_smoked">Rauchig</string>
+    <string name="vinyl_marbled">Marmoriert</string>
+    <string name="vinyl_swirl">Wirbel</string>
+    <string name="vinyl_galaxy">Galaxie</string>
+    <string name="vinyl_splatter">Sprenkel</string>
+    <string name="vinyl_split">Zweifarbig geteilt</string>
+    <string name="vinyl_color_in_color">Farbe in Farbe</string>
+    <string name="vinyl_shimmer">Schimmer</string>
+    <string name="vinyl_metallic">Metallisch</string>
+    <string name="vinyl_glitter">Glitzer</string>
+    <string name="vinyl_picture_disc">Bildplatte</string>
+    <string name="vinyl_custom_hex">Eigene Farbe (Hex)</string>
+    <string name="vinyl_secondary_hex">Zweitfarbe (Hex)</string>
+    <string name="vinyl_automatic">Automatisch</string>
+    <string name="vinyl_hex_error">Sechs Hex-Zeichen eingeben</string>
 </resources>

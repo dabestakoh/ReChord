@@ -1439,4 +1439,5 @@
     <string name="now_playing_layout">Layout del lettore</string>
     <string name="lyrics_style">Stile del testo</string>
     <string name="video_mode">Modalità video</string>
+    <string name="vinyl_appearance">Aspetto del vinile</string>
 </resources>

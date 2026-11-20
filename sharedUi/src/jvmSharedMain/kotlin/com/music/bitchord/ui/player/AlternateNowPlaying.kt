@@ -2,6 +2,7 @@ package com.music.bitchord.ui.player
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,27 +39,30 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -78,14 +82,13 @@ import com.music.bitchord.ui.components.menuAnchor
 import com.music.bitchord.ui.haptics.Haptic
 import com.music.bitchord.ui.haptics.rememberHaptics
 import com.music.bitchord.ui.theme.stableStatusBarInsets
+import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.sin
 
 @Composable
 internal fun Modifier.openLayoutOnHold(action: (() -> Unit)?): Modifier {
@@ -110,7 +113,11 @@ internal fun Modifier.openLayoutOnHold(action: (() -> Unit)?): Modifier {
 internal fun AlternateNowPlaying(
     layout: NowPlayingLayout,
     song: Song,
+    previousSong: Song?,
+    nextSong: Song?,
+    durationMs: Long,
     artwork: Any?,
+    artworkUrl: String? = artwork as? String,
     isPlaying: Boolean,
     isLoading: Boolean,
     liked: Boolean,
@@ -123,12 +130,14 @@ internal fun AlternateNowPlaying(
     onScrubCanceled: () -> Unit,
     onFavorite: () -> Unit,
     onPrevious: () -> Unit,
+    onSwipePrevious: () -> Unit = onPrevious,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onMenu: () -> Unit,
     onOpenPicker: (() -> Unit)?,
     reduceAnimation: Boolean,
     artworkBackdrop: Color,
+    recordPalette: Color = artworkBackdrop,
     statusScrimAlpha: Float,
     pane: PlayerPane,
     lyricsPane: @Composable (Boolean) -> Unit,
@@ -137,6 +146,7 @@ internal fun AlternateNowPlaying(
     scrubber: @Composable () -> Unit,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    preview: Boolean = false,
 ) {
     val vinyl = layout == NowPlayingLayout.VINYL
     val haptics = rememberHaptics()
@@ -144,23 +154,58 @@ internal fun AlternateNowPlaying(
     val artHold = Modifier.openLayoutOnHold(onOpenPicker)
     val accent = LocalPlayerAccent.current
     val base = Color(0xFF141417)
-    val backdrop = remember(artworkBackdrop, vinyl) {
-        if (vinyl) {
-            Brush.verticalGradient(listOf(lerp(base, artworkBackdrop, 0.30f), base))
-        } else {
-            Brush.linearGradient(
-                0f to lerp(base, artworkBackdrop, 0.28f),
-                0.41f to lerp(base, artworkBackdrop, 0.45f),
-                1f to lerp(base, artworkBackdrop, 0.14f),
+    val swipe = rememberAlternateTrackSwipe(song, previousSong, nextSong, pane == PlayerPane.Main && !reduceAnimation)
+    val prevArt = rememberRemoteArtworkUrl(previousSong)
+    val nextArt = rememberRemoteArtworkUrl(nextSong)
+    val prevColor = rememberArtworkPlayerAnalysis(prevArt).accent ?: Color.Unspecified
+    val nextColor = rememberArtworkPlayerAnalysis(nextArt).accent ?: Color.Unspecified
+    val vinylStyle by PlayerSettings.vinylAppearance.collectAsStateWithLifecycle()
+    val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    var seekingArm by remember { mutableStateOf(false) }
+    val artworkStride = if (vinyl) 1.64f else 1.08f
+    val gesture = if (preview) Modifier else Modifier.alternateTrackGesture(
+        swipe, previousSong, nextSong, artworkStride, reduceAnimation, onSwipePrevious, onNext,
+    )
+    val tracks = remember(song, previousSong, nextSong) {
+        listOfNotNull(previousSong?.let { -1 to it }, 0 to song, nextSong?.let { 1 to it })
+    }
+    Box(modifier.fillMaxSize().clipToBounds().drawWithCache {
+        fun colors(tone: Color): Brush {
+            val tint = tone.takeUnless { it == Color.Unspecified || it == Color.White } ?: Color(0xFF3E4147)
+            return if (vinyl) {
+                Brush.verticalGradient(listOf(lerp(base, tint, 0.30f), base))
+            } else {
+                Brush.linearGradient(
+                    0f to lerp(base, tint, 0.26f),
+                    0.37f to lerp(base, tint, 0.49f),
+                    1f to lerp(base, tint, 0.12f),
+                )
+            }
+        }
+        val current = colors(artworkBackdrop)
+        val previous = colors(prevColor)
+        val next = colors(nextColor)
+        onDrawBehind {
+            drawRect(current)
+            val offset = swipe.offset
+            val toward = if (offset > 0f) previous else next
+            val strength = kotlin.math.abs(offset)
+            if (strength > 0.001f) drawRect(toward, alpha = strength.coerceAtMost(1f))
+        }
+    }) {
+        if (!vinyl && artworkUrl != null) {
+            val mesh = rememberArtworkMesh(artworkUrl)
+            ArtworkMeshBackdrop(
+                mesh = mesh,
+                modifier = Modifier.graphicsLayer {
+                    alpha = if (mesh == null) 0f else 0.36f * (1f - kotlin.math.abs(swipe.offset).coerceIn(0f, 1f))
+                },
             )
         }
-    }
-    Box(modifier.fillMaxSize().clipToBounds().background(backdrop)) {
-        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.navigationBarsPadding())) {
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
                 val compact = maxHeight < 364.dp
                 val controlsHeight = if (compact) 100.dp else 192.dp
-                val prominentPoster = !vinyl && maxHeight >= 298.dp
                 Column(Modifier.fillMaxSize()) {
                     AnimatedContent(
                         targetState = pane,
@@ -194,15 +239,59 @@ internal fun AlternateNowPlaying(
                         Box(Modifier.fillMaxSize().then(paneModifier)) {
                             when (shownPane) {
                                 PlayerPane.Main -> {
-                                    val artModifier = Modifier.fillMaxSize().then(artHold)
                                     val drag = onScrub.takeIf { canSeek && active }
-                                    if (vinyl) {
-                                        VinylArtwork(
-                                            artwork, active && isPlaying && !reduceAnimation, shown, artModifier,
-                                            drag, onScrubFinished, onScrubCanceled, song.videoId,
-                                        )
-                                    } else {
-                                        PosterArtwork(artwork, shown, artModifier, drag, onScrubFinished, onScrubCanceled)
+                                    val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
+                                    Box(artModifier) {
+                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                            val current = slot == 0
+                                            val request = when (slot) {
+                                                -1 -> prevArt
+                                                1 -> nextArt
+                                                else -> artwork
+                                            }
+                                            val offset = Modifier.fillMaxSize().graphicsLayer {
+                                                translationX = (slot + swipe.offset) * size.width * artworkStride
+                                            }.then(if (current) Modifier else Modifier.clearAndSetSemantics {})
+                                            if (vinyl) {
+                                                val color = when (slot) {
+                                                    -1 -> prevColor
+                                                    1 -> nextColor
+                                                    else -> recordPalette
+                                                }
+                                                VinylDisc(
+                                                    request, track.swipeIdentity, vinylStyle, color,
+                                                    active && current && isPlaying && !reduceAnimation,
+                                                    if (current) shown else ({ 0f }),
+                                                    { current && seekingArm }, offset,
+                                                    albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                )
+                                            } else {
+                                                BoxWithConstraints(offset) {
+                                                    val spotlightHeight = (maxHeight * 0.28f).coerceIn(
+                                                        minOf(maxHeight * 0.36f, 78.dp), 160.dp,
+                                                    )
+                                                    Column(Modifier.fillMaxSize()) {
+                                                        PosterArtwork(
+                                                            request, if (current) shown else ({ 0f }),
+                                                            Modifier.fillMaxWidth().weight(1f), drag.takeIf { current },
+                                                            onScrubFinished, onScrubCanceled, durationMs.takeIf { current } ?: 0L,
+                                                            reduceAnimation,
+                                                        )
+                                                        Box(
+                                                            Modifier.fillMaxWidth().height(spotlightHeight)
+                                                                .padding(horizontal = if (compact) 20.dp else 24.dp),
+                                                        ) { if (active && current) lyrics() }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (vinyl) {
+                                            VinylTonearm(
+                                                shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
+                                                reduceAnimation, lessBlur, { swipe.offset }, Modifier.fillMaxSize(),
+                                                durationMs = durationMs,
+                                            )
+                                        }
                                     }
                                     if (statusScrimAlpha > 0f) {
                                         Box(
@@ -224,27 +313,34 @@ internal fun AlternateNowPlaying(
                             }
                         }
                     }
-                    if (prominentPoster) {
-                        Box(
-                            Modifier.fillMaxWidth().height(if (compact) 78.dp else 112.dp)
-                                .padding(horizontal = if (compact) 20.dp else 24.dp),
-                        ) {
-                            lyrics()
-                        }
-                    }
                     Row(
                         Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (!vinyl && !prominentPoster) {
-                                Box(Modifier.fillMaxWidth().weight(1f, fill = false)) { lyrics() }
+                        Column(
+                            Modifier.weight(1f).then(
+                                if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Box(Modifier.fillMaxWidth().clipToBounds()) {
+                                if (pane != PlayerPane.Main) {
+                                    PlayerLayoutCredits(song.title, song.artist)
+                                } else {
+                                    for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                        Box(Modifier.fillMaxWidth().graphicsLayer {
+                                            translationX = (slot + swipe.offset) * size.width * 1.08f
+                                        }.then(if (slot == 0) Modifier else Modifier.clearAndSetSemantics {})) {
+                                            PlayerLayoutCredits(track.title, track.artist)
+                                        }
+                                    }
+                                }
                             }
-                            PlayerLayoutCredits(song.title, song.artist)
                             if (vinyl) {
+                                // Reserve the same placement for the credits across all three panes.
                                 Box(Modifier.fillMaxWidth().height(32.dp).clipToBounds(), contentAlignment = Alignment.CenterStart) {
-                                    lyrics()
+                                    if (pane == PlayerPane.Main) lyrics()
                                 }
                             }
                         }
@@ -295,13 +391,15 @@ internal fun AlternateNowPlaying(
                 Spacer(Modifier.height(6.dp))
             }
         }
-        Box(
-            Modifier.fillMaxWidth().windowInsetsPadding(stableStatusBarInsets())
+        BoxWithConstraints(
+            Modifier.fillMaxWidth()
+                .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
                 .height(44.dp).then(topHold),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
-            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
+            val menuInset = if (vinyl) maxWidth * 0.185f else 8.dp
+            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = menuInset).menuAnchor()) {
                 Icon(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), tint = accent)
             }
         }
@@ -369,142 +467,39 @@ internal fun LayoutArtwork(artwork: Any?, modifier: Modifier) {
     }
 }
 
-private const val ArmTravelRadians = 0.42f
+private fun posterRimPoint(size: Size, fraction: Float) =
+    Offset(size.width * fraction, size.height * (0.95f - 0.33f * fraction * fraction))
 
-private fun armPivot(size: Size) = Offset(size.width * 0.89f, size.height * 0.30f)
-private fun vinylCenter(size: Size) = Offset(size.width * 0.27f, size.height * 0.50f)
-
-private fun armTip(size: Size, progress: Float): Offset {
-    val radius = min(size.width * 0.64f, size.height * 0.497f)
-    val firstGroove = vinylCenter(size) + Offset(radius * 0.94f, radius * 0.30f)
-    val fromPivot = firstGroove - armPivot(size)
-    val angle = atan2(fromPivot.y, fromPivot.x) + progress * ArmTravelRadians
-    return armPivot(size) + Offset(cos(angle), sin(angle)) * fromPivot.getDistance()
-}
-
-@Composable
-internal fun VinylArtwork(
-    artwork: Any?,
-    isPlaying: Boolean,
-    shown: () -> Float,
-    modifier: Modifier,
-    onScrub: ((Float) -> Unit)? = null,
-    onFinish: () -> Unit = {},
-    onCancel: () -> Unit = {},
-    trackKey: String = "",
-) {
-    var rotation by remember(trackKey) { mutableFloatStateOf(0f) }
-    LaunchedEffect(isPlaying, trackKey) {
-        if (!isPlaying) return@LaunchedEffect
-        var last = withFrameNanos { it }
-        while (true) {
-            val frame = withFrameNanos { it }
-            rotation = (rotation + (frame - last) / 1_000_000_000f * 32f) % 360f
-            last = frame
-        }
+private class PosterArc(size: Size, inward: Float, horizontalInset: Float) {
+    private val points = Array(49) { index ->
+        val x = horizontalInset + (size.width - horizontalInset * 2f) * index / 48f
+        posterRimPoint(size, x / size.width.coerceAtLeast(1f)) - Offset(0f, inward)
     }
-    BoxWithConstraints(modifier.clipToBounds()) {
-        val radius = minOf(maxWidth * 0.64f, maxHeight * 0.497f)
-        val labelRadius = radius * 0.50f
-        Canvas(Modifier.fillMaxSize()) {
-            val center = vinylCenter(size)
-            val r = radius.toPx()
-            if (r <= 0f) return@Canvas
-            drawCircle(Brush.radialGradient(listOf(Color(0xFF27272C), Color(0xFF0E0E12), Color(0xFF1B1B20)), center, r), r, center)
-            for (groove in 0..28) {
-                val spoke = r * (0.52f + groove * 0.016f)
-                drawCircle(Color.Black.copy(alpha = if (groove % 7 == 0) 0.54f else 0.26f), spoke, center, style = Stroke(0.8.dp.toPx()))
-            }
-            drawCircle(
-                Brush.sweepGradient(
-                    listOf(Color.Transparent, Color.White.copy(alpha = 0.09f), Color.Transparent, Color.White.copy(alpha = 0.07f), Color.Transparent),
-                    center,
-                ),
-                r,
-                center,
-            )
-        }
-        LayoutArtwork(
-            artwork,
-            Modifier.offset(x = maxWidth * 0.27f - labelRadius, y = maxHeight * 0.50f - labelRadius)
-                .size(labelRadius * 2)
-                .graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true },
-        )
-        val armGesture = Modifier.seekArtwork(
-            shown, onScrub, onFinish, onCancel,
-            claimDown = true,
-            accepts = { bounds, down, tolerance, fraction ->
-                val base = armPivot(bounds)
-                val arm = armTip(bounds, fraction) - base
-                val delta = down - base
-                val projection = ((arm.x * delta.x + arm.y * delta.y) / (arm.x * arm.x + arm.y * arm.y)).coerceIn(0f, 1f)
-                (delta - arm * projection).getDistance() <= tolerance
-            },
-            along = { _, _, _ -> true },
-            fraction = { bounds, down, current, initial ->
-                val base = armPivot(bounds)
-                val before = down - base
-                val after = current - base
-                val delta = atan2(after.y, after.x) - atan2(before.y, before.x)
-                initial + atan2(sin(delta), cos(delta)) / ArmTravelRadians
-            },
-        )
-        Canvas(Modifier.fillMaxSize().then(armGesture)) {
-            val pivot = armPivot(size)
-            val tip = armTip(size, shown())
-            val length = (tip - pivot).getDistance()
-            if (length < 1f) return@Canvas
-            val angle = atan2(tip.y - pivot.y, tip.x - pivot.x) * (180f / kotlin.math.PI.toFloat())
-            val unit = min(size.width, size.height)
-            val housing = Size(unit * 0.17f, unit * 0.24f)
-            val base = pivot - Offset(housing.width / 2f, housing.height * 0.38f)
-            drawRoundRect(
-                Brush.verticalGradient(listOf(Color(0xFF292A2F), Color(0xFF0C0D10)), base.y, base.y + housing.height),
-                topLeft = base, size = housing, cornerRadius = CornerRadius(housing.width * 0.43f),
-            )
-            rotate(angle, pivot) {
-                val shaftWidth = unit * 0.025f
-                val shaft = pivot + Offset(length * 0.10f, -shaftWidth / 2f)
-                val shaftSize = Size(length * 0.73f, shaftWidth)
-                drawRoundRect(
-                    Color.Black.copy(alpha = 0.55f), shaft + Offset(0f, shaftWidth * 0.45f),
-                    shaftSize, CornerRadius(shaftWidth / 2f),
-                )
-                drawRoundRect(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF4B4D54), Color(0xFFB9BEC5), Color(0xFFE4E6EA), Color(0xFF727780)),
-                        shaft.y, shaft.y + shaftWidth,
-                    ),
-                    shaft, shaftSize, CornerRadius(shaftWidth / 2f),
-                )
-                val counterweight = Size(unit * 0.11f, unit * 0.092f)
-                drawRoundRect(
-                    Brush.verticalGradient(listOf(Color(0xFF54565E), Color(0xFF212228)), pivot.y - counterweight.height / 2f, pivot.y + counterweight.height / 2f),
-                    pivot - Offset(counterweight.width * 0.55f, counterweight.height / 2f),
-                    counterweight, CornerRadius(unit * 0.024f),
-                )
-                val joint = pivot + Offset(length * 0.81f, 0f)
-                rotate(18f, joint) {
-                    val cartridge = Size(length * 0.19f, unit * 0.051f)
-                    val left = joint - Offset(0f, cartridge.height / 2f)
-                    drawLine(Color(0xFFBCC4C9), joint, joint + Offset(cartridge.width + unit * 0.018f, 0f), unit * 0.008f, StrokeCap.Round)
-                    drawRoundRect(
-                        Brush.verticalGradient(listOf(Color(0xFF61636D), Color(0xFF21232A)), left.y, left.y + cartridge.height),
-                        left, cartridge, CornerRadius(unit * 0.012f),
-                    )
-                    drawLine(Color.White.copy(alpha = 0.22f), left + Offset(cartridge.width * 0.75f, 2f),
-                        left + Offset(cartridge.width * 0.75f, cartridge.height - 2f), unit * 0.003f)
-                }
+    private val distance = FloatArray(points.size).apply {
+        for (i in 1 until this.size) this[i] = this[i - 1] + (points[i] - points[i - 1]).getDistance()
+    }
+    val length get() = distance.last()
+    val path = Path().apply {
+        moveTo(points.first().x, points.first().y)
+        for (point in points.drop(1)) lineTo(point.x, point.y)
+    }
+
+    fun project(position: Offset): Pair<Float, Float> {
+        var best = Float.POSITIVE_INFINITY
+        var at = 0f
+        for (i in 1 until points.size) {
+            val delta = position - points[i - 1]
+            val edge = points[i] - points[i - 1]
+            val t = ((delta.x * edge.x + delta.y * edge.y) /
+                (edge.x * edge.x + edge.y * edge.y).coerceAtLeast(1f)).coerceIn(0f, 1f)
+            val miss = (delta - edge * t).getDistanceSquared()
+            if (miss < best) {
+                best = miss
+                at = distance[i - 1] + (distance[i] - distance[i - 1]) * t
             }
         }
+        return at / length.coerceAtLeast(1f) to best
     }
-}
-
-private fun posterRimY(size: Size, fraction: Float): Float = size.height * (0.95f - 0.33f * fraction * fraction)
-
-private fun Path.posterRim(size: Size) {
-    moveTo(0f, posterRimY(size, 0f))
-    cubicTo(size.width / 3f, size.height * 0.95f, size.width * 2f / 3f, size.height * 0.84f, size.width, posterRimY(size, 1f))
 }
 
 @Composable
@@ -515,11 +510,24 @@ internal fun PosterArtwork(
     onScrub: ((Float) -> Unit)? = null,
     onFinish: () -> Unit = {},
     onCancel: () -> Unit = {},
+    durationMs: Long = 0L,
+    reduced: Boolean = true,
 ) {
     val accent = LocalPlayerAccent.current
+    val ink = if (accent.luminance() < 0.33f) lerp(accent, Color.White, 0.48f) else lerp(accent, Color.White, 0.25f)
+    val measurer = rememberTextMeasurer()
+    val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+    var seeking by remember { mutableStateOf(false) }
+    val insetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 7.dp.toPx() }
+    val expanded by animateFloatAsState(
+        if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "posterArc",
+    )
     val mask = remember {
         androidx.compose.foundation.shape.GenericShape { size, _ ->
-            posterRim(size)
+            val start = posterRimPoint(size, 0f)
+            val end = posterRimPoint(size, 1f)
+            moveTo(start.x, start.y)
+            cubicTo(size.width / 3f, start.y, size.width * 2f / 3f, size.height * 0.84f, end.x, end.y)
             lineTo(size.width, 0f)
             lineTo(0f, 0f)
             close()
@@ -529,33 +537,57 @@ internal fun PosterArtwork(
         LayoutArtwork(artwork, Modifier.fillMaxSize().clip(mask))
         val rimGesture = Modifier.seekArtwork(
             shown, onScrub, onFinish, onCancel,
-            accepts = { size, down, tolerance, _ -> abs(down.y - (posterRimY(size, down.x / size.width))) <= tolerance },
+            accepts = { size, down, tolerance, _ ->
+                PosterArc(size, insetPx, size.width * 0.034f).project(down).second <= tolerance * tolerance
+            },
             along = { size, down, motion ->
                 val slope = -0.66f * size.height * down.x / (size.width * size.width)
                 abs(motion.y - slope * motion.x) < abs(motion.x) * 1.3f
             },
-            fraction = { size, _, current, _ -> current.x / size.width },
+            fraction = { size, _, current, _ ->
+                PosterArc(size, insetPx, size.width * 0.034f).project(current).first
+            },
+            onDragging = { seeking = it },
         )
-        Canvas(Modifier.fillMaxSize().then(rimGesture)) {
-            val inset = Size(size.width, (size.height - 7.dp.toPx()).coerceAtLeast(0f))
-            val rim = Path().apply { posterRim(inset) }
-            val measure = PathMeasure().apply { setPath(rim, false) }
-            val segment = Path()
-            val margin = 12.dp.toPx().coerceAtMost(measure.length * 0.2f)
-            val end = measure.length - margin
-            if (measure.getSegment(margin, end, segment, true)) {
-                drawPath(segment, accent.copy(alpha = 0.38f), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+        Box(Modifier.fillMaxSize().then(rimGesture).drawWithCache {
+            val arc = PosterArc(size, 7.dp.toPx(), size.width * 0.034f)
+            val measure = PathMeasure().apply { setPath(arc.path, false) }
+            val played = Path()
+            onDrawBehind {
+                val amount = expanded.coerceIn(0f, 1f)
+                val progress = shown().coerceIn(0f, 1f)
+                val width = (2.1f + 2.6f * amount).dp.toPx()
+                // The darker underlay separates the rim from both bright and similarly tinted covers.
+                drawPath(arc.path, Color.Black.copy(alpha = 0.57f), style = Stroke(width + 2.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(arc.path, ink.copy(alpha = 0.59f), style = Stroke(width, cap = StrokeCap.Round))
+                played.reset()
+                if (measure.getSegment(0f, measure.length * progress, played, true)) {
+                    drawPath(played, ink, style = Stroke(width, cap = StrokeCap.Round))
+                }
+                if (amount > 0.04f && durationMs > 0L && measure.length > 0f) {
+                    val start = measure.getPosition(0f)
+                    val end = measure.getPosition(measure.length)
+                    for ((point, ms) in arrayOf(start to (durationMs * progress).toLong(), end to durationMs)) {
+                        val measureLabel = measurer.measure(formatTime(ms), timeStyle)
+                        val x = if (point == start) point.x else point.x - measureLabel.size.width
+                        val y = (point.y - measureLabel.size.height - 5.dp.toPx()).coerceAtLeast(0f)
+                        val at = Offset(x.coerceAtLeast(0f), y)
+                        drawRoundRect(
+                            Color.Black.copy(alpha = 0.72f * amount),
+                            at - Offset(3.dp.toPx(), 1.dp.toPx()),
+                            Size(measureLabel.size.width + 6.dp.toPx(), measureLabel.size.height + 2.dp.toPx()),
+                            androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
+                        )
+                        drawText(measureLabel, color = Color.White, topLeft = at, alpha = amount)
+                    }
+                }
             }
-            segment.reset()
-            if (measure.getSegment(margin, margin + (end - margin) * shown(), segment, true)) {
-                drawPath(segment, accent, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
-            }
-        }
+        })
     }
 }
 
 @Composable
-private fun Modifier.seekArtwork(
+internal fun Modifier.seekArtwork(
     shown: () -> Float,
     onScrub: ((Float) -> Unit)?,
     onFinish: () -> Unit,
@@ -564,12 +596,14 @@ private fun Modifier.seekArtwork(
     along: (Size, Offset, Offset) -> Boolean,
     fraction: (Size, Offset, Offset, Float) -> Float,
     claimDown: Boolean = false,
+    onDragging: (Boolean) -> Unit = {},
 ): Modifier {
     if (onScrub == null) return this
     val currentShown by rememberUpdatedState(shown)
     val currentScrub by rememberUpdatedState(onScrub)
     val finish by rememberUpdatedState(onFinish)
     val cancel by rememberUpdatedState(onCancel)
+    val reportDragging by rememberUpdatedState(onDragging)
     return pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown()
@@ -597,12 +631,16 @@ private fun Modifier.seekArtwork(
                         if (delta.getDistance() < viewConfiguration.touchSlop) continue
                         if (!along(bounds, down.position, delta)) break
                         dragging = true
+                        reportDragging(true)
                     }
                     change.consume()
                     currentScrub(fraction(bounds, down.position, change.position, initial).coerceIn(0f, 1f))
                 }
             } finally {
-                if (dragging && !committed) cancel()
+                if (dragging) {
+                    reportDragging(false)
+                    if (!committed) cancel()
+                }
             }
         }
     }

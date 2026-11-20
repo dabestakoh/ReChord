@@ -1501,4 +1501,5 @@
     <string name="now_playing_layout">Disposition du lecteur</string>
     <string name="lyrics_style">Style des paroles</string>
     <string name="video_mode">Mode vidéo</string>
+    <string name="vinyl_appearance">Apparence du vinyle</string>
 </resources>

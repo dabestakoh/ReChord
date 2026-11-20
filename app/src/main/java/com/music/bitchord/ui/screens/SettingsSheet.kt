@@ -178,6 +178,7 @@ import com.music.bitchord.ui.player.LyricsStyleSample
 import com.music.bitchord.ui.player.NowPlayingLayoutPicker
 import com.music.bitchord.ui.player.lyricsStyleLabel
 import com.music.bitchord.ui.player.nowPlayingLayoutLabel
+import com.music.bitchord.ui.player.VinylAppearanceEditor
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
 import com.music.bitchord.data.AppDiagnostics
 import kotlinx.coroutines.Dispatchers
@@ -1185,6 +1186,14 @@ fun SettingsScreen(
                     title = layoutTitle,
                     subtitle = nowPlayingLayoutLabel(nowPlayingLayout),
                     onClick = { onOpenChoice(SettingsChoiceKind.NOW_PLAYING_LAYOUT) },
+                )
+            }
+            val vinylTitle = stringResource(R.string.vinyl_appearance)
+            row(vinylTitle, "vinyl", "record", "color", "finish") {
+                SettingsRow(
+                    icon = SfIcons.Appearance,
+                    title = vinylTitle,
+                    onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
                 )
             }
             val lyricsStyleTitle = stringResource(R.string.lyrics_style)
@@ -2889,6 +2898,7 @@ enum class SettingsChoiceKind(@param:StringRes val title: Int) {
     FONT(R.string.font),
     HOME(R.string.home),
     NOW_PLAYING_LAYOUT(R.string.now_playing_layout),
+    VINYL_APPEARANCE(R.string.vinyl_appearance),
     LYRICS_STYLE(R.string.lyrics_style),
 }
 
@@ -2962,6 +2972,7 @@ fun SettingsChoicePage(
     onConfirmBitPerfect: (BitPerfectMode) -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
+    currentArtwork: String? = null,
 ) {
     Column(
         modifier
@@ -3062,6 +3073,14 @@ fun SettingsChoicePage(
                     onDismiss = onChosen,
                     modifier = Modifier.fillMaxWidth(),
                     showTitle = false,
+                    artwork = currentArtwork,
+                )
+            }
+            SettingsChoiceKind.VINYL_APPEARANCE -> {
+                val appearance by AppSettings.vinylAppearance.collectAsStateWithLifecycle()
+                VinylAppearanceEditor(
+                    appearance, AppSettings::setVinylAppearance, currentArtwork,
+                    Modifier.fillMaxWidth().padding(horizontal = ROW_INSET),
                 )
             }
             SettingsChoiceKind.LYRICS_STYLE -> {

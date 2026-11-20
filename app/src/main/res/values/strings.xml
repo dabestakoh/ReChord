@@ -1370,4 +1370,5 @@
     <string name="now_playing_layout">Now Playing layout</string>
     <string name="lyrics_style">Lyrics style</string>
     <string name="video_mode">Video mode</string>
+    <string name="vinyl_appearance">Vinyl appearance</string>
 </resources>
