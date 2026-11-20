@@ -1367,4 +1367,7 @@
     <string name="diagnostic_report_github">Publishes a redacted report on GitHub.</string>
     <string name="export_diagnostic_log">Export diagnostic log</string>
     <string name="diagnostic_report_error">Could not open or export the diagnostic report.</string>
+    <string name="now_playing_layout">Now Playing layout</string>
+    <string name="lyrics_style">Lyrics style</string>
+    <string name="video_mode">Video mode</string>
 </resources>

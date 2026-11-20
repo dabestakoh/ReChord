@@ -170,9 +170,14 @@ import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.data.settings.AppFont
+import com.music.bitchord.data.settings.LyricsStyle
 import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
+import com.music.bitchord.ui.player.LyricsStyleSample
+import com.music.bitchord.ui.player.NowPlayingLayoutPicker
+import com.music.bitchord.ui.player.lyricsStyleLabel
+import com.music.bitchord.ui.player.nowPlayingLayoutLabel
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
 import com.music.bitchord.data.AppDiagnostics
 import kotlinx.coroutines.Dispatchers
@@ -261,6 +266,8 @@ fun SettingsScreen(
     val fullBleedArtwork by AppSettings.fullBleedArtwork.collectAsStateWithLifecycle()
     val fullBleedDetailArtwork by AppSettings.fullBleedDetailArtwork.collectAsStateWithLifecycle()
     val playerTheme by AppSettings.playerTheme.collectAsStateWithLifecycle()
+    val nowPlayingLayout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
+    val lyricsStyle by AppSettings.lyricsStyle.collectAsStateWithLifecycle()
     val syncedLyrics by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
     val lyricsSources by AppSettings.lyricsSources.collectAsStateWithLifecycle()
     val translationLanguage by AppSettings.translationLanguage.collectAsStateWithLifecycle()
@@ -1169,6 +1176,24 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { AppSettings.setFullBleedDetailArtwork(!fullBleedDetailArtwork) },
+                )
+            }
+            val layoutTitle = stringResource(R.string.now_playing_layout)
+            row(layoutTitle, "player", "vinyl", "poster") {
+                SettingsRow(
+                    icon = SfIcons.Appearance,
+                    title = layoutTitle,
+                    subtitle = nowPlayingLayoutLabel(nowPlayingLayout),
+                    onClick = { onOpenChoice(SettingsChoiceKind.NOW_PLAYING_LAYOUT) },
+                )
+            }
+            val lyricsStyleTitle = stringResource(R.string.lyrics_style)
+            row(lyricsStyleTitle, "lyrics", "motion", "karaoke") {
+                SettingsRow(
+                    icon = SfIcons.MusicNote,
+                    title = lyricsStyleTitle,
+                    subtitle = lyricsStyleLabel(lyricsStyle),
+                    onClick = { onOpenChoice(SettingsChoiceKind.LYRICS_STYLE) },
                 )
             }
             val playerThemeTitle = stringResource(R.string.player_theme)
@@ -2863,6 +2888,8 @@ enum class SettingsChoiceKind(@param:StringRes val title: Int) {
     BIT_PERFECT(R.string.bit_perfect_output),
     FONT(R.string.font),
     HOME(R.string.home),
+    NOW_PLAYING_LAYOUT(R.string.now_playing_layout),
+    LYRICS_STYLE(R.string.lyrics_style),
 }
 
 @Composable
@@ -3024,6 +3051,30 @@ fun SettingsChoicePage(
             }
 
             SettingsChoiceKind.HOME -> HomeSectionSettings()
+            SettingsChoiceKind.NOW_PLAYING_LAYOUT -> {
+                val layout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
+                NowPlayingLayoutPicker(
+                    selected = layout,
+                    onApply = {
+                        AppSettings.setNowPlayingLayout(it)
+                        onChosen()
+                    },
+                    onDismiss = onChosen,
+                    modifier = Modifier.fillMaxWidth(),
+                    showTitle = false,
+                )
+            }
+            SettingsChoiceKind.LYRICS_STYLE -> {
+                val style by AppSettings.lyricsStyle.collectAsStateWithLifecycle()
+                LyricsStyleSample(style, Modifier.fillMaxWidth().padding(ROW_INSET))
+                ChoiceGroup(
+                    options = LyricsStyle.entries,
+                    selected = style,
+                    label = { lyricsStyleLabel(it) },
+                    footer = null,
+                    onSelect = AppSettings::setLyricsStyle,
+                )
+            }
             SettingsChoiceKind.FONT -> {
                 val selected by AppSettings.appFont.collectAsStateWithLifecycle()
                 ChoiceGroup(

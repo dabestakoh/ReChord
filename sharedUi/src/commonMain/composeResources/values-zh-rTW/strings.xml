@@ -199,4 +199,21 @@
     <string name="search_library_hint">歌曲、藝人和專輯</string>
     <string name="search_library_no_results">本地音樂中沒有與「%1$s」匹配的內容。</string>
     <string name="listen_together_subtitle">分享一個程式碼，同步播放同一首音樂</string>
+    <string name="now_playing_layout">現正播放版面</string>
+    <string name="lyrics_style">歌詞樣式</string>
+    <string name="layout_default">預設</string>
+    <string name="layout_vinyl">黑膠</string>
+    <string name="layout_poster">海報</string>
+    <string name="apply_layout">套用</string>
+    <string name="video_mode">影片模式</string>
+    <string name="video_searching">正在尋找音樂影片…</string>
+    <string name="video_missing">沒有可用的音樂影片</string>
+    <string name="lyrics_style_default">ReChord 預設</string>
+    <string name="lyrics_style_motion">上浮與亮光</string>
+    <string name="lyrics_style_wave">閃光掃過</string>
+    <string name="lyrics_style_lift">逐字上浮</string>
+    <string name="lyrics_style_plain">簡單掃過</string>
+    <string name="lyrics_style_sample">跟著節奏</string>
+    <string name="enter_full_screen">全螢幕</string>
+    <string name="exit_full_screen">離開全螢幕</string>
 </resources>

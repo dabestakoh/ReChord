@@ -199,4 +199,21 @@
     <string name="search_library_hint">เพลง ศิลปิน และอัลบั้ม</string>
     <string name="search_library_no_results">ไม่มีอะไรในเพลงในเครื่องตรงกับ “%1$s”</string>
     <string name="listen_together_subtitle">แชร์รหัสแล้วเล่นเพลงเดียวกันพร้อมกัน</string>
+    <string name="now_playing_layout">รูปแบบหน้ากำลังเล่น</string>
+    <string name="lyrics_style">สไตล์เนื้อเพลง</string>
+    <string name="layout_default">ค่าเริ่มต้น</string>
+    <string name="layout_vinyl">แผ่นเสียง</string>
+    <string name="layout_poster">โปสเตอร์</string>
+    <string name="apply_layout">ใช้</string>
+    <string name="video_mode">โหมดวิดีโอ</string>
+    <string name="video_searching">กำลังค้นหามิวสิกวิดีโอ…</string>
+    <string name="video_missing">ไม่มีมิวสิกวิดีโอ</string>
+    <string name="lyrics_style_default">ค่าเริ่มต้นของ ReChord</string>
+    <string name="lyrics_style_motion">ลอยขึ้นและเรืองแสง</string>
+    <string name="lyrics_style_wave">ไฮไลต์ระยิบระยับ</string>
+    <string name="lyrics_style_lift">ยกคำขึ้น</string>
+    <string name="lyrics_style_plain">ไฮไลต์เรียบง่าย</string>
+    <string name="lyrics_style_sample">ตามจังหวะไป</string>
+    <string name="enter_full_screen">เต็มหน้าจอ</string>
+    <string name="exit_full_screen">ออกจากโหมดเต็มหน้าจอ</string>
 </resources>

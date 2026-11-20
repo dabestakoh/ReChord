@@ -1347,4 +1347,7 @@
     <string name="diagnostic_report_github">민감한 정보를 제거한 보고서를 GitHub에 게시합니다.</string>
     <string name="export_diagnostic_log">진단 로그 내보내기</string>
     <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
+    <string name="now_playing_layout">재생 화면 레이아웃</string>
+    <string name="lyrics_style">가사 스타일</string>
+    <string name="video_mode">동영상 모드</string>
 </resources>

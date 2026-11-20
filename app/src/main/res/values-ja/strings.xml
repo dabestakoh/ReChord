@@ -1475,4 +1475,7 @@
     <string name="diagnostic_report_github">機密情報を除いたレポートを GitHub に公開します。</string>
     <string name="export_diagnostic_log">診断ログをエクスポート</string>
     <string name="diagnostic_report_error">診断レポートを開くかエクスポートできませんでした。</string>
+    <string name="now_playing_layout">再生画面のレイアウト</string>
+    <string name="lyrics_style">歌詞のスタイル</string>
+    <string name="video_mode">ビデオモード</string>
 </resources>

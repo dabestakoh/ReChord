@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -90,6 +91,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -114,6 +116,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -132,6 +136,8 @@ import com.music.bitchord.data.lyrics.CharGrowth
 import com.music.bitchord.data.lyrics.isGeniusSectionHeader
 import com.music.bitchord.data.lyrics.GrowingWord
 import com.music.bitchord.data.lyrics.LyricAlignment
+import com.music.bitchord.data.settings.LyricsStyle
+import com.music.bitchord.data.lyrics.LyricWord
 import com.music.bitchord.data.lyrics.LyricLine
 import com.music.bitchord.data.lyrics.LyricsSource
 import com.music.bitchord.data.lyrics.translationLanguageName
@@ -802,9 +808,12 @@ private fun SweptLyricLine(
     translationProgress: State<Float>? = null,
     /** What the words are set in — see [PanelVoice] for which lines differ. */
     color: Color = Color.Unspecified,
+    shimmer: Boolean = false,
+    styledText: AnnotatedString? = null,
 ) {
     val lyricInk = if (color == Color.Unspecified) LocalPlayerAccent.current else color
-    var layout by remember(line) { mutableStateOf<TextLayoutResult?>(null) }
+    val text = styledText ?: remember(line.text) { AnnotatedString(line.text) }
+    var layout by remember(line, text) { mutableStateOf<TextLayoutResult?>(null) }
 
     // Filled in and read back a letter at a time inside the draw lambdas, and
     // shared by all three copies of the line — they draw one after another on
@@ -879,7 +888,7 @@ private fun SweptLyricLine(
                             line = line,
                             positionMs = drawnAt(),
                             inset = glowRoom.toPx(),
-                            peak = WORD_RISE.toPx(),
+                            peak = if (rise) WORD_RISE.toPx() else 0f,
                             growth = growth,
                         )
                     }
@@ -910,7 +919,7 @@ private fun SweptLyricLine(
         contentAlignment = if (right) AbsoluteAlignment.TopRight else AbsoluteAlignment.TopLeft,
     ) {
         Text(
-            text = line.text,
+            text = text,
             style = style,
             color = lyricInk.copy(alpha = dimAlpha),
             maxLines = maxLines,
@@ -920,7 +929,7 @@ private fun SweptLyricLine(
         )
         if (glowAlpha > 0.01f) {
             Text(
-                text = line.text,
+                text = text,
                 style = style,
                 color = lyricInk,
                 maxLines = maxLines,
@@ -945,14 +954,40 @@ private fun SweptLyricLine(
                             line = line,
                             positionMs = drawnAt(),
                             inset = glowRoom.toPx(),
-                            peak = WORD_RISE.toPx(),
+                            peak = if (rise) WORD_RISE.toPx() else 0f,
                             growth = growth,
                         )
                     },
             )
         }
+        if (shimmer) {
+            Text(
+                text = text,
+                style = style,
+                color = lerp(lyricInk, Color.White, 0.75f),
+                maxLines = maxLines,
+                overflow = overflow,
+                modifier = Modifier
+                    .blur(3.dp, BlurredEdgeTreatment.Unbounded)
+                    .then(room)
+                    .drawWithContent {
+                        val measured = layout ?: return@drawWithContent
+                        val chars = line.revealedChars(drawnAt())
+                        if (chars <= 0f || chars >= line.text.length) return@drawWithContent
+                        val row = measured.getLineForOffset(chars.toInt())
+                        if (chars > measured.getLineEnd(row, visibleEnd = true)) return@drawWithContent
+                        val x = horizontalAt(measured, chars, row, line.sweepSpans)
+                        clipRect(
+                            left = x - 13.dp.toPx(),
+                            right = x + 2.dp.toPx(),
+                            top = measured.getLineTop(row),
+                            bottom = measured.getLineBottom(row),
+                        ) { this@drawWithContent.drawContent() }
+                    },
+            )
+        }
         Text(
-            text = line.text,
+            text = text,
             style = style,
             color = lyricInk,
             maxLines = maxLines,
@@ -1573,6 +1608,125 @@ internal fun RomanizationToggleButton(
  * animation preference collapses the whole response to an immediate swap.
  */
 @Composable
+internal fun PosterLyricSpotlight(
+    lines: List<LyricLine>,
+    trackKey: String,
+    playhead: LyricPlayhead,
+    isPlaying: Boolean,
+    title: String,
+    artist: String,
+    onOpenLyrics: () -> Unit,
+) {
+    val clock = rememberLyricClock(trackKey, playhead, isPlaying)
+    val line by remember(lines, clock) {
+        derivedStateOf {
+            lines.lastOrNull { it.timeMs <= clock.longValue }
+                ?.takeIf { !it.isGap && lines.any { lyric -> lyric.timeMs > 0L } }
+        }
+    }
+    val style by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
+    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val active = line
+    Column(Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().weight(1f).clipToBounds()
+                .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            val type = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold)
+            val maxLines = with(LocalDensity.current) {
+                (maxHeight.toPx() / (type.lineHeight.toPx() * 1.25f)).toInt().coerceIn(1, 3)
+            }
+            if (active?.isWordSynced == true) {
+                val styled = remember(active.text, type.fontSize, maxLines) {
+                    val emphasis = Regex("\\S+").findAll(active.text).maxByOrNull { it.value.length }
+                    val spans = if (emphasis != null && maxLines > 1) {
+                        listOf(AnnotatedString.Range(SpanStyle(fontSize = type.fontSize * 1.21f), emphasis.range.first, emphasis.range.last + 1))
+                    } else emptyList()
+                    AnnotatedString(active.text, spanStyles = spans)
+                }
+                PresetLyricLine(
+                    active, clock, style, type, maxLines, styled,
+                    color = LocalPlayerAccent.current, effects = !reduceAnimation, blur = !reduceBlur,
+                )
+            } else {
+                val text = active?.text ?: title
+                Text(
+                    text = text, style = voiceStyle(type, text, false, false), maxLines = maxLines,
+                    color = LocalPlayerAccent.current, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        PlayerLayoutCredits(title.takeIf { active != null }, artist)
+    }
+}
+
+@Composable
+fun LyricsStyleSample(style: LyricsStyle, modifier: Modifier = Modifier) {
+    val text = stringResource(Res.string.lyrics_style_sample)
+    val line = remember(text) {
+        val tokens = text.split(' ').filter { it.isNotEmpty() }
+        LyricLine(
+            timeMs = 0L,
+            text = text,
+            words = tokens.mapIndexed { i, token ->
+                LyricWord(i * 530L, (i + 1) * 530L + if (i == tokens.lastIndex) 750L else 0L, token)
+            },
+        )
+    }
+    val clock = remember { mutableLongStateOf(0L) }
+    val host = PlayerPlatform.host
+    val reduceAnimation by host.settings.reduceAnimation.collectAsStateWithLifecycle()
+    val reduceBlur by host.settings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    LaunchedEffect(line, style, reduceAnimation) {
+        if (reduceAnimation) {
+            clock.longValue = line.endMs
+            return@LaunchedEffect
+        }
+        val start = withFrameNanos { it }
+        while (true) withFrameNanos { now ->
+            clock.longValue = ((now - start) / 1_000_000L) % (line.endMs + 900L)
+        }
+    }
+    Box(
+        modifier.height(88.dp).clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        PresetLyricLine(
+            line, clock, style, MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            maxLines = 2, styled = null, color = MaterialTheme.colorScheme.onSurface,
+            effects = !reduceAnimation, blur = !reduceBlur,
+        )
+    }
+}
+
+@Composable
+private fun PresetLyricLine(
+    line: LyricLine,
+    clock: MutableLongState,
+    style: LyricsStyle,
+    type: TextStyle,
+    maxLines: Int,
+    styled: AnnotatedString?,
+    color: Color,
+    effects: Boolean,
+    blur: Boolean,
+) {
+    SweptLyricLine(
+        line = line, clock = clock, style = voiceStyle(type, line.text, false, false), dimAlpha = 0.46f,
+        maxLines = maxLines, overflow = TextOverflow.Ellipsis,
+        styledText = styled, color = color,
+        rise = style.rises && effects,
+        feather = style != LyricsStyle.PLAIN,
+        shimmer = style.shimmers && effects && blur,
+        glowAlpha = if (style.blooms && effects && blur) 0.72f else 0f,
+    )
+}
+
+@Composable
 internal fun LyricsTranslationMotion(
     trigger: Int,
     reduceMotion: Boolean,
@@ -1870,8 +2024,10 @@ internal fun LyricsPanel(
     val lyricsBlur by PlayerSettings.lyricsBlur.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
 
-    val glowing = !reduceAnimation && !reduceDynamicBlur && lyricsBlur &&
-        renderEffectBlurSupported
+    val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
+    val glowing = lyricsStyle.blooms && !reduceAnimation && !reduceDynamicBlur &&
+        (lyricsBlur || lyricsStyle == LyricsStyle.MOTION) && renderEffectBlurSupported
+    val shimmer = lyricsStyle.shimmers && !reduceAnimation && !reduceDynamicBlur
 
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { interaction ->
@@ -2260,8 +2416,9 @@ internal fun LyricsPanel(
                 // Rows behind the one being scrolled to are the ones that
                 // fan out; the ones it is moving away from arrive together.
                 val behind = if (run.delta >= 0f) index - focusLine else focusLine - index
-                val staggerDelay = behind.coerceIn(0, STAGGER_STEPS) *
-                    STAGGER_FRACTION * run.durationMs
+                val staggerDelay = if (lyricsStyle.rises && !reduceAnimation) {
+                    behind.coerceIn(0, STAGGER_STEPS) * STAGGER_FRACTION * run.durationMs
+                } else 0f
                 val interaction = remember { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
                 val scale by animateFloatAsState(
@@ -2280,7 +2437,11 @@ internal fun LyricsPanel(
                 // the line rather than switching, so a handover is one line's
                 // light going down as the next one's comes up.
                 val glow by animateFloatAsState(
-                    targetValue = if (isActive && glowing) GLOW_ALPHA else 0f,
+                    targetValue = when {
+                        !isActive || !glowing -> 0f
+                        lyricsStyle == LyricsStyle.MOTION -> 0.80f
+                        else -> GLOW_ALPHA
+                    },
                     animationSpec = tween(durationMillis = 420),
                     label = "lyricGlow",
                 )
@@ -2437,6 +2598,9 @@ internal fun LyricsPanel(
                         synced = isSynced,
                         browsing = browsing,
                         glowAlpha = glow,
+                        rise = lyricsStyle.rises && !reduceAnimation,
+                        shimmer = shimmer,
+                        feather = lyricsStyle != LyricsStyle.PLAIN,
                         room = GLOW_ROOM,
                         alignEnd = alignEnd,
                         laneLocked = duet,
@@ -2577,6 +2741,8 @@ private fun PanelVoice(
      * movement competes with the line being read and makes the row look busy.
      */
     rise: Boolean = true,
+    shimmer: Boolean = false,
+    feather: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     // Vazirmatn for Persian/Arabic-script lines; Latin lines keep the player's font.
@@ -2607,7 +2773,8 @@ private fun PanelVoice(
             modifier = modifier,
             glowAlpha = glowAlpha,
             glowRoom = room,
-            feather = isActive,
+            feather = feather && isActive,
+            shimmer = shimmer && isActive,
             rise = rise,
             alignEnd = alignEnd,
             laneLocked = laneLocked,
@@ -2806,6 +2973,8 @@ private fun CurrentLyricLine(
     // One line box whatever the script: left to the font, a Devanagari or
     // Gurmukhi line is taller than a Latin one and the credits and artwork
     // above this strip shift up and down as lines change language.
+    val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
+    val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val stripStyle = MaterialTheme.typography.titleMedium.copy(
         shadow = Shadow(Color.Black.copy(alpha = 0.40f), Offset(0f, 1f), 5f),
         lineHeight = STRIP_LINE_HEIGHT,
@@ -2955,6 +3124,10 @@ private fun CurrentLyricLine(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     rise = false,
+                    feather = lyricsStyle == LyricsStyle.WAVE,
+                    shimmer = lyricsStyle.shimmers && !reduceAnimation && !lessBlur,
+                    glowAlpha = if (lyricsStyle == LyricsStyle.MOTION && !reduceAnimation && !lessBlur) 0.68f else 0f,
+                    glowRadius = 4.dp,
                     modifier = fading,
                 )
             } else {

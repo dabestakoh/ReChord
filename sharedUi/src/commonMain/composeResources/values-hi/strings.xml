@@ -199,4 +199,21 @@
     <string name="search_library_hint">गाने, कलाकार और एल्बम</string>
     <string name="search_library_no_results">लोकल म्यूज़िक में “%1$s” से मेल खाता कुछ नहीं.</string>
     <string name="listen_together_subtitle">एक कोड शेयर करें और एक ही म्यूज़िक, एक साथ सुनें</string>
+    <string name="now_playing_layout">प्लेयर का लेआउट</string>
+    <string name="lyrics_style">गीत के बोलों की शैली</string>
+    <string name="layout_default">डिफ़ॉल्ट</string>
+    <string name="layout_vinyl">विनाइल</string>
+    <string name="layout_poster">पोस्टर</string>
+    <string name="apply_layout">लागू करें</string>
+    <string name="video_mode">वीडियो मोड</string>
+    <string name="video_searching">संगीत वीडियो खोज रहे हैं…</string>
+    <string name="video_missing">कोई संगीत वीडियो उपलब्ध नहीं</string>
+    <string name="lyrics_style_default">ReChord की डिफ़ॉल्ट शैली</string>
+    <string name="lyrics_style_motion">उभार और चमक</string>
+    <string name="lyrics_style_wave">चमकती हाइलाइट</string>
+    <string name="lyrics_style_lift">शब्दों का उभार</string>
+    <string name="lyrics_style_plain">साधारण हाइलाइट</string>
+    <string name="lyrics_style_sample">लय के साथ चलें</string>
+    <string name="enter_full_screen">पूर्ण स्क्रीन</string>
+    <string name="exit_full_screen">पूर्ण स्क्रीन से बाहर निकलें</string>
 </resources>

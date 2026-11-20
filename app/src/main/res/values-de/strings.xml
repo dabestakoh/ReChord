@@ -1497,4 +1497,7 @@
     <string name="diagnostic_report_github">Veröffentlicht einen bereinigten Bericht auf GitHub.</string>
     <string name="export_diagnostic_log">Diagnoseprotokoll exportieren</string>
     <string name="diagnostic_report_error">Der Diagnosebericht konnte nicht geöffnet oder exportiert werden.</string>
+    <string name="now_playing_layout">Wiedergabelayout</string>
+    <string name="lyrics_style">Liedtextstil</string>
+    <string name="video_mode">Videomodus</string>
 </resources>

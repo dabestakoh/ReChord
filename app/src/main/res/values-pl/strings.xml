@@ -1537,4 +1537,7 @@
     <string name="diagnostic_report_github">Publikuje raport bez danych wrażliwych w serwisie GitHub.</string>
     <string name="export_diagnostic_log">Eksportuj dziennik diagnostyczny</string>
     <string name="diagnostic_report_error">Nie udało się otworzyć ani wyeksportować raportu diagnostycznego.</string>
+    <string name="now_playing_layout">Układ odtwarzacza</string>
+    <string name="lyrics_style">Styl tekstu piosenki</string>
+    <string name="video_mode">Tryb wideo</string>
 </resources>

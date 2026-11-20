@@ -597,6 +597,8 @@ object AppSettings {
      * its cost (blobs that drift are a full-screen blur redrawn while they move,
      * where a mesh is drawn once per track and then composited).
      */
+    val nowPlayingLayout = MutableStateFlow(NowPlayingLayout.DEFAULT)
+    val lyricsStyle = MutableStateFlow(LyricsStyle.DEFAULT)
     val playerTheme = MutableStateFlow(PlayerTheme.DEFAULT)
 
     /** Restores the expanded player to the surface the listener left open. */
@@ -1087,6 +1089,12 @@ object AppSettings {
         fullBleedArtwork.value = prefs.getBoolean(KEY_FULL_BLEED_ARTWORK, true)
         fullBleedDetailArtwork.value = prefs.getBoolean(KEY_FULL_BLEED_DETAIL_ARTWORK, false)
         // The old legacy mesh switch answers until a theme has been picked.
+        val savedLayout = prefs.getString(KEY_NOW_PLAYING_LAYOUT, null)
+        nowPlayingLayout.value = NowPlayingLayout.entries.firstOrNull { it.name == savedLayout }
+            ?: NowPlayingLayout.DEFAULT
+        val savedLyricsStyle = prefs.getString(KEY_LYRICS_STYLE, null)
+        lyricsStyle.value = LyricsStyle.entries.firstOrNull { it.name == savedLyricsStyle }
+            ?: LyricsStyle.DEFAULT
         playerTheme.value = runCatching {
             PlayerTheme.valueOf(prefs.getString(KEY_PLAYER_THEME, null).orEmpty())
         }.getOrElse {
@@ -1761,6 +1769,18 @@ object AppSettings {
         prefs.edit().putBoolean(KEY_FULL_BLEED_DETAIL_ARTWORK, value).apply()
     }
 
+    fun setNowPlayingLayout(value: NowPlayingLayout) {
+        if (nowPlayingLayout.value == value) return
+        nowPlayingLayout.value = value
+        prefs.edit().putString(KEY_NOW_PLAYING_LAYOUT, value.name).apply()
+    }
+
+    fun setLyricsStyle(value: LyricsStyle) {
+        if (lyricsStyle.value == value) return
+        lyricsStyle.value = value
+        prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
+    }
+
     fun setPlayerTheme(value: PlayerTheme) {
         playerTheme.value = value
         prefs.edit().putString(KEY_PLAYER_THEME, value.name).apply()
@@ -2376,6 +2396,8 @@ object AppSettings {
     private const val KEY_SIGNATURE_API_URL = "signature_api_url"
     private const val KEY_FULL_BLEED_ARTWORK = "full_bleed_artwork"
     private const val KEY_FULL_BLEED_DETAIL_ARTWORK = "full_bleed_detail_artwork"
+    private const val KEY_NOW_PLAYING_LAYOUT = "now_playing_layout"
+    private const val KEY_LYRICS_STYLE = "lyrics_style"
     private const val KEY_PLAYER_THEME = "player_theme"
     private const val KEY_LEGACY_MESH_GRADIENT = "legacy_mesh_gradient"
     private const val KEY_LAST_PLAYER_SCREEN = "last_player_screen"

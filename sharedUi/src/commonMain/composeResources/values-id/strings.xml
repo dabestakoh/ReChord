@@ -199,4 +199,21 @@
     <string name="search_library_hint">Lagu, Artis, dan Album</string>
     <string name="search_library_no_results">Tidak ada di Musik Lokal yang cocok dengan “%1$s”.</string>
     <string name="listen_together_subtitle">Bagikan kode dan putar musik yang sama, serempak</string>
+    <string name="now_playing_layout">Tata letak pemutar</string>
+    <string name="lyrics_style">Gaya lirik</string>
+    <string name="layout_default">Bawaan</string>
+    <string name="layout_vinyl">Vinil</string>
+    <string name="layout_poster">Poster</string>
+    <string name="apply_layout">Terapkan</string>
+    <string name="video_mode">Mode video</string>
+    <string name="video_searching">Mencari video musik…</string>
+    <string name="video_missing">Tidak ada video musik</string>
+    <string name="lyrics_style_default">Bawaan ReChord</string>
+    <string name="lyrics_style_motion">Naik dan berpendar</string>
+    <string name="lyrics_style_wave">Sorotan berkilau</string>
+    <string name="lyrics_style_lift">Kata terangkat</string>
+    <string name="lyrics_style_plain">Sorotan sederhana</string>
+    <string name="lyrics_style_sample">Ikuti irama</string>
+    <string name="enter_full_screen">Layar penuh</string>
+    <string name="exit_full_screen">Keluar dari layar penuh</string>
 </resources>

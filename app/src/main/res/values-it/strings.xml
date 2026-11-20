@@ -1436,4 +1436,7 @@
     <string name="diagnostic_report_github">Pubblica su GitHub un rapporto senza dati sensibili.</string>
     <string name="export_diagnostic_log">Esporta registro di diagnostica</string>
     <string name="diagnostic_report_error">Impossibile aprire o esportare il rapporto di diagnostica.</string>
+    <string name="now_playing_layout">Layout del lettore</string>
+    <string name="lyrics_style">Stile del testo</string>
+    <string name="video_mode">Modalità video</string>
 </resources>

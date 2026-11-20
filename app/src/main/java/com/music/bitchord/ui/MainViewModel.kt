@@ -366,6 +366,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     private var currentLyricsRequest: LyricsRequest? = null
+
+    fun lyricsForVideoAlignment(videoId: String): List<LyricLine> =
+        _lyrics.value.takeIf { currentLyricsRequest?.videoId == videoId }.orEmpty()
     private var lyricsGeneration = 0L
     private var selectedLyricsSource: LyricsSource? = null
 

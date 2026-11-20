@@ -136,15 +136,13 @@ object TrackMatcher {
         ranked(candidates, target).firstOrNull()
 
     /**
-     * The catalogue counterpart for a music-video upload selected explicitly
-     * by the listener.
+     * The catalogue counterpart for an explicit song or music-video lookup.
      *
      * A video and the song it promotes can legitimately differ by well over a
      * minute: the video includes an intro, an outro and sometimes dialogue.
      * The ordinary source matcher must reject that gap because it is choosing
-     * a stream without anyone watching it. The player audio switch is a
-     * different contract: it asks YouTube Music's *Songs* shelf for the
-     * official release of a known video. Here an exact recording title,
+     * a stream without anyone watching it. The explicit player action looks
+     * for the other cut in YouTube Music's Songs or Videos shelf. An exact recording title,
      * identical version markers and a shared artist are enough to establish
      * that relationship; duration only ranks equivalent releases and never
      * vetoes one.
@@ -153,7 +151,7 @@ object TrackMatcher {
      * A cover, remix or karaoke version still cannot cross the switch just
      * because it happens to share a title.
      */
-    fun bestOfficialAudioForVideo(candidates: List<Song>, target: Target): Song? {
+    fun bestOfficialCounterpart(candidates: List<Song>, target: Target): Song? {
         val wanted = parseTitle(target.title, target.artist)
         if (wanted.core.isEmpty()) return null
         return candidates

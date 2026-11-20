@@ -455,7 +455,7 @@ object YtMusicRepository {
             // Music-video timing is visual timing, not the audio release's
             // timing. The manual switch may therefore use the exact official
             // song/artist match even when the video has a long intro or outro.
-            TrackMatcher.bestOfficialAudioForVideo(candidates, target)?.let { match ->
+            TrackMatcher.bestOfficialCounterpart(candidates, target)?.let { match ->
                 Log.d(TAG, "audio switch: accepted video/runtime drift '${song.title}' -> '${match.title}' ($query)")
                 audioVersionCache[song.videoId] = match
                 return match
@@ -477,7 +477,7 @@ object YtMusicRepository {
     suspend fun resolveVideo(song: Song): Song? {
         if (song.isVideo) return null
         videoVersionCache[song.videoId]?.let { return it }
-        officialVersion(song, wantAudio = false)?.let { video ->
+        song.takeIf { it.localUri == null }?.let { officialVersion(it, wantAudio = false) }?.let { video ->
             videoVersionCache[song.videoId] = video
             return video
         }
@@ -488,7 +488,7 @@ object YtMusicRepository {
                 ?.filterIsInstance<SearchResult.Track>()
                 ?.map { it.song }
                 .orEmpty()
-            TrackMatcher.best(candidates, target)?.let { match ->
+            TrackMatcher.bestOfficialCounterpart(candidates, target)?.let { match ->
                 Log.d(TAG, "video switch: '${song.title}' -> '${match.title}' ($query)")
                 videoVersionCache[song.videoId] = match
                 return match

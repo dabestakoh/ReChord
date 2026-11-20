@@ -34,6 +34,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -163,6 +165,7 @@ import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.BitPerfectMode
 import com.music.bitchord.ui.AddonBlockedAlert
 import com.music.bitchord.data.settings.LibrarySort
+import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.ui.components.AccountProfileSelector
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectOutput
@@ -223,6 +226,7 @@ import com.music.bitchord.playback.BoundedQueuePlanner
 import com.music.bitchord.playback.playBoundedContext
 import com.music.bitchord.playback.contextEntryKey
 import com.music.bitchord.playback.toMediaItem
+import com.music.bitchord.playback.MusicOnlyPlayback
 import com.music.bitchord.playback.toSong
 import com.music.bitchord.playback.toDirectYouTubeMediaItem
 import com.music.bitchord.playback.toggleAutoplay
@@ -312,12 +316,15 @@ import com.music.bitchord.data.model.HomeSections
 import com.music.bitchord.data.model.TopPickKind
 import com.music.bitchord.data.model.TopPickMood
 import com.music.bitchord.ui.screens.MoodGridPage
+import com.music.bitchord.ui.player.NowPlayingLayoutPicker
 import com.music.bitchord.ui.player.NowPlayingScreen
 import com.music.bitchord.ui.player.MixViewRequest
 import com.music.bitchord.ui.player.MusicVideoEngine
 import com.music.bitchord.ui.player.PlayerSheetMotion
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Outline
@@ -381,6 +388,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -571,6 +579,16 @@ private fun BitChordApp(
      * permanent pane.
      */
     var showNowPlaying by remember { mutableStateOf(false) }
+    var showPlayerLayouts by remember { mutableStateOf(false) }
+    var fullVideoMode by remember { mutableStateOf(false) }
+    var fullVideoSearching by remember { mutableStateOf(false) }
+    val nowPlayingLayout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
+    LaunchedEffect(showNowPlaying) {
+        if (!showNowPlaying) {
+            showPlayerLayouts = false
+            fullVideoMode = false
+        }
+    }
     // The DAC's own volume while direct USB output owns it; the full player
     // has its own bar for that, so the HUD stays out of its way.
     androidx.compose.runtime.SideEffect { VolumeHud.suppressed = showNowPlaying }
@@ -1496,6 +1514,15 @@ private fun BitChordApp(
      * Resolve and apply the video version without replacing the audio row
      * up front. This is the inverse of switchToMusicOnly.
      */
+    suspend fun resolvePicture(song: Song, knownVideo: Song? = null): Song? = knownVideo ?: try {
+        YtMusicRepository.resolveVideo(song)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        TrackLog.w("Player", "video lookup failed: ${e.javaClass.simpleName}", song.videoId)
+        null
+    }
+
     suspend fun switchToVideo(song: Song, knownVideo: Song? = null) {
         val c = controller ?: return
         val index = c.currentMediaItemIndex
@@ -1506,14 +1533,7 @@ private fun BitChordApp(
         val tapAt = android.os.SystemClock.elapsedRealtime()
         switchingAudioVersion = true
         try {
-            val video = knownVideo ?: try {
-                YtMusicRepository.resolveVideo(song)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                TrackLog.w("Player", "video lookup failed: ${e.javaClass.simpleName}", song.videoId)
-                null
-            }
+            val video = resolvePicture(song, knownVideo)
             if (!isCurrent()) return
             if (video == null || video.videoId == song.videoId) {
                 showQueueNotice(versionContext.getString(R.string.no_video_version))
@@ -1526,6 +1546,55 @@ private fun BitChordApp(
             }
         } finally {
             switchingAudioVersion = false
+        }
+    }
+
+    val videoModeSong = player.song
+    LaunchedEffect(
+        fullVideoMode, showNowPlaying, appForeground, controller, switchingAudioVersion,
+        videoModeSong?.videoId, videoModeSong?.queueEntryId, player.queueIndex,
+    ) {
+        if (!fullVideoMode || !showNowPlaying || !appForeground) return@LaunchedEffect
+        if (switchingAudioVersion) {
+            fullVideoSearching = true
+            return@LaunchedEffect
+        }
+        val activeController = controller ?: return@LaunchedEffect
+        val current = activeController.currentMediaItem?.toSong() ?: return@LaunchedEffect
+        val index = activeController.currentMediaItemIndex
+        fun isCurrent(): Boolean {
+            val song = activeController.currentMediaItem?.toSong() ?: return false
+            return fullVideoMode && showNowPlaying && controller === activeController &&
+                activeController.currentMediaItemIndex == index && song.videoId == current.videoId && song.queueEntryId == current.queueEntryId
+        }
+        if ((current.isVideo && MusicOnlyPlayback.showsPicture(current.videoId)) ||
+            MusicVideoEngine.companionVideoId.value != null
+        ) {
+            fullVideoSearching = false
+            return@LaunchedEffect
+        }
+
+        var ownedPicture: String? = null
+        fullVideoSearching = true
+        try {
+            val tapAt = android.os.SystemClock.elapsedRealtime()
+            val video = if (current.isVideo) current else resolvePicture(
+                current, convertedFromVideo?.takeIf { convertedAudioId == current.videoId },
+            )
+            if (video == null || !isCurrent()) return@LaunchedEffect
+            val shown = MusicVideoEngine.showCompanion(
+                versionContext, current, video, tapAt, ::isCurrent,
+                allowApproximate = true,
+                audioLyrics = viewModel.lyricsForVideoAlignment(current.videoId),
+                onShown = {
+                    ownedPicture = video.videoId
+                    fullVideoSearching = false
+                },
+            )
+            if (shown) awaitCancellation()
+        } finally {
+            ownedPicture?.let { MusicVideoEngine.clearCompanion(current, it) }
+            fullVideoSearching = false
         }
     }
 
@@ -2539,6 +2608,11 @@ private fun BitChordApp(
         NowPlayingScreen(
             song = displayedSong,
             companionVideoId = companionVideoId?.takeIf { displayedSong.videoId == player.song?.videoId },
+            layout = nowPlayingLayout,
+            onOpenLayoutPicker = { showPlayerLayouts = true },
+            fullVideoMode = fullVideoMode,
+            fullVideoSearching = fullVideoSearching,
+            onExitVideoMode = { fullVideoMode = false },
             playedBy = playedBy,
             accountName = account?.name,
             windowWidth = windowWidth,
@@ -4623,7 +4697,20 @@ private fun BitChordApp(
                     null
                 },
                 upgradeQualityInProgress = fromPlayer && song.videoId in qualityUpgradesInFlight,
-                onToggleAudioVersion = onToggleVersion,
+                onToggleAudioVersion = onToggleVersion.takeUnless {
+                    fromPlayer && nowPlayingLayout != NowPlayingLayout.DEFAULT &&
+                        versionMenuAction != VersionDisplayAction.PLAY_AUDIO_VERSION
+                },
+                onNowPlayingLayout = if (fromPlayer) {
+                    { songActions = null; showPlayerLayouts = true }
+                } else null,
+                onVideoMode = if (fromPlayer && !fullVideoMode) {
+                    {
+                        songActions = null
+                        fullVideoSearching = true
+                        fullVideoMode = true
+                    }
+                } else null,
                 isAudioVersion = menuIsAudioVersion,
                 audioVersionMissing = song.videoId in missingVersions,
                 // Hidden outright when there's no real YouTube id behind
@@ -4716,6 +4803,28 @@ private fun BitChordApp(
                 onDispose {
                     playerDock.sheetOffset = null
                     playerSheetMotion.onSheetGone()
+                }
+            }
+            if (showPlayerLayouts) {
+                Dialog(
+                    onDismissRequest = { showPlayerLayouts = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false),
+                ) {
+                    Surface(
+                        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 460.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
+                    ) {
+                        NowPlayingLayoutPicker(
+                            selected = nowPlayingLayout,
+                            onApply = {
+                                AppSettings.setNowPlayingLayout(it)
+                                showPlayerLayouts = false
+                            },
+                            onDismiss = { showPlayerLayouts = false },
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            artwork = player.song?.thumbnailUrl,
+                        )
+                    }
                 }
             }
             ModalBottomSheet(

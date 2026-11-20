@@ -199,4 +199,21 @@
     <string name="search_library_hint">Canciones, artistas y álbumes</string>
     <string name="search_library_no_results">Nada en Música local coincide con “%1$s”.</string>
     <string name="listen_together_subtitle">Comparte un código para escuchar la misma música al mismo tiempo</string>
+    <string name="now_playing_layout">Diseño del reproductor</string>
+    <string name="lyrics_style">Estilo de letras</string>
+    <string name="layout_default">Predeterminado</string>
+    <string name="layout_vinyl">Vinilo</string>
+    <string name="layout_poster">Póster</string>
+    <string name="apply_layout">Aplicar</string>
+    <string name="video_mode">Modo de vídeo</string>
+    <string name="video_searching">Buscando un vídeo musical…</string>
+    <string name="video_missing">No hay vídeo musical disponible</string>
+    <string name="lyrics_style_default">Predeterminado de ReChord</string>
+    <string name="lyrics_style_motion">Elevación y brillo</string>
+    <string name="lyrics_style_wave">Barrido brillante</string>
+    <string name="lyrics_style_lift">Palabras elevadas</string>
+    <string name="lyrics_style_plain">Barrido simple</string>
+    <string name="lyrics_style_sample">Sigue el ritmo</string>
+    <string name="enter_full_screen">Pantalla completa</string>
+    <string name="exit_full_screen">Salir de pantalla completa</string>
 </resources>

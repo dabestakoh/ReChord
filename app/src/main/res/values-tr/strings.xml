@@ -1454,4 +1454,7 @@
     <string name="diagnostic_report_github">Hassas bilgileri çıkarılmış raporu GitHub üzerinde yayımlar.</string>
     <string name="export_diagnostic_log">Tanılama günlüğünü dışa aktar</string>
     <string name="diagnostic_report_error">Tanılama raporu açılamadı veya dışa aktarılamadı.</string>
+    <string name="now_playing_layout">Şimdi çalıyor düzeni</string>
+    <string name="lyrics_style">Şarkı sözü biçimi</string>
+    <string name="video_mode">Video modu</string>
 </resources>

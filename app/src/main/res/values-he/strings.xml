@@ -1502,4 +1502,7 @@
     <string name="diagnostic_report_github">פרסום דוח ללא מידע רגיש ב-GitHub.</string>
     <string name="export_diagnostic_log">ייצוא יומן אבחון</string>
     <string name="diagnostic_report_error">לא ניתן לפתוח או לייצא את דוח האבחון.</string>
+    <string name="now_playing_layout">פריסת הנגן</string>
+    <string name="lyrics_style">סגנון המילים</string>
+    <string name="video_mode">מצב וידאו</string>
 </resources>

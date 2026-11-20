@@ -199,4 +199,21 @@
     <string name="search_library_hint">Şarkılar, Sanatçılar ve Albümler</string>
     <string name="search_library_no_results">Yerel Müzik’te “%1$s” ile eşleşen bir şey yok.</string>
     <string name="listen_together_subtitle">Bir kod paylaş, aynı müziği aynı anda dinleyin</string>
+    <string name="now_playing_layout">Şimdi çalıyor düzeni</string>
+    <string name="lyrics_style">Şarkı sözü biçimi</string>
+    <string name="layout_default">Varsayılan</string>
+    <string name="layout_vinyl">Plak</string>
+    <string name="layout_poster">Poster</string>
+    <string name="apply_layout">Uygula</string>
+    <string name="video_mode">Video modu</string>
+    <string name="video_searching">Müzik videosu aranıyor…</string>
+    <string name="video_missing">Müzik videosu yok</string>
+    <string name="lyrics_style_default">ReChord varsayılanı</string>
+    <string name="lyrics_style_motion">Yükselme ve parlama</string>
+    <string name="lyrics_style_wave">Parıltılı vurgu</string>
+    <string name="lyrics_style_lift">Kelimeleri yükselt</string>
+    <string name="lyrics_style_plain">Sade vurgu</string>
+    <string name="lyrics_style_sample">Ritmi takip et</string>
+    <string name="enter_full_screen">Tam ekran</string>
+    <string name="exit_full_screen">Tam ekrandan çık</string>
 </resources>

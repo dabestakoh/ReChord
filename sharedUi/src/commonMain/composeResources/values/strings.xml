@@ -288,4 +288,21 @@
     <string name="home_resume">Resume</string>
     <string name="home_open_release">Open Release</string>
     <string name="home_play_picks">Play Picks</string>
+    <string name="now_playing_layout">Now Playing layout</string>
+    <string name="lyrics_style">Lyrics style</string>
+    <string name="layout_default">Default</string>
+    <string name="layout_vinyl">Vinyl</string>
+    <string name="layout_poster">Poster</string>
+    <string name="apply_layout">Apply</string>
+    <string name="video_mode">Video mode</string>
+    <string name="video_searching">Looking for a music video…</string>
+    <string name="video_missing">No music video available</string>
+    <string name="lyrics_style_default">ReChord Default</string>
+    <string name="lyrics_style_motion">Rise and glow</string>
+    <string name="lyrics_style_wave">Shimmer sweep</string>
+    <string name="lyrics_style_lift">Word lift</string>
+    <string name="lyrics_style_plain">Plain sweep</string>
+    <string name="lyrics_style_sample">Follow the rhythm</string>
+    <string name="enter_full_screen">Full screen</string>
+    <string name="exit_full_screen">Exit full screen</string>
 </resources>

@@ -199,4 +199,21 @@
     <string name="search_library_hint">Bài hát, nghệ sĩ và album</string>
     <string name="search_library_no_results">Không có gì trong Nhạc cục bộ khớp với “%1$s”.</string>
     <string name="listen_together_subtitle">Share a code and play the same music, in time</string>
+    <string name="now_playing_layout">Bố cục trình phát</string>
+    <string name="lyrics_style">Kiểu lời bài hát</string>
+    <string name="layout_default">Mặc định</string>
+    <string name="layout_vinyl">Đĩa vinyl</string>
+    <string name="layout_poster">Áp phích</string>
+    <string name="apply_layout">Áp dụng</string>
+    <string name="video_mode">Chế độ video</string>
+    <string name="video_searching">Đang tìm video âm nhạc…</string>
+    <string name="video_missing">Không có video âm nhạc</string>
+    <string name="lyrics_style_default">Mặc định của ReChord</string>
+    <string name="lyrics_style_motion">Nâng lên và phát sáng</string>
+    <string name="lyrics_style_wave">Tô sáng lấp lánh</string>
+    <string name="lyrics_style_lift">Nâng từng từ</string>
+    <string name="lyrics_style_plain">Tô sáng đơn giản</string>
+    <string name="lyrics_style_sample">Theo nhịp điệu</string>
+    <string name="enter_full_screen">Toàn màn hình</string>
+    <string name="exit_full_screen">Thoát toàn màn hình</string>
 </resources>

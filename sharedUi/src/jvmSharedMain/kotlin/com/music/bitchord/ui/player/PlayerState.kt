@@ -217,6 +217,10 @@ internal class PlayerScrub {
         value = to
     }
 
+    fun cancel() {
+        scrubbing = false
+    }
+
     fun release(seekTo: (Float) -> Unit) {
         pendingSeek = value
         seekTo(value)

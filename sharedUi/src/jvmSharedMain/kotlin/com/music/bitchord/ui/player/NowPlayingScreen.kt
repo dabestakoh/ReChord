@@ -98,6 +98,7 @@ import androidx.compose.ui.Modifier
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.stringArrayResource
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithContent
@@ -168,6 +169,8 @@ import com.music.bitchord.data.canvas.CanvasSource
 import com.music.bitchord.data.lyrics.LyricLine
 import com.music.bitchord.data.lyrics.LyricsSource
 import com.music.bitchord.data.settings.LastPlayerScreen
+import com.music.bitchord.data.settings.LyricsStyle
+import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.PlaybackSourceType
@@ -874,6 +877,11 @@ fun NowPlayingScreen(
     onLiveCanvasChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
     companionVideoId: String? = null,
+    layout: NowPlayingLayout = NowPlayingLayout.DEFAULT,
+    onOpenLayoutPicker: (() -> Unit)? = null,
+    fullVideoMode: Boolean = false,
+    fullVideoSearching: Boolean = false,
+    onExitVideoMode: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val artPx = remember(windowWidth, density.density) { playerArtPx(windowWidth.value, density.density) }
@@ -944,6 +952,8 @@ fun NowPlayingScreen(
 
     val syncedLyricsEnabled by PlayerSettings.syncedLyrics.collectAsStateWithLifecycle()
     val lyricsOffsetMs by PlayerSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
+    val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
+    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     // A lambda, not a value: read by the lyric strip and panel in scopes of
     // their own, so a tick recomposes them and not the player around them.
     val lyricsPlayhead = rememberLyricPlayhead(position)
@@ -967,12 +977,26 @@ fun NowPlayingScreen(
     val mixing by PlayerSettings.smartMixInProgress.collectAsStateWithLifecycle()
     // A music video plays its own picture where the sleeve is — see
     // [MusicVideoSurface] — and takes the place of any animated cover.
+    val sideways = landscapePlayerAvailable(windowWidth, windowHeight)
+    val compactPortrait = !sideways && windowHeight < 560.dp
+    val artTitleGap = if (compactPortrait) 8.dp else ART_TITLE_GAP
+    val deckBottomPadding = if (compactPortrait) 6.dp else 18.dp
+    val transportTopGap = if (compactPortrait) 4.dp else 8.dp
+    val transportBottomGap = if (compactPortrait) 6.dp else 12.dp
+    val volumeBottomGap = if (compactPortrait) 3.dp else 6.dp
+    val portraitHeaderHeight = with(density) {
+        val lineHeight = MaterialTheme.typography.titleLarge.lineHeight
+        maxOf(HEADER_HEIGHT, (lineHeight.takeIf { it.isSpecified }?.toDp() ?: 28.dp) * 2)
+    }
+    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !sideways
     val pictureId = companionVideoId ?: song.videoId
-    val videoMode = companionVideoId != null || showsMusicVideo(song)
+    val videoAllowed = fullVideoMode || !alternateLayout
+    val videoMode = videoAllowed && (companionVideoId != null || showsMusicVideo(song))
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
     // to it, in place of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
-    val canvas = rememberCanvasArtwork(song)?.takeUnless { videoMode }?.let {
+    val animatedCover = if (!alternateLayout && !fullVideoMode && !videoMode) rememberCanvasArtwork(song) else null
+    val canvas = animatedCover?.let {
         // Apple's 3:4 rendition runs under the whole phone screen, the way its
         // own player shows it; the square one stays the fallback.
         val tall = it.portraitUrl
@@ -992,11 +1016,14 @@ fun NowPlayingScreen(
     // Whether a full-screen button turned the screen, which outlasts the video
     // that asked: the queue can move on to a song while it is still sideways.
     var fullscreenRequested by remember { mutableStateOf(false) }
-    val sideways = landscapePlayerAvailable(windowWidth, windowHeight)
     LaunchedEffect(sideways) { if (!sideways) fullscreenRequested = false }
     val exitFullscreen = {
         fullscreenRequested = false
         screenOrientation.portrait()
+        if (fullVideoMode) onExitVideoMode()
+    }
+    LaunchedEffect(fullVideoMode) {
+        if (fullVideoMode && !sideways) screenOrientation.landscape()
     }
     var canvasAspect by remember(canvas) { mutableFloatStateOf(0f) }
     // Whether the clip actually has a frame on screen right now, and one of
@@ -1204,7 +1231,10 @@ fun NowPlayingScreen(
     // than past it to the mini player: with the phone lying flat no sensor
     // turns the screen back, so Home would be left sideways. First in this list
     // so anything opened over the video, such as its quality sheet, closes first.
-    PlayerBackHandler(enabled = sideways && (videoMode || fullscreenRequested), onBack = exitFullscreen)
+    PlayerBackHandler(
+        enabled = fullVideoMode || (sideways && (videoMode || fullscreenRequested)),
+        onBack = exitFullscreen,
+    )
 
     // Back out of the lyrics panel to the player, and only from the player
     // itself out to the mini player.
@@ -1689,6 +1719,10 @@ fun NowPlayingScreen(
     // Lyrics, output and queue, with the output name under them — the row both
     // layouts end on, and the only thing in the landscape player's left column
     // besides the sleeve.
+    val openLayoutPicker = onOpenLayoutPicker?.takeIf { !lyricsOpen && !queueOpen && !fullVideoMode }?.let { open ->
+        { haptics.play(Haptic.Select); open() }
+    }
+    val layoutHold = Modifier.openLayoutOnHold(openLayoutPicker)
     val playerActions: @Composable () -> Unit = {
         PlayerActionRow(
             lyricsOpen = lyricsOpen,
@@ -1704,7 +1738,7 @@ fun NowPlayingScreen(
             onOpenOutput = openAudioOutput,
         )
         // Keep the current output caption visible in every state.
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(if (compactPortrait) 8.dp else 18.dp))
         Box(
             modifier = Modifier.fillMaxWidth().height(20.dp),
             contentAlignment = Alignment.TopCenter,
@@ -1998,19 +2032,24 @@ fun NowPlayingScreen(
         // controls. On over a Canvas: the controls only show with its dim and
         // glass deck up, so the glyphs blend into the blurred, darkened clip.
         // And off everywhere with "Disable blend effects".
-        chrome = !disableBlendEffects && !(landscape && videoMode),
+        chrome = !disableBlendEffects && !fullVideoMode && !(landscape && videoMode),
         frost = frost,
         live = spotifyCanvasPresentation,
         // Not the host's ⋯ menu: that takes its own still, of everything.
         overlayOpen = { overlayOpen.value && !currentMenuOpen() },
         overlays = playerOverlays,
     ) {
-        if (landscape && videoMode) {
+        if (fullVideoMode || (landscape && videoMode)) {
             val versionAligning by PlayerSettings.versionAlignmentInProgress.collectAsStateWithLifecycle()
             val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
             Box(modifier = Modifier.fillMaxSize().then(dockHost)) {
                 FullscreenVideoPlayer(
-                    song = if (companionVideoId == null) song else song.copy(videoId = pictureId),
+                    song = song,
+                    pictureId = pictureId.takeIf { videoMode },
+                    status = if (!fullVideoMode || videoMode) null else stringResource(
+                        if (fullVideoSearching) Res.string.video_searching else Res.string.video_missing,
+                    ),
+                    showArtworkUntilReady = fullVideoMode,
                     isPlaying = isPlaying,
                     artRequest = art.request,
                     rendered = videoRendered,
@@ -2052,6 +2091,76 @@ fun NowPlayingScreen(
                     },
                 )
             }
+        } else if (alternateLayout && !lyricsOpen && !queueOpen && !queueDragging) {
+            val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
+            AlternateNowPlaying(
+                layout = layout,
+                song = song,
+                artwork = art.request.takeIf { remoteArt != null },
+                isPlaying = isPlaying,
+                isLoading = isLoading || audioVersionSwitching,
+                liked = likeStatus == LikeStatus.LIKE,
+                previousEnabled = !controlsLocked && (hasPrevious || pastRestartPoint),
+                nextEnabled = !controlsLocked && hasNext,
+                canSeek = durationMs > 0L && !controlsLocked,
+                shown = shown,
+                onScrub = onScrub,
+                onScrubFinished = onScrubFinished,
+                onScrubCanceled = scrub::cancel,
+                onFavorite = onToggleLike,
+                onPrevious = onPrevious,
+                onPlayPause = onPlayPause,
+                onNext = onNext,
+                onMenu = onOpenMenu,
+                onOpenPicker = openLayoutPicker,
+                reduceAnimation = reduceAnimation,
+                artworkBackdrop = trackAccent,
+                lyrics = {
+                    if (layout == NowPlayingLayout.POSTER) {
+                        PosterLyricSpotlight(
+                            lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                            trackKey = song.videoId,
+                            playhead = lyricsPlayhead,
+                            isPlaying = isPlaying && position.advancing,
+                            title = song.title,
+                            artist = song.artist,
+                            onOpenLyrics = openLyrics,
+                        )
+                    } else if (syncedLyricsEnabled) {
+                        CurrentLyricStrip(
+                            lines = lyricsTranslation.displayedLyrics,
+                            trackKey = song.videoId,
+                            playhead = lyricsPlayhead,
+                            isPlaying = isPlaying && position.advancing,
+                            durationMs = durationMs,
+                            lyricsUnavailable = lyricsUnavailable,
+                            loadingText = lyricsLoadingText,
+                            onClick = openLyrics,
+                        )
+                    }
+                },
+                scrubber = {
+                    PlayerScrubber(
+                        shown = shown,
+                        durationMs = durationMs,
+                        loading = audioVersionSwitching,
+                        mixing = mixing && !scrub.scrubbing,
+                        transitionWindow = transitionWindow
+                            ?.takeIf { !scrub.scrubbing && it.end > it.start }
+                            ?.let { it.start..it.end },
+                        onScrub = onScrub,
+                        onScrubFinished = onScrubFinished,
+                    ) {
+                        PlaybackQualityLabel(
+                            song = song,
+                            isLoading = isLoading,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
+                },
+                actions = playerActions,
+                modifier = Modifier.then(dockHost).then(skipSwipeGesture),
+            )
         } else if (landscape) {
             // Paused always wins outright over a scrub in progress — see
             // [ARTWORK_PAUSE_SHRINK_SCALE].
@@ -2717,6 +2826,7 @@ fun NowPlayingScreen(
                             .zIndex(1f)
                             .fillMaxWidth()
                             .height(topStrip)
+                            .then(layoutHold)
                             .drawBehind {
                                 // Translated rather than offset: the gradient is laid
                                 // out from the canvas origin, not from the rect's.
@@ -2778,6 +2888,7 @@ fun NowPlayingScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
+                            .then(layoutHold)
                             // Swallow vertical drags before the sheet can read them as
                             // "dismiss me". Children that scroll consume first, so the
                             // lists are unaffected. This sits outside the side padding
@@ -2824,7 +2935,7 @@ fun NowPlayingScreen(
                                     if (panelUp) {
                                         bandTop = space?.positionInRoot()?.y ?: 0f
                                         bandBottom = bandTop +
-                                            (ART_BOX_TOP_PAD + HEADER_HEIGHT).toPx()
+                                            (ART_BOX_TOP_PAD + portraitHeaderHeight).toPx()
                                     } else {
                                         bandTop = dismissBandTop
                                         bandBottom = dismissBandBottom
@@ -2834,7 +2945,7 @@ fun NowPlayingScreen(
                                             dragQueueIn(
                                                 down = down,
                                                 travel = bandBottom - bandTop -
-                                                    HEADER_HEIGHT.toPx(),
+                                                    portraitHeaderHeight.toPx(),
                                                 slide = queueSlide,
                                                 onHold = { queueDragging = it },
                                                 onSettle = { open ->
@@ -2884,13 +2995,16 @@ fun NowPlayingScreen(
                     // Height the artwork block below turns out not to need, spent by the
                     // controls at the foot of the screen. Filled in from inside the box,
                     // where the sleeve's real size is known; see [lastControlSpread].
-                    var controlSpread by remember { mutableStateOf(lastControlSpread) }
+                    var controlSpread by remember(compactPortrait) {
+                        mutableStateOf(if (compactPortrait) 0.dp else lastControlSpread)
+                    }
                     BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .widthIn(max = PLAYER_MAX_WIDTH)
                             .fillMaxWidth()
-                            .padding(top = ART_BOX_TOP_PAD, bottom = 18.dp),
+                            .padding(top = ART_BOX_TOP_PAD, bottom = deckBottomPadding)
+                            .then(if (compactPortrait) Modifier.clipToBounds() else Modifier),
                     ) {
                         if (spotifyCanvasPresentation && playerDeckSettledOpen &&
                             maxHeight != spotifyCanvasExpandedTopHeight
@@ -2920,19 +3034,19 @@ fun NowPlayingScreen(
                         // over once the credits row and the gap above it have had
                         // theirs. Sizing it off the width alone is what pushed the
                         // credits down across the scrubber on anything but a phone.
-                        val wantArt = minOf(maxWidth, roomy - ART_TITLE_GAP - HEADER_HEIGHT)
+                        val wantArt = minOf(maxWidth, roomy - artTitleGap - portraitHeaderHeight)
                         // Held to what the box has actually got, for the single frame it
                         // takes the gaps below to catch up with a change in their own
                         // height: a sleeve a few dp under for one frame is a better
                         // failure than a credits row overhanging the lyric strip.
-                        val fullArt = minOf(wantArt, maxHeight - ART_TITLE_GAP - HEADER_HEIGHT)
-                            .coerceAtLeast(THUMB_SIZE)
+                        val fullArt = minOf(wantArt, maxHeight - artTitleGap - portraitHeaderHeight)
+                            .coerceAtLeast(0.dp)
                         // What's left over once the sleeve, the gap and the credits have
                         // had theirs. A few dp on a phone; the better part of a
                         // centimetre on anything taller, and since the group is centred,
                         // half of it used to land between the credits and the lyric strip
                         // as one wide hole in the middle of the controls.
-                        val slack = (roomy - wantArt - ART_TITLE_GAP - HEADER_HEIGHT)
+                        val slack = (roomy - wantArt - artTitleGap - portraitHeaderHeight)
                             .coerceAtLeast(0.dp)
                         // Handed to the two gaps around the transport row instead, which
                         // is where a tall screen should be doing its breathing.
@@ -2970,7 +3084,9 @@ fun NowPlayingScreen(
                         // The panels asked about first, so a collapse on its way in
                         // — whose sleeve leaves rest on its first frame — isn't
                         // listened for here at all.
-                        if (!lyricsOpen && !queueOpen && !queueDragging && collapseAtRest && controlDeckIsMeasured) {
+                        if (!compactPortrait && !lyricsOpen && !queueOpen && !queueDragging &&
+                            collapseAtRest && controlDeckIsMeasured
+                        ) {
                             val target = with(density) {
                                 val half = slack
                                     .coerceAtMost(CONTROL_GAP_SPREAD_MAX * 2)
@@ -3001,7 +3117,7 @@ fun NowPlayingScreen(
                         // the pair sits centred while the queue is closed — in whatever
                         // the controls couldn't take, which on all but the tallest
                         // screens is nothing.
-                        val groupTop = (maxHeight - fullArt - ART_TITLE_GAP - HEADER_HEIGHT)
+                        val groupTop = (maxHeight - fullArt - artTitleGap - portraitHeaderHeight)
                             .coerceAtLeast(0.dp) / 2
                         // Functions of the collapse, called at placement and measure
                         // — see [p]. Composition never reads them.
@@ -3011,7 +3127,7 @@ fun NowPlayingScreen(
                         // player and has to be centred in it; collapsed, it belongs
                         // hard against the left edge with the credits beside it.
                         fun artStart(): Dp = lerp((maxWidth - fullArt) / 2, 0.dp, p())
-                        fun regularTitleTop(): Dp = lerp(groupTop + fullArt + ART_TITLE_GAP, 0.dp, p())
+                        fun regularTitleTop(): Dp = lerp(groupTop + fullArt + artTitleGap, 0.dp, p())
                         // Once Spotify's control deck has left, keep the only remaining
                         // player chrome against the bottom edge instead of stranding it
                         // where the artwork's title normally sits near mid-screen.
@@ -3020,7 +3136,7 @@ fun NowPlayingScreen(
                                 .takeIf { it > 0.dp }
                                 ?: maxHeight
                             val collapsedTitleTop = (
-                                expandedTopHeight + spotifyCanvasDeckHeight - HEADER_HEIGHT
+                                expandedTopHeight + spotifyCanvasDeckHeight - portraitHeaderHeight
                             ).coerceAtLeast(0.dp)
                             collapsedTitleTop
                         } else {
@@ -3044,7 +3160,7 @@ fun NowPlayingScreen(
                         // screen's top and this box's own top is fixed padding, so it
                         // can simply be added back up rather than measured.
                         val bannerBottom = statusBarTop + topStrip + ART_BOX_TOP_PAD +
-                            groupTop + fullArt + ART_TITLE_GAP / 2
+                            groupTop + fullArt + artTitleGap / 2
                         // Frozen while lyrics are up. The controls now retain their full
                         // footprint across the transition, so this answer is identical
                         // on both sides; avoiding writes during the panel keeps the
@@ -3652,7 +3768,7 @@ fun NowPlayingScreen(
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .offset {
-                                        IntOffset(0, (artTop() + artSize() + (ART_TITLE_GAP - 16.dp) / 2).roundToPx())
+                                        IntOffset(0, (artTop() + artSize() + (artTitleGap - 16.dp).coerceAtLeast(0.dp) / 2).roundToPx())
                                     }
                                     .size(16.dp)
                                     .graphicsLayer {
@@ -3680,7 +3796,7 @@ fun NowPlayingScreen(
                                         x = 0,
                                         y = (
                                             currentTitleTop() -
-                                                lerp(0.dp, (HEADER_HEIGHT - THUMB_SIZE) / 2, p())
+                                                lerp(0.dp, (portraitHeaderHeight - THUMB_SIZE) / 2, p())
                                         ).roundToPx(),
                                     )
                                 }
@@ -3694,7 +3810,7 @@ fun NowPlayingScreen(
                                         constraints.constrainHeight(placeable.height),
                                     ) { placeable.placeRelative(start, 0) }
                                 }
-                                .height(HEADER_HEIGHT)
+                                .height(portraitHeaderHeight)
                                 // Where the dismiss band ends — see its top on the
                                 // artwork above. Taken from the row rather than added up
                                 // from the sleeve so the gap between the two is inside
@@ -3867,7 +3983,7 @@ fun NowPlayingScreen(
                                     reduceMotion = lyricsTranslation.reduceMotion,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(top = HEADER_HEIGHT)
+                                        .padding(top = portraitHeaderHeight)
                                         // Keep the prepared list measured but completely
                                         // outside hit-testing/drawing until it is needed.
                                         .offset {
@@ -3983,7 +4099,7 @@ fun NowPlayingScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(top = HEADER_HEIGHT)
+                                    .padding(top = portraitHeaderHeight)
                                     .offset {
                                         if (queuePanelVisible) IntOffset.Zero else IntOffset(100_000, 0)
                                     }
@@ -4081,7 +4197,8 @@ fun NowPlayingScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(lyricSlotHeight),
+                            .height(lyricSlotHeight)
+                            .then(if (lyricsStyle != LyricsStyle.DEFAULT) Modifier.clipToBounds() else Modifier),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                     if (!lyricsOpen && syncedLyricsEnabled) {
@@ -4149,6 +4266,7 @@ fun NowPlayingScreen(
 
                     val transport: @Composable () -> Unit = {
                         TransportRow(
+                            compact = compactPortrait,
                             isPlaying = isPlaying,
                             isLoading = isLoading || audioVersionSwitching,
                             previousEnabled = !controlsLocked &&
@@ -4166,9 +4284,9 @@ fun NowPlayingScreen(
                         // as one. Both of its own gaps take half the spread, so on a
                         // tall screen it holds the centre rather than drifting up
                         // under the seek bar.
-                        Spacer(Modifier.height(8.dp + controlSpread / 2))
+                        Spacer(Modifier.height(transportTopGap + controlSpread / 2))
                         transport()
-                        Spacer(Modifier.height(12.dp + controlSpread / 2))
+                        Spacer(Modifier.height(transportBottomGap + controlSpread / 2))
                         VolumeRow(
                             value = { volume.level.value },
                             onValueChange = onVolumeChange,
@@ -4176,7 +4294,7 @@ fun NowPlayingScreen(
                         )
                         // The volume slider already has 13dp below its drawn track.
                         // Balance that invisible inset with the caption gap below the icons.
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(volumeBottomGap))
                     } else {
                         // No volume bar: the transport centres itself in the whole run
                         // between the scrubber and the bottom row instead. The run is
@@ -4185,7 +4303,7 @@ fun NowPlayingScreen(
                         // The scrubber draws its times 9dp above their slot, which
                         // leaves that much more visible room above; half of it moves
                         // from the top gap to the bottom one.
-                        val run = 8.dp + 12.dp + 6.dp + controlSpread + VOLUME_ROW_HEIGHT
+                        val run = transportTopGap + transportBottomGap + volumeBottomGap + controlSpread + VOLUME_ROW_HEIGHT
                         val lift = SCRUBBER_LABEL_LIFT / 2
                         Spacer(Modifier.height(run / 2 - lift))
                         transport()
@@ -4193,7 +4311,7 @@ fun NowPlayingScreen(
                     }
 
                     playerActions()
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(deckBottomPadding))
                     }
                     }
                     }

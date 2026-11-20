@@ -1480,4 +1480,7 @@
     <string name="diagnostic_report_github">เผยแพร่รายงานที่ตัดข้อมูลส่วนตัวออกแล้วบน GitHub</string>
     <string name="export_diagnostic_log">ส่งออกบันทึกการวินิจฉัย</string>
     <string name="diagnostic_report_error">ไม่สามารถเปิดหรือส่งออกรายงานการวินิจฉัยได้</string>
+    <string name="now_playing_layout">รูปแบบหน้ากำลังเล่น</string>
+    <string name="lyrics_style">สไตล์เนื้อเพลง</string>
+    <string name="video_mode">โหมดวิดีโอ</string>
 </resources>

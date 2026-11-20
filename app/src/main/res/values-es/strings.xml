@@ -1469,4 +1469,7 @@
     <string name="diagnostic_report_github">Publica un informe sin datos sensibles en GitHub.</string>
     <string name="export_diagnostic_log">Exportar registro de diagnóstico</string>
     <string name="diagnostic_report_error">No se pudo abrir ni exportar el informe de diagnóstico.</string>
+    <string name="now_playing_layout">Diseño del reproductor</string>
+    <string name="lyrics_style">Estilo de letras</string>
+    <string name="video_mode">Modo de vídeo</string>
 </resources>

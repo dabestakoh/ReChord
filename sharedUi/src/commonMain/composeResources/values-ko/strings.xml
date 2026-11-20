@@ -279,4 +279,21 @@
     <string name="mix_view_seconds">%1$d초</string>
     <string name="mix_view_bpm">%1$d bpm</string>
     <string name="listen_together_subtitle">코드를 공유하고 같은 시간에, 같은 음악을 재생합니다</string>
+    <string name="now_playing_layout">재생 화면 레이아웃</string>
+    <string name="lyrics_style">가사 스타일</string>
+    <string name="layout_default">기본</string>
+    <string name="layout_vinyl">바이닐</string>
+    <string name="layout_poster">포스터</string>
+    <string name="apply_layout">적용</string>
+    <string name="video_mode">동영상 모드</string>
+    <string name="video_searching">뮤직비디오 검색 중…</string>
+    <string name="video_missing">뮤직비디오가 없습니다</string>
+    <string name="lyrics_style_default">ReChord 기본</string>
+    <string name="lyrics_style_motion">떠오름과 빛</string>
+    <string name="lyrics_style_wave">반짝이는 강조</string>
+    <string name="lyrics_style_lift">단어 떠오름</string>
+    <string name="lyrics_style_plain">단순한 강조</string>
+    <string name="lyrics_style_sample">리듬을 따라가요</string>
+    <string name="enter_full_screen">전체 화면</string>
+    <string name="exit_full_screen">전체 화면 종료</string>
 </resources>

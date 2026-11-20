@@ -199,4 +199,21 @@
     <string name="search_library_hint">曲・アーティスト・アルバム</string>
     <string name="search_library_no_results">ローカル音楽に「%1$s」に一致するものはありません。</string>
     <string name="listen_together_subtitle">コードを共有して、同じ音楽を同時に再生</string>
+    <string name="now_playing_layout">再生画面のレイアウト</string>
+    <string name="lyrics_style">歌詞のスタイル</string>
+    <string name="layout_default">標準</string>
+    <string name="layout_vinyl">レコード</string>
+    <string name="layout_poster">ポスター</string>
+    <string name="apply_layout">適用</string>
+    <string name="video_mode">ビデオモード</string>
+    <string name="video_searching">ミュージックビデオを検索中…</string>
+    <string name="video_missing">ミュージックビデオがありません</string>
+    <string name="lyrics_style_default">ReChord 標準</string>
+    <string name="lyrics_style_motion">浮き上がりと発光</string>
+    <string name="lyrics_style_wave">きらめくハイライト</string>
+    <string name="lyrics_style_lift">単語の浮き上がり</string>
+    <string name="lyrics_style_plain">シンプルなハイライト</string>
+    <string name="lyrics_style_sample">リズムに合わせて</string>
+    <string name="enter_full_screen">全画面</string>
+    <string name="exit_full_screen">全画面を終了</string>
 </resources>

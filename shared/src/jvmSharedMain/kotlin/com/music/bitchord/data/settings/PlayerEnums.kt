@@ -27,6 +27,16 @@ enum class AudioQuality(
     ;
 }
 
+enum class NowPlayingLayout { DEFAULT, VINYL, POSTER }
+
+enum class LyricsStyle(val rises: Boolean, val blooms: Boolean, val shimmers: Boolean) {
+    DEFAULT(rises = true, blooms = true, shimmers = false),
+    MOTION(rises = true, blooms = true, shimmers = false),
+    WAVE(rises = false, blooms = false, shimmers = true),
+    LIFT(rises = true, blooms = false, shimmers = false),
+    PLAIN(rises = false, blooms = false, shimmers = false),
+}
+
 /** What the phone's main player stands on, below the artwork. */
 enum class PlayerTheme {
     /** The artwork's own colours hung off its bottom edge, as a mesh. */

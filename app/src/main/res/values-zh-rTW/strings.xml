@@ -1474,4 +1474,7 @@
     <string name="diagnostic_report_github">在 GitHub 發布已移除敏感資訊的報告。</string>
     <string name="export_diagnostic_log">匯出診斷記錄</string>
     <string name="diagnostic_report_error">無法開啟或匯出診斷報告。</string>
+    <string name="now_playing_layout">現正播放版面</string>
+    <string name="lyrics_style">歌詞樣式</string>
+    <string name="video_mode">影片模式</string>
 </resources>

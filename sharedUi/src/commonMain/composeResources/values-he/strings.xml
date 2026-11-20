@@ -199,4 +199,21 @@
     <string name="search_library_hint">שירים, אמנים ואלבומים</string>
     <string name="search_library_no_results">אין דבר במוזיקה המקומית שתואם ל-„%1$s”.</string>
     <string name="listen_together_subtitle">שתפו קוד ונגנו את אותה מוזיקה, יחד</string>
+    <string name="now_playing_layout">פריסת הנגן</string>
+    <string name="lyrics_style">סגנון המילים</string>
+    <string name="layout_default">ברירת מחדל</string>
+    <string name="layout_vinyl">תקליט</string>
+    <string name="layout_poster">כרזה</string>
+    <string name="apply_layout">החלה</string>
+    <string name="video_mode">מצב וידאו</string>
+    <string name="video_searching">מחפש קליפ…</string>
+    <string name="video_missing">אין קליפ זמין</string>
+    <string name="lyrics_style_default">ברירת המחדל של ReChord</string>
+    <string name="lyrics_style_motion">הרמה וזוהר</string>
+    <string name="lyrics_style_wave">הדגשה מנצנצת</string>
+    <string name="lyrics_style_lift">הרמת מילים</string>
+    <string name="lyrics_style_plain">הדגשה פשוטה</string>
+    <string name="lyrics_style_sample">עקבו אחר הקצב</string>
+    <string name="enter_full_screen">מסך מלא</string>
+    <string name="exit_full_screen">יציאה ממסך מלא</string>
 </resources>

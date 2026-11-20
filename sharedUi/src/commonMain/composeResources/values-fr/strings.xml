@@ -199,4 +199,21 @@
     <string name="search_library_hint">Titres, artistes et albums</string>
     <string name="search_library_no_results">Rien dans Musique locale ne correspond à « %1$s ».</string>
     <string name="listen_together_subtitle">Partagez un code et écoutez la même musique, en même temps</string>
+    <string name="now_playing_layout">Disposition du lecteur</string>
+    <string name="lyrics_style">Style des paroles</string>
+    <string name="layout_default">Par défaut</string>
+    <string name="layout_vinyl">Vinyle</string>
+    <string name="layout_poster">Affiche</string>
+    <string name="apply_layout">Appliquer</string>
+    <string name="video_mode">Mode vidéo</string>
+    <string name="video_searching">Recherche d’un clip…</string>
+    <string name="video_missing">Aucun clip disponible</string>
+    <string name="lyrics_style_default">Style ReChord</string>
+    <string name="lyrics_style_motion">Élévation et halo</string>
+    <string name="lyrics_style_wave">Balayage scintillant</string>
+    <string name="lyrics_style_lift">Mots en relief</string>
+    <string name="lyrics_style_plain">Balayage simple</string>
+    <string name="lyrics_style_sample">Suis le rythme</string>
+    <string name="enter_full_screen">Plein écran</string>
+    <string name="exit_full_screen">Quitter le plein écran</string>
 </resources>
