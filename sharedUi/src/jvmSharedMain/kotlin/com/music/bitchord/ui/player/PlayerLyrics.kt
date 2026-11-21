@@ -95,6 +95,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
@@ -820,6 +822,7 @@ private fun SweptLyricLine(
     shimmer: Boolean = false,
     styledText: AnnotatedString? = null,
     riseAmount: Dp = WORD_RISE,
+    posterWindow: PosterWordWindow? = null,
 ) {
     val lyricInk = if (color == Color.Unspecified) LocalPlayerAccent.current else color
     val text = styledText ?: remember(line.text) { AnnotatedString(line.text) }
@@ -925,7 +928,36 @@ private fun SweptLyricLine(
 
     val right = alignsRight(line.text, alignEnd, laneLocked)
     Box(
-        modifier.lyricParticles(layout, translationProgress, glowRoom),
+        modifier.then(if (posterWindow == null) Modifier else Modifier.drawWithContent {
+            val measured = layout
+            val now = clock.longValue
+            val words = line.wordSpans
+            val enterDone = posterWindow.enter + 220L + minOf(words.lastIndex, 8).coerceAtLeast(0) * 27L
+            val exit = posterWindow.exit
+            if (measured == null || words.isEmpty() || (now >= enterDone && (exit == null || now < exit))) {
+                drawContent()
+            } else {
+                val bounds = androidx.compose.ui.geometry.Rect(Offset.Zero, size)
+                val canvas = drawContext.canvas
+                canvas.saveLayer(bounds, Paint())
+                drawContent()
+                canvas.saveLayer(bounds, Paint().apply { blendMode = BlendMode.DstIn })
+                val visibleEnd = measured.getLineEnd(measured.lineCount - 1, visibleEnd = true)
+                for ((index, span) in words.withIndex()) {
+                    val end = minOf(span.last + 1, visibleEnd)
+                    if (end <= span.first) continue
+                    val delay = minOf(index, 8) * 27L
+                    val enter = ((now - posterWindow.enter - delay) / 220f).coerceIn(0f, 1f)
+                    val leave = exit?.let { ((now - it - delay / 2) / 220f).coerceIn(0f, 1f) } ?: 0f
+                    val alpha = FastOutSlowInEasing.transform(enter) * (1f - leave)
+                    if (alpha > 0f) {
+                        drawPath(measured.getPathForRange(span.first, end), Color.White.copy(alpha = alpha))
+                    }
+                }
+                canvas.restore()
+                canvas.restore()
+            }
+        }).lyricParticles(layout, translationProgress, glowRoom),
         contentAlignment = if (right) AbsoluteAlignment.TopRight else AbsoluteAlignment.TopLeft,
     ) {
         Text(
@@ -1624,82 +1656,114 @@ private fun AnimatedContentTransitionScope<*>.lyricHandoff(reduced: Boolean, tra
 @Composable
 internal fun PosterLyricSpotlight(
     lines: List<LyricLine>,
+    title: String,
     trackKey: String,
     playhead: LyricPlayhead,
     isPlaying: Boolean,
     onOpenLyrics: () -> Unit,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
-    val timed = remember(lines) {
-        lines.any { it.timeMs > 0L || it.isWordSynced || it.sungUntilMs != null }
+    val sung = remember(lines) {
+        lines.flatMap { line ->
+            listOfNotNull(line.copy(background = null), line.background?.copy(alignment = LyricAlignment.End))
+        }.filterNot { it.isGap }.sortedBy { it.timeMs }
     }
-    val index by remember(lines, clock, timed) {
+    val timed = remember(sung) { sung.any { it.timeMs > 0L || it.isWordSynced || it.sungUntilMs != null } }
+    val performed = remember(sung, timed) {
+        if (timed) sung.mapIndexed { index, line -> posterTimedLine(line, sung.getOrNull(index + 1)?.timeMs) }
+        else sung
+    }
+    val reduceMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val active by remember(performed, clock, timed, reduceMotion) {
         derivedStateOf {
-            if (timed) lines.indexOfLast { it.timeMs <= clock.longValue }
-            else lines.indexOfFirst { !it.isGap }
+            if (timed) performed.indexOfLast { it.timeMs <= clock.longValue + if (reduceMotion) 0 else 160 }
+            else if (performed.isEmpty()) -1 else 0
         }
     }
-    val line = lines.getOrNull(index)?.takeUnless { it.isGap }
-    val nextStarts = remember(lines) {
-        lines.withIndex().associate { (i, current) -> current to lines.getOrNull(i + 1)?.timeMs }
+    val holdPrevious by remember(performed, clock, reduceMotion) {
+        derivedStateOf {
+            val now = clock.longValue
+            val current = performed.getOrNull(active) ?: return@derivedStateOf false
+            val previous = performed.getOrNull(active - 1) ?: return@derivedStateOf false
+            !reduceMotion && now < maxOf(current.timeMs - 120, previous.endMs - 100) + 360L
+        }
     }
-    val style by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
-    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
-    val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val titleProgress by animateFloatAsState(
+        if (active < 0) 0f else 1f,
+        animationSpec = if (reduceMotion) snap() else tween(680, easing = FastOutSlowInEasing),
+        label = "posterTitleToCredits",
+    )
     val measurer = rememberTextMeasurer(cacheSize = 24)
     val base = MaterialTheme.typography.headlineLarge
     val ink = lerp(LocalPlayerAccent.current, Color.White, 0.66f)
+    val density = LocalDensity.current
     BoxWithConstraints(
-        Modifier.fillMaxSize()
+        Modifier.fillMaxSize().clipToBounds()
             .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics)
-            .padding(top = 14.dp, bottom = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+            .padding(top = 4.dp, bottom = 8.dp),
+        contentAlignment = Alignment.TopStart,
     ) {
         val width = constraints.maxWidth
         val height = constraints.maxHeight
-        val maxSize = with(LocalDensity.current) {
-            val widthSize = (width * 0.103f).toSp().value.coerceIn(20f, 52f)
-            val heightSize = (height / 2.36f).toSp().value.coerceAtLeast(12f)
-            minOf(widthSize, heightSize)
+        val stageHeight = maxHeight
+        if (width <= 0 || height <= 0) return@BoxWithConstraints
+
+        val current = performed.getOrNull(active)
+        val previous = performed.getOrNull(active - 1)?.takeIf { holdPrevious }
+        val overlapping = previous != null && current != null && previous.endMs > current.timeMs
+        val gap = 6.dp
+        val halfHeight = ((stageHeight - gap) / 2).coerceAtLeast(1.dp)
+
+        if (titleProgress < 1f) {
+            Text(
+                title, color = ink,
+                style = posterType(title, base, width, height, density, measurer, 4),
+                maxLines = 4, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer {
+                    val progress = titleProgress
+                    alpha = 1f - progress
+                    translationY = progress * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
+                    scaleX = 1f - progress * 0.57f
+                    scaleY = scaleX
+                    transformOrigin = TransformOrigin(0f, 0f)
+                },
+            )
         }
-        key(clock) {
-            AnimatedContent(
-                targetState = line,
-                contentAlignment = Alignment.CenterStart,
-                modifier = Modifier.fillMaxWidth(),
-                transitionSpec = { lyricHandoff(reduceAnimation, travel = 0.38f) },
-                label = "posterLyric",
-            ) { active ->
-                if (active != null && width > 0 && height > 0) {
-                    val type = remember(active, width, height, maxSize, base, measurer) {
-                        var size = maxSize
-                        var candidate: TextStyle
-                        do {
-                            candidate = base.copy(
-                                fontSize = size.sp, lineHeight = (size * 1.26f).sp,
-                                fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
-                            )
-                            val measured = measurer.measure(
-                                active.text, voiceStyle(candidate, active.text, false, false),
-                                maxLines = 4, constraints = Constraints(maxWidth = width),
-                            )
-                            if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 12f) break
-                            size = (size - 1.25f).coerceAtLeast(12f)
-                        } while (true)
-                        candidate
-                    }
-                    if (active.isWordSynced) {
-                        PresetLyricLine(
-                            active, clock, style, type, 4, styled = null,
-                            color = ink, effects = !reduceAnimation, blur = !reduceBlur,
+
+        if (overlapping) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                key(active - 1) {
+                    PosterPerformedLine(
+                        previous!!, current!!.timeMs, clock, width, with(density) { halfHeight.roundToPx() },
+                        base, ink, effects = true, blur = !reduceBlur, maxLines = 2,
+                    )
+                }
+                key(active) {
+                    PosterPerformedLine(
+                        current!!, performed.getOrNull(active + 1)?.timeMs, clock, width,
+                        with(density) { halfHeight.roundToPx() }, base, ink, effects = true,
+                        blur = !reduceBlur, maxLines = 2,
+                    )
+                }
+            }
+        } else {
+            previous?.let {
+                key(active - 1) {
+                    PosterPerformedLine(it, current?.timeMs, clock, width, height, base, ink, true, !reduceBlur, 4)
+                }
+            }
+            current?.let {
+                key(active) {
+                    if (timed) {
+                        PosterPerformedLine(
+                            it, performed.getOrNull(active + 1)?.timeMs, clock, width, height, base,
+                            ink, !reduceMotion, !reduceBlur, 4,
                         )
                     } else {
-                        val timing = active.timingSource ?: active
-                        val end = timing.sungUntilMs ?: timing.words.lastOrNull()?.endMs ?: nextStarts[active]
-                        PosterLineEffect(
-                            active, clock, type, ink, style, end,
-                            effects = timed && !reduceAnimation,
-                            blur = !reduceBlur,
+                        Text(
+                            it.text, color = ink, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                            style = posterType(it.text, base, width, height, density, measurer, 4),
                         )
                     }
                 }
@@ -1709,51 +1773,115 @@ internal fun PosterLyricSpotlight(
 }
 
 @Composable
-private fun PosterLineEffect(
+private fun PosterPerformedLine(
     line: LyricLine,
+    nextStart: Long?,
     clock: MutableLongState,
-    type: TextStyle,
+    width: Int,
+    height: Int,
+    base: TextStyle,
     ink: Color,
-    style: LyricsStyle,
-    endMs: Long?,
     effects: Boolean,
     blur: Boolean,
+    maxLines: Int,
 ) {
-    val textStyle = voiceStyle(type, line.text, false, false)
-    fun emphasis(): Float {
-        if (!effects) return 0f
-        val elapsed = clock.longValue - line.timeMs
-        val length = ((endMs ?: line.timeMs + 420L) - line.timeMs).coerceAtLeast(1L)
-        val attack = (elapsed / 130f).coerceIn(0f, 1f)
-        val release = ((length - elapsed) / 240f).coerceIn(0f, 1f)
-        return minOf(attack, release)
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer(cacheSize = 12)
+    val type = remember(line.text, base, width, height, density, measurer, maxLines) {
+        posterType(line.text, base, width, height, density, measurer, maxLines)
     }
-    Box(Modifier.graphicsLayer {
-        if (effects && style.rises) {
-            val lift = if (style == LyricsStyle.DEFAULT) 2.dp else 4.dp
-            translationY = -lift.toPx() * emphasis()
-        }
-        if (effects && style.shimmers && blur) {
-            val progress = ((clock.longValue - line.timeMs) /
-                ((endMs ?: line.timeMs + 740L) - line.timeMs).toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
-            alpha = 1f - emphasis() * (0.20f - 0.12f * progress)
-        }
-    }) {
-        if (effects && blur && style.blooms) {
-            Text(
-                text = line.text, style = textStyle, maxLines = 4,
-                color = ink, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clearAndSetSemantics {}
-                    .graphicsLayer { alpha = emphasis() * if (style == LyricsStyle.MOTION) 0.85f else 0.50f }
-                    .blur(4.dp, BlurredEdgeTreatment.Unbounded),
-            )
-        }
-        Text(
-            text = line.text, style = textStyle, maxLines = 4,
-            color = ink, overflow = TextOverflow.Ellipsis,
+    val window = remember(line, nextStart) {
+        PosterWordWindow(line.timeMs - 160, nextStart?.let { maxOf(it - 120, line.endMs - 100) })
+    }
+    val softEdge = remember(density, blur, effects) {
+        if (blur && effects && renderEffectBlurSupported) {
+            val radius = with(density) { 1.2.dp.toPx() }
+            BlurEffect(radius, radius)
+        } else null
+    }
+    val alignEnd = line.alignment == LyricAlignment.End
+    val dy: () -> Float = {
+        val now = clock.longValue
+        val entering = ((now - window.enter) / 220f).coerceIn(0f, 1f)
+        val leaving = window.exit?.let { ((now - it) / 350f).coerceIn(0f, 1f) } ?: 0f
+        (1f - entering) * 5f - leaving * 10f
+    }
+    SweptLyricLine(
+        line, clock, voiceStyle(type, line.text, alignEnd, false), dimAlpha = 0.32f,
+        modifier = Modifier.fillMaxWidth().then(
+            if (effects) Modifier.graphicsLayer {
+                val now = clock.longValue
+                translationY = dy().dp.toPx()
+                renderEffect = softEdge.takeIf { now < window.enter + 110L || (window.exit?.let { now > it + 110L } == true) }
+            } else Modifier
+        ),
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        alignEnd = alignEnd,
+        color = ink,
+        rise = effects,
+        feather = true,
+        glowAlpha = if (effects && blur) 0.85f else 0f,
+        riseAmount = 4.dp,
+        posterWindow = window.takeIf { effects },
+    )
+}
+
+private fun posterType(
+    text: String,
+    base: TextStyle,
+    width: Int,
+    height: Int,
+    density: androidx.compose.ui.unit.Density,
+    measurer: androidx.compose.ui.text.TextMeasurer,
+    maxLines: Int,
+): TextStyle {
+    var size = with(density) { minOf((width * 0.115f).toSp().value.coerceIn(20f, 56f), (height / 1.26f).toSp().value) }
+        .coerceAtLeast(10f)
+    while (true) {
+        val candidate = base.copy(
+            fontSize = size.sp, lineHeight = (size * 1.26f).sp,
+            fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
         )
+        val measured = measurer.measure(
+            text, candidate, maxLines = maxLines, constraints = Constraints(maxWidth = width),
+        )
+        if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 10f) return candidate
+        size = (size - 1.25f).coerceAtLeast(10f)
     }
 }
+
+/** Synthetic timing is local to Poster and never affects provider ranking or full lyrics. */
+private fun posterTimedLine(line: LyricLine, nextStart: Long?): LyricLine {
+    if (line.isWordSynced) return line
+    val breaker = java.text.BreakIterator.getWordInstance()
+    breaker.setText(line.text)
+    val tokens = buildList {
+        var start = breaker.first()
+        var end = breaker.next()
+        while (end != java.text.BreakIterator.DONE) {
+            val token = line.text.substring(start, end)
+            if (token.isNotBlank()) add(token)
+            start = end
+            end = breaker.next()
+        }
+    }
+    if (tokens.isEmpty()) return line
+    val end = line.sungUntilMs ?: line.timingSource?.endMs ?: nextStart ?: line.timeMs + 4_000
+    val available = (end - line.timeMs).coerceAtLeast(1)
+    val singing = (available * 0.86).toLong().coerceIn(1, minOf(available, tokens.size * 900L))
+    val total = tokens.sumOf { it.length + 1.5 }
+    var weight = 0.0
+    val words = tokens.map { token ->
+        val start = line.timeMs + (singing * weight / total).toLong()
+        weight += token.length + 1.5
+        val finish = line.timeMs + (singing * weight / total).toLong()
+        LyricWord(start, finish.coerceAtLeast(start + 1), token)
+    }
+    return line.copy(words = words)
+}
+
+private data class PosterWordWindow(val enter: Long, val exit: Long?)
 
 @Composable
 fun LyricsStyleSample(style: LyricsStyle, modifier: Modifier = Modifier) {

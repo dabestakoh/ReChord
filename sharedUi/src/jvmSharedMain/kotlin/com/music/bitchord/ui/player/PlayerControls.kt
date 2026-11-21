@@ -98,6 +98,7 @@ import org.jetbrains.compose.resources.vectorResource
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -331,6 +332,7 @@ internal fun PlaybackQualityLabel(
     song: Song,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
+    reserveSpace: Boolean = false,
 ) {
     val wifiQuality by PlayerSettings.audioQualityWifi.collectAsStateWithLifecycle()
     val cellularQuality by PlayerSettings.audioQualityCellular.collectAsStateWithLifecycle()
@@ -352,13 +354,33 @@ internal fun PlaybackQualityLabel(
     // should keep saying "loading" through that stretch rather than going
     // blank only to possibly say "loading" again a moment later.
     val racingLossless by NerdStats.racingLossless.collectAsStateWithLifecycle()
-    LosslessOrStats(
+    val badge: @Composable (Modifier) -> Unit = { placement -> LosslessOrStats(
         isLoading = isLoading,
         stillRacing = song.videoId in racingLossless,
         losslessRequested = effectiveQuality == AudioQuality.LOSSLESS,
         nerdStats = nerdStats,
-        modifier = modifier,
-    )
+        modifier = placement,
+    ) }
+    if (reserveSpace) {
+        val lossless = painterResource(Res.drawable.ic_lossless).intrinsicSize.height
+        val atmos = painterResource(Res.drawable.ic_dolby_atmos).intrinsicSize.height
+        val iconHeight = with(LocalDensity.current) { maxOf(lossless, atmos, 13.dp.toPx()).toDp() }
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Spacer(Modifier.height(iconHeight))
+            Text(
+                text = "",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = (MaterialTheme.typography.labelMedium.fontSize.value + BADGE_SIZE_BUMP).sp,
+                ),
+                minLines = 1,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+            badge(Modifier)
+        }
+    } else {
+        badge(modifier)
+    }
 }
 
 /**
@@ -366,7 +388,7 @@ internal fun PlaybackQualityLabel(
  * it what Automix's analysis is doing. Nothing at all while the setting is off.
  */
 @Composable
-internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
+internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier, reserveSpace: Boolean = false) {
     val showNerdStats by PlayerSettings.showNerdStats.collectAsStateWithLifecycle()
     if (!showNerdStats) return
     val nerdStats by NerdStats.current.collectAsStateWithLifecycle()
@@ -399,9 +421,11 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier,
     ) {
-        nerdStats?.describe()?.let { stats ->
+        val stats = nerdStats?.describe()
+        if (stats != null || reserveSpace) {
             Text(
-                text = stats,
+                text = stats.orEmpty(),
+                modifier = if (stats == null) Modifier.clearAndSetSemantics {} else Modifier,
                 style = nerdStyle,
                 color = Color.White.copy(alpha = 0.65f),
                 maxLines = 1,
@@ -441,6 +465,7 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
                 color = Color.White.copy(alpha = 0.5f),
                 // The detailed line runs long on a phone: a second line rather
                 // than an ellipsis through the part that says what the mix is.
+                minLines = if (reserveSpace) 2 else 1,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,

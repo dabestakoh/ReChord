@@ -1504,6 +1504,7 @@
     <string name="diagnostic_report_error">Não foi possível abrir ou exportar o relatório de diagnóstico.</string>
     <string name="now_playing_layout">Layout do leitor</string>
     <string name="lyrics_style">Estilo das letras</string>
+    <string name="lyrics_style_scope">Aplica-se à vista de letras expandida. O Pôster usa seu próprio efeito.</string>
     <string name="video_mode">Modo de vídeo</string>
     <string name="vinyl_appearance">Aparência do vinil</string>
 </resources>

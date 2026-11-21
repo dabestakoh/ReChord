@@ -58,7 +58,7 @@ enum class LyricsSource(
         wordSynced = true,
     ),
     LYRICS_PLUS(
-        label = "LyricsPlus",
+        label = "YouLyPlus (LyricsPlus)",
         detail = "Syllable by syllable, on community mirrors",
         wordSynced = true,
     ),
@@ -132,10 +132,11 @@ enum class LyricsSource(
 
     companion object {
         /** Every source a listener can see and choose, in default priority. */
-        val offered: List<LyricsSource> = listOf(
-            BETTER_LYRICS, LYRICS_PLUS, PAXSENIX, LRC_RED, SIMP_MUSIC, LRCLIB, DEEZER,
+        internal val standard: List<LyricsSource> = listOf(
+            LYRICS_PLUS, BETTER_LYRICS, PAXSENIX, LRC_RED, SIMP_MUSIC, LRCLIB, DEEZER,
             YOUTUBE_TRANSCRIPT, YOUTUBE_MUSIC, NETEASE, QQ_MUSIC, KUGOU, YOUTUBE_AUTO_CAPTIONS,
-        ).let { preferred -> preferred + entries.filterNot { it.hidden || it in preferred } }
+        )
+        val offered: List<LyricsSource> = standard + entries.filterNot { it.hidden || it in standard }
 
         /**
          * A saved order brought up to date with this build: hidden sources

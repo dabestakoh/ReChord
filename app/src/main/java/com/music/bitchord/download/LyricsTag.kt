@@ -2,6 +2,7 @@ package com.music.bitchord.download
 
 import com.music.bitchord.data.DebugLog as Log
 import com.music.bitchord.data.lyrics.LyricsRepository
+import com.music.bitchord.data.lyrics.lyricsArtist
 import com.music.bitchord.data.lyrics.toEnhancedLrc
 import com.music.bitchord.data.lyrics.toLrc
 import com.music.bitchord.data.model.Song
@@ -79,7 +80,7 @@ internal object LyricsTag {
                 LyricsRepository.lyrics(
                     videoId = track.videoId,
                     title = track.title,
-                    artist = track.artist,
+                    artist = track.lyricsArtist(),
                     durationMs = durationMs,
                     album = track.albumName,
                     sources = sources,

@@ -289,10 +289,10 @@
     <string name="video_searching">뮤직비디오 검색 중…</string>
     <string name="video_missing">뮤직비디오가 없습니다</string>
     <string name="lyrics_style_default">ReChord 기본</string>
-    <string name="lyrics_style_motion">떠오름과 빛</string>
-    <string name="lyrics_style_wave">반짝이는 강조</string>
-    <string name="lyrics_style_lift">단어 떠오름</string>
-    <string name="lyrics_style_plain">단순한 강조</string>
+    <string name="lyrics_style_motion">스타일 1</string>
+    <string name="lyrics_style_wave">스타일 2</string>
+    <string name="lyrics_style_lift">차분하게</string>
+    <string name="lyrics_style_plain">단순하게</string>
     <string name="lyrics_style_sample">리듬을 따라가요</string>
     <string name="enter_full_screen">전체 화면</string>
     <string name="exit_full_screen">전체 화면 종료</string>

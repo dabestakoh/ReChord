@@ -1349,6 +1349,7 @@
     <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
     <string name="now_playing_layout">재생 화면 레이아웃</string>
     <string name="lyrics_style">가사 스타일</string>
+    <string name="lyrics_style_scope">확장 가사 화면에 적용됩니다. 포스터는 전용 효과를 사용합니다.</string>
     <string name="video_mode">동영상 모드</string>
     <string name="vinyl_appearance">바이닐 모양</string>
 </resources>

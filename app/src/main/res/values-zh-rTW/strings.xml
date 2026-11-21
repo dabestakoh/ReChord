@@ -1476,6 +1476,7 @@
     <string name="diagnostic_report_error">無法開啟或匯出診斷報告。</string>
     <string name="now_playing_layout">現正播放版面</string>
     <string name="lyrics_style">歌詞樣式</string>
+    <string name="lyrics_style_scope">適用於展開的歌詞頁面。海報使用專屬歌詞效果。</string>
     <string name="video_mode">影片模式</string>
     <string name="vinyl_appearance">黑膠外觀</string>
 </resources>

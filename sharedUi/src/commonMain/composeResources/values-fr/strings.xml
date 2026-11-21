@@ -209,10 +209,10 @@
     <string name="video_searching">Recherche d’un clip…</string>
     <string name="video_missing">Aucun clip disponible</string>
     <string name="lyrics_style_default">Style ReChord</string>
-    <string name="lyrics_style_motion">Élévation et halo</string>
-    <string name="lyrics_style_wave">Balayage scintillant</string>
-    <string name="lyrics_style_lift">Mots en relief</string>
-    <string name="lyrics_style_plain">Balayage simple</string>
+    <string name="lyrics_style_motion">Style 1</string>
+    <string name="lyrics_style_wave">Style 2</string>
+    <string name="lyrics_style_lift">Sobre</string>
+    <string name="lyrics_style_plain">Simple</string>
     <string name="lyrics_style_sample">Suis le rythme</string>
     <string name="enter_full_screen">Plein écran</string>
     <string name="exit_full_screen">Quitter le plein écran</string>

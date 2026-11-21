@@ -127,11 +127,22 @@ internal object DirectCatalogLyrics {
         val credited = matchKey(artist)
         if (name.isEmpty() || credited.isEmpty()) return null
         return hits.asSequence().filter { hit ->
-            hit.titles.any { matchKey(it) == name } && (
-                hit.artists.any { matchKey(it) == credited } ||
-                    matchKey(hit.artists.joinToString(" ")) == credited
-                ) && (durationMs <= 0L || hit.durationMs?.let { abs(it - durationMs) <= 10_000L } == true)
-        }.minByOrNull { if (durationMs > 0L) abs((it.durationMs ?: durationMs) - durationMs) else 0L }
+            (durationMs <= 0L || hit.durationMs?.let { abs(it - durationMs) <= 8_000L } == true) &&
+                hit.artists.any {
+                    val candidate = matchKey(it)
+                    candidate.isNotEmpty() && (credited.contains(candidate) || candidate.contains(credited))
+                }
+        }.mapNotNull { hit ->
+            val names = hit.titles.map(::matchKey).filter(String::isNotEmpty)
+            val score = when {
+                name in names -> 2
+                names.any { it.contains(name) || name.contains(it) } -> 1
+                else -> return@mapNotNull null
+            }
+            hit to score
+        }.sortedWith(compareByDescending<Pair<Hit, Int>> { it.second }.thenBy {
+            if (durationMs > 0L) abs((it.first.durationMs ?: durationMs) - durationMs) else 0L
+        }).firstOrNull()?.first
     }
 
     private fun matchKey(text: String): String =

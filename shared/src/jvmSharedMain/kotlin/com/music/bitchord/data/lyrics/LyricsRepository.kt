@@ -43,32 +43,20 @@ object LyricsRepository {
             .distinct()
             .filter { it in sources && !it.hidden }
 
-        // Every source but [SimpMusicLyrics] is asked for a name, and
-        // YouTube's is not the name anyone catalogued. Cleaned once, here,
-        // rather than by whichever source thought to do it for itself.
         val searchTitle = title.forLyricsSearch()
         val searchArtist = artist.artistForLyricsSearch()
 
-        // Settled before anyone is asked for words, so every source that can
-        // name the recording does. What the caller knows beats what we worked
-        // out last time, and both beat asking again.
         val known = isrc?.takeIf { it.isNotBlank() } ?: isrcs[videoId]
-        val hit = if (known == null) {
-            identify(videoId, searchTitle, searchArtist, durationMs, album, sequence)
-        } else {
-            null
-        }
-        val recording = known ?: hit?.isrc?.takeIf { it.isNotBlank() }
         val documents = SharedDocuments(this)
-
-        val fallback = setOf(LyricsSource.GENIUS, LyricsSource.YOUTUBE_AUTO_CAPTIONS)
 
         suspend fun attempt(source: LyricsSource): Result? {
             onSourceStarted?.invoke(source)
             return try {
                 val answer = withTimeoutOrNull(35_000L) {
-                    fetch(source, videoId, searchTitle, searchArtist, durationMs, album,
-                        recording, hit, documents::get)
+                    val hit = if (known == null && source == LyricsSource.BINI_LYRICS) {
+                        identify(videoId, searchTitle, searchArtist, durationMs, album, sequence)
+                    } else null
+                    fetch(source, videoId, title, artist, durationMs, album, known, hit, documents::get)
                 }?.takeIf { lines -> lines.any { !it.isGap } }?.let { result(source, it) }
                 onSourceResult?.invoke(source, answer)
                 answer
@@ -85,13 +73,14 @@ object LyricsRepository {
             if (manualSelection) {
                 return@coroutineScope sequence.singleOrNull()?.let { withContext(Dispatchers.IO) { attempt(it) } }
             }
-            val candidates = sequence.filterNot { it in fallback }
+            val candidates = sequence.filter { it in LyricsSource.standard && it != LyricsSource.YOUTUBE_AUTO_CAPTIONS }
                 .map { source -> async(Dispatchers.IO) { attempt(source) } }
                 .awaitAll().filterNotNull()
             chooseLyrics(title, artist, album, candidates)
-                ?: LyricsSource.GENIUS.takeIf { it in sequence }?.let { withContext(Dispatchers.IO) { attempt(it) } }
                 ?: LyricsSource.YOUTUBE_AUTO_CAPTIONS.takeIf { it in sequence && YOUTUBE_ID.matches(videoId) }
                     ?.let { withContext(Dispatchers.IO) { attempt(it) } }
+                ?: sequence.filterNot { it in LyricsSource.standard }
+                    .firstNotNullOfOrNull { withContext(Dispatchers.IO) { attempt(it) } }
         } finally {
             documents.cancel()
         }
@@ -110,14 +99,16 @@ object LyricsRepository {
         /** Fetches a document once per lookup, however many sources want it. */
         get: suspend (String) -> String?,
     ): List<LyricLine>? {
-        val found = when (source) {
-            LyricsSource.LRC_RED -> LrcRed.lyrics(title, artist, durationMs, isrc, get)
+        val cleanTitle = title.forLyricsSearch()
+        val cleanArtist = artist.artistForLyricsSearch()
+        return when (source) {
+            LyricsSource.LRC_RED -> LrcRed.lyrics(cleanTitle, cleanArtist, durationMs, isrc, get)
             LyricsSource.BETTER_LYRICS -> BetterLyrics.lyrics(title, artist, durationMs, album)
             LyricsSource.BETTER_LYRICS_PORTATO -> BetterLyrics.portato(title, artist, durationMs, album)
             LyricsSource.LYRICS_PLUS -> LyricsPlus.lyrics(title, artist, durationMs, album, isrc, videoId)
             LyricsSource.BINI_LYRICS ->
                 (hit?.let { BiniLyrics.lyricsFor(it, get) }
-                    ?: BiniLyrics.lyrics(title, artist, durationMs, album, isrc, get))
+                    ?: BiniLyrics.lyrics(cleanTitle, cleanArtist, durationMs, album, isrc, get))
                     ?.also { remember(videoId, it.isrc) }
                     ?.lines
             LyricsSource.UNISON -> Unison.lyrics(title, artist, durationMs, album)
@@ -128,16 +119,15 @@ object LyricsRepository {
             LyricsSource.NETEASE -> DirectCatalogLyrics.netEase(title, artist, durationMs)
             LyricsSource.QQ_MUSIC -> DirectCatalogLyrics.qqMusic(title, artist, durationMs)
             LyricsSource.DEEZER -> DirectCatalogLyrics.deezer(title, artist, durationMs)
-            LyricsSource.LRCLIB -> LrcLib.lyrics(title, artist, durationMs)
+            LyricsSource.LRCLIB -> LrcLib.lyrics(title, artist, durationMs, album)
             LyricsSource.MUSIXMATCH -> Musixmatch.lyrics(title, artist, durationMs)
             LyricsSource.PAXSENIX -> PaxSenix.lyrics(title, artist, durationMs, album)
             LyricsSource.PAXSENIX_SPOTIFY -> PaxSenix.spotifyLyrics(title, artist, durationMs)
             LyricsSource.PAXSENIX_MUSIXMATCH -> PaxSenix.musixmatchLyrics(title, artist, durationMs)
             LyricsSource.KUGOU -> KuGou.lyrics(title, artist, durationMs, album)
             LyricsSource.MEGALOBIZ -> Megalobiz.lyrics(title, artist)
-            LyricsSource.GENIUS -> Genius.lyrics(title, artist)
+            LyricsSource.GENIUS -> Genius.lyrics(cleanTitle, cleanArtist)
         }
-        return found
     }
 
     /**

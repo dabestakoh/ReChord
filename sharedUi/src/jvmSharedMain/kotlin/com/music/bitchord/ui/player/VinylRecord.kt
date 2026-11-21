@@ -66,6 +66,7 @@ import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 // Keep the latest phases on the UI thread when the player leaves composition for Appearance.
@@ -78,19 +79,20 @@ private const val RECORD_HEIGHT_FRACTION = 0.446f
 
 private class RecordGeometry(size: Size, mountTopInset: Int = 0) {
     val radius = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
-    val center = Offset(size.width * 0.163f, radius)
     val unit = radius / RECORD_WIDTH_FRACTION
-    // Keep the mount clear of the centered player handle when height limits the record.
-    // Bound the offset by the record radius so the stylus can still reach the inner groove.
-    val pivot = Offset(
-        maxOf(center.x + unit * (0.887f - 0.163f), minOf(size.width * 0.64f, center.x + radius * 1.51f)),
-        maxOf(unit * 0.148f, mountTopInset + unit * 0.088f),
-    )
-    private val distance = (center - pivot).getDistance()
-    private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
     val reach = (radius * 1.39f).coerceAtLeast(1f)
     val outer = radius * 0.952f
     val inner = radius * 0.565f
+    val pivot = Offset(
+        size.width * 0.895f,
+        maxOf(size.width * 0.125f, mountTopInset + unit * 0.088f).coerceAtMost(radius * 1.6f),
+    )
+    private val vertical = radius - pivot.y
+    private val maxDistance = (reach + inner - radius * 0.02f).coerceAtLeast(0f)
+    private val maxHorizontal = sqrt((maxDistance * maxDistance - vertical * vertical).coerceAtLeast(0f))
+    val center = Offset(maxOf(size.width * 0.163f, pivot.x - maxHorizontal), radius)
+    private val distance = (center - pivot).getDistance()
+    private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
 
     fun angle(progress: Float): Float {
         val groove = outer + (inner - outer) * progress.coerceIn(0f, 1f)
@@ -157,6 +159,7 @@ internal fun VinylDisc(
     labelPlacement: ((LayoutCoordinates, () -> Float) -> Unit)? = null,
     coastOnPause: Boolean = false,
     coverAlpha: () -> Float = { 1f },
+    mountTopInset: Int = 0,
 ) {
     var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
     val foreground = com.music.bitchord.ui.rememberIsForeground()
@@ -198,12 +201,16 @@ internal fun VinylDisc(
     val darkTint = lerp(base, Color.Black, 0.74f)
 
     BoxWithConstraints(modifier) {
-        val radius = minOf(maxWidth * RECORD_WIDTH_FRACTION, maxHeight * RECORD_HEIGHT_FRACTION)
-        val at = Modifier.offset(x = maxWidth * 0.163f - radius)
+        val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
+            RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset)
+        }
+        val radius = with(androidx.compose.ui.platform.LocalDensity.current) { geometry.radius.toDp() }
+        val left = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.x - geometry.radius).toDp() }
+        val at = Modifier.offset(x = left)
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size)
+            val g = RecordGeometry(size, mountTopInset)
             val shadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
             val outer = (g.radius * 1.16f).coerceAtLeast(1f)
             val shadow = Brush.radialGradient(
@@ -363,7 +370,7 @@ internal fun VinylDisc(
             })
         }
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size)
+            val g = RecordGeometry(size, mountTopInset)
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
             val sheen = Brush.sweepGradient(
@@ -403,7 +410,7 @@ internal fun VinylDisc(
                 }
             }
         })
-        val labelModifier = Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
+        val labelModifier = Modifier.offset(x = left + radius - label, y = radius - label)
             .size(label * 2)
             .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
                 labelPlacement(it, coverAngle)

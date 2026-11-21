@@ -2317,6 +2317,7 @@ fun NowPlayingScreen(
                             if (layout == NowPlayingLayout.POSTER) {
                                 PosterLyricSpotlight(
                                     lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    title = song.title,
                                     trackKey = song.videoId,
                                     playhead = lyricsPlayhead,
                                     isPlaying = isPlaying && position.advancing,
@@ -2339,7 +2340,7 @@ fun NowPlayingScreen(
                     volume = if (hideVolumeBar) null else {
                         { VolumeRow({ volume.level.value }, onVolumeChange, onVolumeChangeFinished) }
                     },
-                    quality = { PlaybackQualityLabel(song = song, isLoading = isLoading) },
+                    quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
                     actions = { playerActions(false) },
                 )
             }

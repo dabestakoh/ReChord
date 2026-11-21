@@ -1500,6 +1500,7 @@
     <string name="diagnostic_report_error">Impossible d’ouvrir ou d’exporter le rapport de diagnostic.</string>
     <string name="now_playing_layout">Disposition du lecteur</string>
     <string name="lyrics_style">Style des paroles</string>
+    <string name="lyrics_style_scope">S’applique aux paroles en plein écran. Le mode Affiche utilise son propre effet.</string>
     <string name="video_mode">Mode vidéo</string>
     <string name="vinyl_appearance">Apparence du vinyle</string>
 </resources>

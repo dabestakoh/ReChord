@@ -209,10 +209,10 @@
     <string name="video_searching">Mencari video musik…</string>
     <string name="video_missing">Tidak ada video musik</string>
     <string name="lyrics_style_default">Bawaan ReChord</string>
-    <string name="lyrics_style_motion">Naik dan berpendar</string>
-    <string name="lyrics_style_wave">Sorotan berkilau</string>
-    <string name="lyrics_style_lift">Kata terangkat</string>
-    <string name="lyrics_style_plain">Sorotan sederhana</string>
+    <string name="lyrics_style_motion">Gaya 1</string>
+    <string name="lyrics_style_wave">Gaya 2</string>
+    <string name="lyrics_style_lift">Sederhana</string>
+    <string name="lyrics_style_plain">Polos</string>
     <string name="lyrics_style_sample">Ikuti irama</string>
     <string name="enter_full_screen">Layar penuh</string>
     <string name="exit_full_screen">Keluar dari layar penuh</string>

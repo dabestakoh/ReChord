@@ -1476,6 +1476,7 @@
     <string name="diagnostic_report_error">Laporan diagnostik tidak dapat dibuka atau diekspor.</string>
     <string name="now_playing_layout">Tata letak pemutar</string>
     <string name="lyrics_style">Gaya lirik</string>
+    <string name="lyrics_style_scope">Berlaku untuk tampilan lirik yang diperluas. Poster memakai efeknya sendiri.</string>
     <string name="video_mode">Mode video</string>
     <string name="vinyl_appearance">Tampilan vinil</string>
 </resources>

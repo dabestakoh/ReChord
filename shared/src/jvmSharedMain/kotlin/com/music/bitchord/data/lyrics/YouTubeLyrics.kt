@@ -52,14 +52,31 @@ object YouTubeTranscriptLyrics {
 
     suspend fun autoCaptions(videoId: String): List<LyricLine>? = withContext(Dispatchers.IO) {
         if (!YOUTUBE_ID.matches(videoId)) return@withContext null
-        val player = Innertube.captionPlayer(videoId)
+        for (client in Innertube.CaptionClient.entries) {
+            val player = try {
+                Innertube.captionPlayer(videoId, client)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                continue
+            }
+            readCaptions(player)?.let { return@withContext it }
+        }
+        null
+    }
+
+    private fun readCaptions(player: JsonObject): List<LyricLine>? {
         val tracks = player.objectsNamed("playerCaptionsTracklistRenderer").firstOrNull()
-            ?.get("captionTracks") as? JsonArray ?: return@withContext null
-        val auto = tracks.filterIsInstance<JsonObject>().filter { track ->
+            ?.get("captionTracks") as? JsonArray ?: return null
+        fun isAutomatic(track: JsonObject): Boolean =
             (track["kind"] as? JsonPrimitive)?.contentOrNull == "asr" ||
                 (track["vssId"] as? JsonPrimitive)?.contentOrNull?.startsWith("a.") == true
-        }
-        for (track in auto) {
+        fun language(track: JsonObject) = (track["languageCode"] as? JsonPrimitive)?.contentOrNull?.substringBefore('-')
+        val candidates = tracks.filterIsInstance<JsonObject>()
+        val automatic = candidates.firstOrNull(::isAutomatic) ?: return null
+        val original = language(automatic)
+        val uploaded = original?.let { code -> candidates.firstOrNull { !isAutomatic(it) && language(it) == code } }
+        for (track in listOfNotNull(uploaded, automatic)) {
             val url = (track["baseUrl"] as? JsonPrimitive)?.contentOrNull?.toHttpUrlOrNull() ?: continue
             if (!url.isHttps || !(url.host == "youtube.com" || url.host.endsWith(".youtube.com")) ||
                 url.encodedPath != "/api/timedtext") continue
@@ -67,22 +84,25 @@ object YouTubeTranscriptLyrics {
                 ?: continue
             val root = runCatching { lyricsJson.parseToJsonElement(body) as? JsonObject }.getOrNull()
                 ?: continue
-            parseCaptionEvents(root)?.let { return@withContext it }
+            parseCaptionEvents(root)?.let { return it }
         }
-        null
+        return null
     }
 
-    internal fun parseCaptionEvents(response: JsonObject): List<LyricLine>? =
-        (response["events"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { event ->
+    internal fun parseCaptionEvents(response: JsonObject): List<LyricLine>? {
+        var previous: String? = null
+        return (response["events"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { event ->
             val start = (event["tStartMs"] as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
             val text = (event["segs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
                 .mapNotNull { (it["utf8"] as? JsonPrimitive)?.contentOrNull }
-                .joinToString("").trim { it.isWhitespace() || it == '♪' }
-                .replace(Regex("""\s+"""), " ")
-            if (text.isEmpty()) return@mapNotNull null
+                .joinToString("").replace(Regex("""\[[^\]]+\]"""), " ").replace('♪', ' ')
+                .replace(Regex("""\s+"""), " ").trim()
+            if (text.isEmpty() || text == previous) return@mapNotNull null
+            previous = text
             val duration = (event["dDurationMs"] as? JsonPrimitive)?.longOrNull
             LyricLine(start, text, sungUntilMs = duration?.takeIf { it > 0 }?.plus(start))
         }.sortedBy { it.timeMs }.takeIf { it.isNotEmpty() }
+    }
 
 }
 

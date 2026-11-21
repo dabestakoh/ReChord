@@ -209,10 +209,10 @@
     <string name="video_searching">正在尋找音樂影片…</string>
     <string name="video_missing">沒有可用的音樂影片</string>
     <string name="lyrics_style_default">ReChord 預設</string>
-    <string name="lyrics_style_motion">上浮與亮光</string>
-    <string name="lyrics_style_wave">閃光掃過</string>
-    <string name="lyrics_style_lift">逐字上浮</string>
-    <string name="lyrics_style_plain">簡單掃過</string>
+    <string name="lyrics_style_motion">樣式 1</string>
+    <string name="lyrics_style_wave">樣式 2</string>
+    <string name="lyrics_style_lift">低調</string>
+    <string name="lyrics_style_plain">簡潔</string>
     <string name="lyrics_style_sample">跟著節奏</string>
     <string name="enter_full_screen">全螢幕</string>
     <string name="exit_full_screen">離開全螢幕</string>

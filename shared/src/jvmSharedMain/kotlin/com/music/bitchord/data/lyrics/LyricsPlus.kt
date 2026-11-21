@@ -45,6 +45,18 @@ object LyricsPlus {
         isrc: String? = null,
         videoId: String? = null,
     ): List<LyricLine>? = coroutineScope {
+        lookup(title, artist, durationMs, album, null, videoId)
+            ?: isrc?.takeIf { it.isNotBlank() }?.let { lookup(title, artist, durationMs, album, it, videoId) }
+    }
+
+    private suspend fun lookup(
+        title: String,
+        artist: String,
+        durationMs: Long,
+        album: String?,
+        isrc: String?,
+        videoId: String?,
+    ): List<LyricLine>? = coroutineScope {
         val hosts = lastGood.get()
             ?.let { listOf(it) + MIRRORS.filterNot { mirror -> mirror == it } }
             ?: MIRRORS
@@ -82,12 +94,20 @@ object LyricsPlus {
         isrc: String?,
         videoId: String?,
     ): List<LyricLine>? = withContext(Dispatchers.IO) {
-        val url = "$host/v2/lyrics/get".toHttpUrl().newBuilder()
+        val url = requestUrl(host, title, artist, durationMs, album, isrc, videoId)
+        val body = lyricsGet(url.toString(), extended = true) ?: return@withContext null
+        decode(body)
+    }
+
+    internal fun requestUrl(
+        host: String, title: String, artist: String, durationMs: Long, album: String?, isrc: String?, videoId: String?,
+    ): okhttp3.HttpUrl =
+        "$host/v2/lyrics/get".toHttpUrl().newBuilder()
             .addQueryParameter("title", title)
             .addQueryParameter("artist", artist)
             .apply {
                 val seconds = durationMs / 1000
-                if (seconds > 0) addQueryParameter("duration", seconds.toString())
+                addQueryParameter("duration", (seconds.takeIf { it > 0 } ?: -1L).toString())
                 if (!album.isNullOrBlank()) addQueryParameter("album", album)
                 // Sent alongside the name rather than instead of it: unlike
                 // [BiniLyrics] this backend aggregates several catalogues, and
@@ -96,10 +116,6 @@ object LyricsPlus {
                 if (!isrc.isNullOrBlank()) addQueryParameter("isrc", isrc)
             }
             .build()
-
-        val body = lyricsGet(url.toString(), extended = true) ?: return@withContext null
-        decode(body)
-    }
 
     internal fun decode(body: String): List<LyricLine>? {
         val envelope = runCatching { lyricsJson.parseToJsonElement(body) as? JsonObject }.getOrNull()

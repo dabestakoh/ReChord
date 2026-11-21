@@ -303,6 +303,7 @@ import com.music.bitchord.ui.components.topBarHeight
 import com.music.bitchord.ui.components.AppLanguageDialog
 import com.music.bitchord.ui.components.TranslationLanguageDialog
 import com.music.bitchord.ui.components.LyricsSourcesDialog
+import com.music.bitchord.data.lyrics.lyricsArtist
 import com.music.bitchord.ui.components.ServerEditorHost
 import com.music.bitchord.ui.components.UpdateAvailableDialog
 import com.music.bitchord.ui.components.WebDavConflictAlert
@@ -1253,14 +1254,15 @@ private fun BitChordApp(
     val lyricsSources by AppSettings.lyricsSources.collectAsStateWithLifecycle()
     val lyricsSourceOrder by AppSettings.lyricsSourceOrder.collectAsStateWithLifecycle()
     LaunchedEffect(
-        player.song?.videoId, player.durationMs, syncedLyricsEnabled, lyricsSources,
+        player.song?.videoId, player.song?.title, player.song?.lyricsArtist(), player.song?.albumName,
+        player.durationMs, syncedLyricsEnabled, lyricsSources,
         lyricsSourceOrder,
     ) {
         player.song?.let {
             viewModel.loadLyrics(
                 it.videoId,
                 it.title,
-                it.artist,
+                it.lyricsArtist(),
                 // The player's own length, and the catalogue's where it has
                 // none yet. Paused, ExoPlayer never finishes preparing the
                 // track it was skipped to, so it reports no duration at all —

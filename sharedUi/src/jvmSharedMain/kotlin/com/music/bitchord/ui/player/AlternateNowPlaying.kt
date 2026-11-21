@@ -107,7 +107,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -232,6 +231,7 @@ internal fun AlternateNowPlaying(
     }
     var dockRoot by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var posterCurveHeight by remember { mutableStateOf<Dp?>(null) }
+    var posterSeekFooter by remember { mutableStateOf(POSTER_SEEK_FOOTER) }
     var dockRestOrigin by remember { mutableStateOf<Offset?>(null) }
     var artworkSource by remember(pane) { mutableStateOf<LayoutCoordinates?>(null) }
     var artworkAngle by remember(pane) { mutableStateOf<(() -> Float)?>(null) }
@@ -301,16 +301,19 @@ internal fun AlternateNowPlaying(
                 BoxWithConstraints(Modifier.fillMaxSize().then(panelGestures)) {
                     val compact = maxHeight < 465.dp
                     val transportHeight = if (compact) 144.dp else 240.dp
-                    val posterTransport = !vinyl && pane == PlayerPane.Main && !compact
+                    val posterTransport = !vinyl && !compact
                     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
                     val controlsHeight = if (posterTransport) maxOf(86.dp, 75.dp * fontScale) else transportHeight
                     var footerHeight by remember { mutableStateOf(0) }
-                    var creditsHeight by remember { mutableStateOf(0) }
-                    val creditsClearance = with(androidx.compose.ui.platform.LocalDensity.current) {
-                        if (compact || creditsHeight == 0) 0.dp
-                        else ((controlsHeight - creditsHeight.toDp()) / 2 - 8.dp).coerceAtLeast(0.dp)
-                    }
+                    val layoutHeight = maxHeight
+                    var fullDeckHeight by remember { mutableStateOf(0) }
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    val artworkLimit = with(density) { (layoutHeight - fullDeckHeight.toDp()).coerceAtLeast(1.dp) }
+                    val safeTop = stableStatusBarInsets()
+                    val mountTopInset = if (preview) 0 else safeTop.getTop(density)
                     val reveal = deckReveal ?: remember { Animatable(1f) }
+                    val showPosterRail = posterTransport && (deckVisible || reveal.value > 0f)
+                    val paneEndInset = if (showPosterRail) 72.dp else 18.dp
                     val menu: @Composable () -> Unit = {
                         PlaybackPill(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), Modifier.menuAnchor(), onMenu)
                     }
@@ -393,9 +396,7 @@ internal fun AlternateNowPlaying(
                                         Box(artModifier) {
                                             if (vinyl) {
                                                 BoxWithConstraints(Modifier.fillMaxSize()) {
-                                                    Box(Modifier.fillMaxWidth()
-                                                        .wrapContentHeight(Alignment.Top, unbounded = true)
-                                                        .height(maxHeight + creditsClearance)) {
+                                                    Box(Modifier.fillMaxWidth().height(minOf(maxHeight, artworkLimit))) {
                                                         for ((slot, track) in tracks) key(track.swipeIdentity) {
                                                             val current = slot == 0
                                                             val request = when (slot) {
@@ -422,6 +423,7 @@ internal fun AlternateNowPlaying(
                                                                 }) else null,
                                                                 coastOnPause = active && current && !reduceAnimation,
                                                                 coverAlpha = { if (active && current) liveCoverAlpha() else 1f },
+                                                                mountTopInset = mountTopInset,
                                                             )
                                                         }
                                                         VinylTonearm(
@@ -429,33 +431,35 @@ internal fun AlternateNowPlaying(
                                                             reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
                                                             durationMs = durationMs,
                                                             trackKey = song.swipeIdentity,
-                                                            mountTopInset = if (preview) 0 else {
-                                                                val safeTop = stableStatusBarInsets()
-                                                                with(androidx.compose.ui.platform.LocalDensity.current) {
-                                                                    safeTop.getTop(this) + if (compact) {
-                                                                        (playerHandleTop(0f) + 9.dp).roundToPx()
-                                                                    } else 0
-                                                                }
-                                                            },
+                                                            mountTopInset = mountTopInset,
                                                         )
                                                     }
                                                 }
                                             } else {
                                                 BoxWithConstraints(Modifier.fillMaxSize()) {
-                                                    val previousHeight = maxHeight * if (compact) 0.59f else 0.57f
+                                                    val stageHeight = minOf(maxHeight, artworkLimit)
+                                                    val previousHeight = stageHeight * if (compact) 0.59f else 0.57f
                                                     val curveHeight = (previousHeight - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
-                                                    val lyricsRoom = minOf(maxHeight * 0.50f, maxOf(112.dp * fontScale, maxHeight * 0.27f))
-                                                    val artworkHeight = minOf(
+                                                    val lyricsRoom = minOf(stageHeight * 0.50f, maxOf(112.dp * fontScale, stageHeight * 0.30f))
+                                                    val coverHeight = (minOf(
+                                                        stageHeight - lyricsRoom,
                                                         maxWidth * 1.22f + POSTER_SEEK_FOOTER,
-                                                        (maxHeight - lyricsRoom).coerceAtLeast(previousHeight),
-                                                    )
-                                                    if (active) SideEffect { posterCurveHeight = curveHeight }
-                                                    Column(Modifier.fillMaxSize()) {
+                                                    ) - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
+                                                    // The rim is lowest at the left. Reserve its gap, the seek
+                                                    // touch radius or timestamp height, and a little text clearance.
+                                                    val seekFooter = (9.dp + maxOf(23.dp, 16.dp * fontScale) + 4.dp -
+                                                        coverHeight * 0.05f).coerceAtLeast(8.dp)
+                                                    if (active) SideEffect {
+                                                        posterCurveHeight = curveHeight
+                                                        posterSeekFooter = seekFooter
+                                                    }
+                                                    Column(Modifier.fillMaxWidth().height(stageHeight)) {
                                                         PosterArtwork(
-                                                            null, shown, Modifier.fillMaxWidth().height(artworkHeight)
+                                                            null, shown, Modifier.fillMaxWidth().height(coverHeight + seekFooter)
                                                                 .onGloballyPositioned { if (active) reportArtwork(it) }, drag,
                                                             onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
                                                             curveHeight = curveHeight,
+                                                            seekFooter = seekFooter,
                                                         ) {
                                                             for ((slot, track) in tracks) key(track.swipeIdentity) {
                                                                 val art = when (slot) {
@@ -491,14 +495,14 @@ internal fun AlternateNowPlaying(
                                     PlayerPane.Lyrics, PlayerPane.Queue -> Box(
                                         Modifier.fillMaxSize().clipToBounds()
                                             .windowInsetsPadding(stableStatusBarInsets())
-                                            .padding(start = 18.dp, top = 48.dp, end = 18.dp),
+                                            .padding(start = 18.dp, top = 48.dp, end = paneEndInset),
                                     ) {
                                         if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
                                     }
                                 }
                                 if (queuePreview != null && shownPane == PlayerPane.Main) {
                                     Box(Modifier.fillMaxSize().windowInsetsPadding(stableStatusBarInsets())
-                                        .padding(start = 18.dp, end = 18.dp, top = 48.dp)
+                                        .padding(start = 18.dp, end = paneEndInset, top = 48.dp)
                                         .graphicsLayer {
                                             alpha = ((queuePreview() - 0.45f) / 0.55f).coerceIn(0f, 1f)
                                             translationY = (1f - queuePreview()) * 26.dp.toPx()
@@ -511,14 +515,14 @@ internal fun AlternateNowPlaying(
                         SlidingPlayerDeck(visible = deckVisible, reveal = reveal, reduced = reduceAnimation,
                             modifier = Modifier.clipToBounds(),
                         ) {
-                            Column(Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth().onSizeChanged { fullDeckHeight = it.height }) {
                                 Row(
                                     Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     Column(
-                                        Modifier.weight(1f).onSizeChanged { if (vinyl) creditsHeight = it.height }.then(
+                                        Modifier.weight(1f).then(
                                             if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
                                         ),
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -559,7 +563,7 @@ internal fun AlternateNowPlaying(
                                 Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }.padding(horizontal = 20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
-                                    if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth())
+                                    if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = true)
                                     volume?.invoke()
                                     quality()
                                     actions()
@@ -568,9 +572,13 @@ internal fun AlternateNowPlaying(
                             }
                         }
                     }
-                    if (posterTransport) {
+                    if (showPosterRail) {
                         Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp)
-                            .offset { IntOffset(0, -footerHeight) }) {
+                            .offset { IntOffset(0, -footerHeight) }
+                            .graphicsLayer {
+                                alpha = reveal.value
+                                translationY = (1f - reveal.value) * footerHeight
+                            }) {
                             menu(); favorite(); previous(); play(); next()
                         }
                     }
@@ -649,7 +657,7 @@ internal fun AlternateNowPlaying(
                 }.then(if (!curved) Modifier else Modifier.drawWithCache {
                     val fraction = dock.openFraction()
                     val mask = Path().apply {
-                        addPosterMask(size, POSTER_SEEK_FOOTER.toPx(), fraction, posterCurveHeight?.toPx())
+                        addPosterMask(size, posterSeekFooter.toPx(), fraction, posterCurveHeight?.toPx())
                     }
                     onDrawWithContent { clipPath(mask) { this@onDrawWithContent.drawContent() } }
                 }), placeholder = dock.miniPainterFor(song.videoId))
@@ -804,6 +812,7 @@ internal fun PosterArtwork(
     durationMs: Long = 0L,
     reduced: Boolean = true,
     curveHeight: Dp? = null,
+    seekFooter: Dp = POSTER_SEEK_FOOTER,
     coverLayers: (@Composable () -> Unit)? = null,
 ) {
     val accent = LocalPlayerAccent.current
@@ -815,7 +824,7 @@ internal fun PosterArtwork(
     var seeking by remember { mutableStateOf(false) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { 9.dp.toPx() }
-    val footer = with(density) { POSTER_SEEK_FOOTER.toPx() }
+    val footer = with(density) { seekFooter.toPx() }
     val referenceHeight = with(density) { curveHeight?.toPx() }
     fun coverSize(size: Size) = Size(size.width, (size.height - footer).coerceAtLeast(1f))
     fun seekArc(size: Size): PosterArc {

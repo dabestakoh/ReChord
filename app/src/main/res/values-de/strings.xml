@@ -1499,6 +1499,7 @@
     <string name="diagnostic_report_error">Der Diagnosebericht konnte nicht geöffnet oder exportiert werden.</string>
     <string name="now_playing_layout">Wiedergabelayout</string>
     <string name="lyrics_style">Liedtextstil</string>
+    <string name="lyrics_style_scope">Gilt für die erweiterte Liedtextansicht. Poster verwendet einen eigenen Effekt.</string>
     <string name="video_mode">Videomodus</string>
     <string name="vinyl_appearance">Vinyl-Darstellung</string>
 </resources>

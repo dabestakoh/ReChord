@@ -1504,6 +1504,7 @@
     <string name="diagnostic_report_error">לא ניתן לפתוח או לייצא את דוח האבחון.</string>
     <string name="now_playing_layout">פריסת הנגן</string>
     <string name="lyrics_style">סגנון המילים</string>
+    <string name="lyrics_style_scope">חל על תצוגת המילים המורחבת. לפוסטר יש אפקט משלו.</string>
     <string name="video_mode">מצב וידאו</string>
     <string name="vinyl_appearance">מראה התקליט</string>
 </resources>

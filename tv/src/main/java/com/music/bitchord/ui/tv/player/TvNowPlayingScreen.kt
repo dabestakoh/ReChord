@@ -1,5 +1,7 @@
 package com.music.bitchord.ui.tv.player
 
+import com.music.bitchord.data.lyrics.lyricsArtist
+
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -109,9 +111,10 @@ fun TvNowPlayingScreen(
         viewModel.loadLyrics(
             videoId = song.videoId,
             title = song.title,
-            artist = song.artist,
+            artist = song.lyricsArtist(),
             durationMs = durationMs.coerceAtLeast(0L),
             album = song.albumName,
+            localUri = song.localUri,
         )
     }
 

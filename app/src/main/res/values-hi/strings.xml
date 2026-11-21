@@ -1499,6 +1499,7 @@
     <string name="diagnostic_report_error">निदान रिपोर्ट खोली या निर्यात नहीं की जा सकी।</string>
     <string name="now_playing_layout">प्लेयर का लेआउट</string>
     <string name="lyrics_style">गीत के बोलों की शैली</string>
+    <string name="lyrics_style_scope">यह विस्तृत गीत दृश्य पर लागू होता है। पोस्टर का अपना प्रभाव है।</string>
     <string name="video_mode">वीडियो मोड</string>
     <string name="vinyl_appearance">विनाइल का रूप</string>
 </resources>

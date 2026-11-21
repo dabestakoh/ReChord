@@ -209,10 +209,10 @@
     <string name="video_searching">संगीत वीडियो खोज रहे हैं…</string>
     <string name="video_missing">कोई संगीत वीडियो उपलब्ध नहीं</string>
     <string name="lyrics_style_default">ReChord की डिफ़ॉल्ट शैली</string>
-    <string name="lyrics_style_motion">उभार और चमक</string>
-    <string name="lyrics_style_wave">चमकती हाइलाइट</string>
-    <string name="lyrics_style_lift">शब्दों का उभार</string>
-    <string name="lyrics_style_plain">साधारण हाइलाइट</string>
+    <string name="lyrics_style_motion">शैली 1</string>
+    <string name="lyrics_style_wave">शैली 2</string>
+    <string name="lyrics_style_lift">सादा</string>
+    <string name="lyrics_style_plain">सरल</string>
     <string name="lyrics_style_sample">लय के साथ चलें</string>
     <string name="enter_full_screen">पूर्ण स्क्रीन</string>
     <string name="exit_full_screen">पूर्ण स्क्रीन से बाहर निकलें</string>

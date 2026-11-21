@@ -39,7 +39,7 @@ class ProviderLyricsTest {
     fun `hidden providers are kept but never offered`() {
         assertTrue(LyricsSource.MEGALOBIZ.hidden)
         assertTrue(LyricsSource.offered.none { it.hidden })
-        assertEquals(LyricsSource.BETTER_LYRICS, LyricsSource.ordered(emptyList()).first())
+        assertEquals(LyricsSource.LYRICS_PLUS, LyricsSource.ordered(emptyList()).first())
     }
 
     @Test

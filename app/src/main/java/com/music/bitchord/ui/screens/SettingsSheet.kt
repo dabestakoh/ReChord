@@ -3126,10 +3126,10 @@ fun SettingsChoicePage(
                 val style by AppSettings.lyricsStyle.collectAsStateWithLifecycle()
                 LyricsStyleSample(style, Modifier.fillMaxWidth().padding(ROW_INSET))
                 ChoiceGroup(
-                    options = LyricsStyle.entries,
+                    options = LyricsStyle.entries - LyricsStyle.DEFAULT,
                     selected = style,
                     label = { lyricsStyleLabel(it) },
-                    footer = null,
+                    footer = stringResource(R.string.lyrics_style_scope),
                     onSelect = AppSettings::setLyricsStyle,
                 )
             }

@@ -11,6 +11,24 @@ class LyricsProvidersTest {
     private fun json(value: String) = lyricsJson.parseToJsonElement(value) as JsonObject
 
     @Test
+    fun youLyPlusRequestPreservesCreditsAndRecordingIdentity() {
+        val primary = LyricsPlus.requestUrl(
+            "https://lyricsplus.binimum.org", "Duet (Live)", "Lead, Guest", 196_840, "Concert +", null, "za0moRpUMVY",
+        )
+        assertEquals("Duet (Live)", primary.queryParameter("title"))
+        assertEquals("Lead, Guest", primary.queryParameter("artist"))
+        assertEquals("196", primary.queryParameter("duration"))
+        assertEquals("Concert +", primary.queryParameter("album"))
+        assertEquals("za0moRpUMVY", primary.queryParameter("id"))
+        assertNull(primary.queryParameter("isrc"))
+        val retry = LyricsPlus.requestUrl(
+            "https://lyricsplus.binimum.org", "Duet (Live)", "Lead, Guest", 196_840, "Concert +", "AAABC1234567", "local:1",
+        )
+        assertEquals("AAABC1234567", retry.queryParameter("isrc"))
+        assertNull(retry.queryParameter("id"))
+    }
+
+    @Test
     fun lyricsPlusUsesSyncedThenStructuredThenPlain() {
         val mixed = """{"syncedLyrics":"[00:02.30]Timed line","lyrics":[{"time":7000,"text":"Structured"}],"plainLyrics":"Plain"}"""
         val matched = LyricsPlus.decode(mixed)?.single { !it.isGap }
@@ -67,6 +85,21 @@ class LyricsProvidersTest {
         assertEquals(original, chooseLyrics("노래", "Artist", null, listOf(translated, original)))
         assertEquals(timed, chooseLyrics("노래", "Artist", null, listOf(original, timed, sameTiming)))
         assertNull(chooseLyrics("노래", "Artist", null, listOf(translated)))
+    }
+
+    @Test
+    fun nativeEvidenceAndCatalogPriorityRemainIndependentOfProviderOrder() {
+        val latin = result(LyricsSource.LRCLIB, "You and I")
+        val singleWrongLocale = result(LyricsSource.LYRICS_PLUS, "中文歌词完整", true)
+        assertEquals(latin, chooseLyrics("Latin Title", "Artist", null, listOf(singleWrongLocale, latin)))
+
+        val devanagari = result(LyricsSource.YOUTUBE_MUSIC, "तुम मेरी दुनिया हो", true)
+        val originalRomanized = result(LyricsSource.BETTER_LYRICS, "mera dil tum hi ho")
+        assertEquals(originalRomanized, chooseLyrics("Song", "Artist", null, listOf(devanagari, originalRomanized)))
+
+        val catalog = result(LyricsSource.QQ_MUSIC, "我們一起唱歌")
+        val other = result(LyricsSource.LRCLIB, "我們一起唱歌")
+        assertEquals(catalog, chooseLyrics("我們一起唱歌", "Artist", null, listOf(other, catalog)))
     }
 
     private fun result(source: LyricsSource, text: String, wordTimed: Boolean = false) =

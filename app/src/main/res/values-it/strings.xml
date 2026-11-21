@@ -1438,6 +1438,7 @@
     <string name="diagnostic_report_error">Impossibile aprire o esportare il rapporto di diagnostica.</string>
     <string name="now_playing_layout">Layout del lettore</string>
     <string name="lyrics_style">Stile del testo</string>
+    <string name="lyrics_style_scope">Si applica alla vista dei testi estesa. Poster usa un effetto proprio.</string>
     <string name="video_mode">Modalità video</string>
     <string name="vinyl_appearance">Aspetto del vinile</string>
 </resources>

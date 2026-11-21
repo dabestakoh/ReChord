@@ -600,7 +600,7 @@ object AppSettings {
      * where a mesh is drawn once per track and then composited).
      */
     val nowPlayingLayout = MutableStateFlow(NowPlayingLayout.DEFAULT)
-    val lyricsStyle = MutableStateFlow(LyricsStyle.DEFAULT)
+    val lyricsStyle = MutableStateFlow(LyricsStyle.MOTION)
     val vinylAppearance = MutableStateFlow(VinylAppearance())
     private const val VINYL_COLOR_MODE = "vinyl_color_mode"
     private const val VINYL_FINISH = "vinyl_finish"
@@ -1101,8 +1101,8 @@ object AppSettings {
             secondaryColor = if (prefs.contains(VINYL_SECONDARY_COLOR)) prefs.getInt(VINYL_SECONDARY_COLOR, 0) else null,
         )
         val savedLyricsStyle = prefs.getString(KEY_LYRICS_STYLE, null)
-        lyricsStyle.value = LyricsStyle.entries.firstOrNull { it.name == savedLyricsStyle }
-            ?: LyricsStyle.DEFAULT
+        lyricsStyle.value = LyricsStyle.entries.firstOrNull { it.name == savedLyricsStyle && it != LyricsStyle.DEFAULT }
+            ?: LyricsStyle.MOTION
         playerTheme.value = runCatching {
             PlayerTheme.valueOf(prefs.getString(KEY_PLAYER_THEME, null).orEmpty())
         }.getOrElse {

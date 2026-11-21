@@ -1471,6 +1471,7 @@
     <string name="diagnostic_report_error">No se pudo abrir ni exportar el informe de diagnóstico.</string>
     <string name="now_playing_layout">Diseño del reproductor</string>
     <string name="lyrics_style">Estilo de letras</string>
+    <string name="lyrics_style_scope">Se aplica a la vista de letras ampliada. Póster usa su propio efecto.</string>
     <string name="video_mode">Modo de vídeo</string>
     <string name="vinyl_appearance">Aspecto del vinilo</string>
 </resources>

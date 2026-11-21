@@ -405,7 +405,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val key = lyricsLookupKey(
             videoId, sources, AppSettings.lyricsSourceOrder.value,
-        )
+        ) + listOf(title, artist, album.orEmpty())
         if (lyricsFor == key) return
         // The duration lands a beat after the track, and a database match needs
         // it. Turned away here rather than inside the job below: claiming the
