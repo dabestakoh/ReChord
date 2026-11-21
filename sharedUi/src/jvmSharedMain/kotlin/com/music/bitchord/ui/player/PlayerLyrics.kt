@@ -1810,7 +1810,7 @@ private fun PosterPerformedLine(
         (1f - entering) * 5f - leaving * 10f
     }
     SweptLyricLine(
-        line, clock, voiceStyle(type, line.text, alignEnd, false), dimAlpha = 0.32f,
+        line, clock, voiceStyle(type, line.text, alignEnd, laneLocked = alignEnd), dimAlpha = 0.32f,
         modifier = Modifier.fillMaxWidth().then(
             if (effects) Modifier.graphicsLayer {
                 val now = clock.longValue
@@ -1821,6 +1821,7 @@ private fun PosterPerformedLine(
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
         alignEnd = alignEnd,
+        laneLocked = alignEnd,
         color = ink,
         rise = effects,
         feather = true,
