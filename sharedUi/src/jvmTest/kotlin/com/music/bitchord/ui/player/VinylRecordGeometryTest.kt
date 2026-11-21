@@ -35,4 +35,15 @@ class VinylRecordGeometryTest {
             assertEquals(p, roundTrip, 0.01f)
         }
     }
+
+    @Test
+    fun maxDiscBottomKeepsVinylRimClearOfTitle() {
+        val tall = RecordGeometry(Size(411f, 915f), mountTopInset = 32, maxDiscBottom = 610f)
+        assertEquals(411f * 0.703f, tall.radius, 0.01f)
+        assertTrue(tall.center.y + tall.radius <= 610f)
+
+        val constrained = RecordGeometry(Size(393f, 851f), mountTopInset = 32, maxDiscBottom = 500f)
+        assertEquals(250f, constrained.radius, 0.01f)
+        assertTrue(constrained.center.y + constrained.radius <= 500.01f)
+    }
 }

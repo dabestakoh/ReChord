@@ -2325,6 +2325,7 @@ fun NowPlayingScreen(
                                     playhead = lyricsPlayhead,
                                     isPlaying = isPlaying && position.advancing,
                                     onOpenLyrics = openLyrics,
+                                    titleTargetCoords = LocalPosterTitleTarget.current,
                                 )
                             } else if (syncedLyricsEnabled) {
                                 CurrentLyricStrip(
@@ -2345,13 +2346,46 @@ fun NowPlayingScreen(
                     },
                     quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
                     actions = { playerActions(false) },
+                    landscape = sideways,
+                    videoAspect = videoAspectState.value,
+                    video = if (videoPresentation) {
+                        {
+                            Box(Modifier.fillMaxSize()) {
+                                if (!videoRendered || !videoMode) {
+                                    LayoutArtwork(art.request.takeIf { remoteArt != null }, Modifier.fillMaxSize())
+                                }
+                                if (videoMode) {
+                                    MusicVideoSurface(
+                                        videoId = pictureId,
+                                        fit = true,
+                                        onRenderedChanged = { videoRendered = it },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                                VideoCornerControls(
+                                    fullscreen = false,
+                                    onToggleFullscreen = enterFullscreen,
+                                    onOpenQuality = { showVideoQuality = true },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                )
+                                if (videoStatus != null) {
+                                    Text(
+                                        videoStatus,
+                                        color = Color.White,
+                                        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                                    )
+                                }
+                            }
+                        }
+                    } else null,
                 )
             }
         } else if (landscape) {
             // Paused always wins outright over a scrub in progress — see
-            // [ARTWORK_PAUSE_SHRINK_SCALE].
+            // [ARTWORK_PAUSE_SHRINK_SCALE]. Keep video mode unscaled.
             val landscapeArtScale by animateFloatAsState(
                 targetValue = when {
+                    videoPresentation -> ARTWORK_EXPANDED_SCALE
                     !isPlaying -> ARTWORK_PAUSE_SHRINK_SCALE
                     scrub.scrubbing -> ARTWORK_DRAG_SHRINK_SCALE
                     else -> ARTWORK_EXPANDED_SCALE
@@ -2411,6 +2445,7 @@ fun NowPlayingScreen(
                         queueOpen -> PlayerPane.Queue
                         else -> PlayerPane.Main
                     },
+                    artworkAspect = if (videoPresentation) videoAspectState.value.coerceIn(1.2f, 2.4f) else 1f,
                     background = { backgroundModifier ->
                         // The whole screen is the sheets' frost source: there is
                         // no full-bleed banner here to be it instead.

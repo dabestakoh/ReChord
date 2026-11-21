@@ -112,6 +112,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalDensity
@@ -1666,6 +1667,7 @@ internal fun PosterLyricSpotlight(
     onOpenLyrics: () -> Unit,
     subLines: List<LyricLine>? = null,
     subAlpha: Float = 0.56f,
+    titleTargetCoords: (() -> androidx.compose.ui.layout.LayoutCoordinates?)? = null,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
     val entries = remember(lines, subLines, subAlpha) {
@@ -1692,9 +1694,11 @@ internal fun PosterLyricSpotlight(
     val titleShown by remember { derivedStateOf { found.value < 0.999f } }
     val fontFamily = MaterialTheme.typography.headlineLarge.fontFamily
     val ink = lerp(LocalPlayerAccent.current, Color.White, 0.66f)
+    var boxCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
 
     BoxWithConstraints(
         Modifier.fillMaxSize()
+            .onGloballyPositioned { boxCoords = it }
             .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics)
             .padding(top = 4.dp, bottom = 8.dp),
         contentAlignment = Alignment.TopStart,
@@ -1740,13 +1744,23 @@ internal fun PosterLyricSpotlight(
         }
 
         if (titleShown) {
+            val targetTitleSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         val f = found.value
-                        translationY = f * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
-                        val s = 1f - 0.57f * f
+                        val from = boxCoords?.takeIf { it.isAttached }
+                        val to = titleTargetCoords?.invoke()?.takeIf { it.isAttached }
+                        if (from != null && to != null) {
+                            val delta = from.localPositionOf(to, Offset.Zero)
+                            translationX = delta.x * f
+                            translationY = delta.y * f
+                        } else {
+                            translationY = f * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
+                        }
+                        val targetScale = (targetTitleSizeSp / baseSize.value).coerceIn(0.35f, 0.75f)
+                        val s = 1f + (targetScale - 1f) * f
                         scaleX = s
                         scaleY = s
                         transformOrigin = TransformOrigin(0f, 0f)

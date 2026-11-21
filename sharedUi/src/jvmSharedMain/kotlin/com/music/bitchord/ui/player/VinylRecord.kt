@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -51,13 +52,17 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.VinylAppearance
 import com.music.bitchord.data.settings.VinylColorMode
 import com.music.bitchord.data.settings.VinylFinish
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
@@ -65,6 +70,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
@@ -77,8 +83,11 @@ private val lastRecordPhases = object : LinkedHashMap<String, Float>(8, 0.75f, t
 private const val RECORD_WIDTH_FRACTION = 0.703f
 private const val RECORD_HEIGHT_FRACTION = 0.446f
 
-internal class RecordGeometry(size: Size, mountTopInset: Int = 0) {
-    val radius = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
+internal class RecordGeometry(size: Size, mountTopInset: Int = 0, maxDiscBottom: Float? = null) {
+    val radius = run {
+        val base = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
+        if (maxDiscBottom != null && maxDiscBottom > 0f) minOf(base, maxDiscBottom / 2f) else base
+    }
     val unit = radius / RECORD_WIDTH_FRACTION
     val reach = (radius * 1.39f).coerceAtLeast(1f)
     val outer = radius * 0.952f
@@ -160,6 +169,7 @@ internal fun VinylDisc(
     coastOnPause: Boolean = false,
     coverAlpha: () -> Float = { 1f },
     mountTopInset: Int = 0,
+    maxDiscBottom: Float? = null,
 ) {
     var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
     val foreground = com.music.bitchord.ui.rememberIsForeground()
@@ -202,7 +212,7 @@ internal fun VinylDisc(
 
     BoxWithConstraints(modifier) {
         val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
-            RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset)
+            RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset, maxDiscBottom)
         }
         val radius = with(androidx.compose.ui.platform.LocalDensity.current) { geometry.radius.toDp() }
         val left = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.x - geometry.radius).toDp() }
@@ -210,7 +220,7 @@ internal fun VinylDisc(
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size, mountTopInset)
+            val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
             val shadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
             val outer = (g.radius * 1.16f).coerceAtLeast(1f)
             val shadow = Brush.radialGradient(
@@ -444,6 +454,7 @@ internal fun VinylTonearm(
     durationMs: Long = 0L,
     trackKey: String? = null,
     mountTopInset: Int = 0,
+    maxDiscBottom: Float? = null,
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -451,6 +462,21 @@ internal fun VinylTonearm(
     val lift by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "tonearmLift",
     )
+    val seekArcAlpha by animateFloatAsState(
+        if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else tween(220), label = "tonearmSeekArc",
+    )
+    val peekAlpha = remember { Animatable(0f) }
+    LaunchedEffect(trackKey, durationMs > 0L, reduced, onScrub != null) {
+        if (reduced || durationMs <= 0L || onScrub == null || trackKey == null) {
+            peekAlpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        peekAlpha.animateTo(1f, tween(260))
+        delay(3_000L)
+        peekAlpha.animateTo(0f, tween(520))
+    }
+    val useGpuShadow = renderEffectBlurSupported && !blurReduced
+    val shadowLayer = if (useGpuShadow) rememberGraphicsLayer() else null
     val lastDrawn = remember { TonearmPose(shown()) }
     val start = remember { TonearmPose(shown()) }
     val trip = remember { Animatable(1f) }
@@ -488,7 +514,7 @@ internal fun VinylTonearm(
     val gesture = Modifier.seekArtwork(
         armPosition, onScrub, onFinish, onCancel, claimDown = true,
         accepts = { bounds, down, tolerance, fraction ->
-            val g = RecordGeometry(bounds, mountTopInset)
+            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom)
             val arm = g.tip(fraction) - g.pivot
             val delta = down - g.pivot
             val projection = ((arm.x * delta.x + arm.y * delta.y) / (arm.x * arm.x + arm.y * arm.y)).coerceIn(0f, 1f)
@@ -496,7 +522,7 @@ internal fun VinylTonearm(
         },
         along = { _, _, _ -> true },
         fraction = { bounds, down, current, initial ->
-            val g = RecordGeometry(bounds, mountTopInset)
+            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom)
             val before = down - g.pivot
             val after = current - g.pivot
             val change = atan2(after.y, after.x) - atan2(before.y, before.x)
@@ -505,7 +531,7 @@ internal fun VinylTonearm(
         onDragging = { seeking = it; onSeeking(it) },
     )
     Canvas(modifier.then(gesture).artworkSeekControls(shown, durationMs, onScrub, onFinish)) {
-        val g = RecordGeometry(size, mountTopInset)
+        val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
         val mountSize = Size(u * 0.143f, u * 0.245f)
@@ -537,26 +563,46 @@ internal fun VinylTonearm(
         val swing = degrees(g.angle(arm))
         val dim = if (blurReduced) 0.34f else 0.52f
         val shift = u * (0.010f + 0.014f * raised)
-        for (i in 0..if (blurReduced) 0 else 4) {
-            val p = g.pivot + Offset(shift + u * i * 0.002f, shift * 1.5f)
-            rotate(swing, p) {
-                drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.1f) / if (blurReduced) 1f else 5f))
+        if (shadowLayer != null && size.width > 1f && size.height > 1f) {
+            val res = 0.5f
+            val blurRadius = (u * (0.012f + 0.020f * raised) * res).coerceAtLeast(1f)
+            shadowLayer.renderEffect = BlurEffect(blurRadius, blurRadius, TileMode.Decal)
+            val box = IntSize(
+                (size.width * res).roundToInt().coerceAtLeast(1),
+                (size.height * res).roundToInt().coerceAtLeast(1),
+            )
+            val p = g.pivot + Offset(shift, shift * 1.5f)
+            shadowLayer.record(box) {
+                scale(res, res, pivot = Offset.Zero) {
+                    rotate(swing, p) {
+                        drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.1f).coerceIn(0.15f, 0.6f)))
+                    }
+                }
+            }
+            scale(1f / res, 1f / res, pivot = Offset.Zero) { drawLayer(shadowLayer) }
+        } else {
+            for (i in 0..if (blurReduced) 0 else 4) {
+                val p = g.pivot + Offset(shift + u * i * 0.002f, shift * 1.5f)
+                rotate(swing, p) {
+                    drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.1f) / if (blurReduced) 1f else 5f))
+                }
             }
         }
         rotate(swing, g.pivot) {
             val liftScale = 1f + raised * 0.018f
             scale(liftScale, liftScale, g.pivot) { drawArm(g.pivot, g.reach, u, null) }
         }
-        if (seeking) {
+        val arcAlpha = maxOf(seekArcAlpha, peekAlpha.value).coerceIn(0f, 1f)
+        if (arcAlpha > 0.01f) {
             val center = g.pivot
             val reach = g.reach * 1.045f
             val from = degrees(g.angle(0f))
             val sweep = degrees(g.angle(1f)) - from
             val top = center - Offset(reach, reach)
-            val ink = Color.White.copy(alpha = 0.65f)
-            drawArc(ink.copy(alpha = 0.33f), from, sweep, false, top, Size(reach * 2, reach * 2), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+            val ink = Color.White.copy(alpha = 0.65f * arcAlpha)
+            drawArc(ink.copy(alpha = 0.33f * arcAlpha), from, sweep, false, top, Size(reach * 2, reach * 2), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
             drawArc(ink, from, swing - from, false, top, Size(reach * 2, reach * 2), style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
-            if (durationMs > 0L) {
+            if (seeking && durationMs > 0L) {
                 val tip = g.tip(shown())
                 val label = measurer.measure(formatTime((durationMs * shown()).toLong()), timeStyle)
                 val at = Offset(

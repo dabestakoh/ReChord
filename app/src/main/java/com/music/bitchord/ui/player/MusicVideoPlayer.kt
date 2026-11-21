@@ -91,12 +91,12 @@ object MusicVideoEngine {
     private const val TAG = "MusicVideo"
 
     /** Past this the picture jumps to the audio; under it, its rate is nudged. */
-    private const val SEEK_DRIFT_MS = 450L
+    private const val SEEK_DRIFT_MS = 280L
     private const val IGNORE_DRIFT_MS = 25L
-    private const val SYNC_EVERY_MS = 250L
+    private const val SYNC_EVERY_MS = 180L
 
     /** No second seek inside this, while the first is still landing. */
-    private const val SEEK_COOLDOWN_MS = 1_500L
+    private const val SEEK_COOLDOWN_MS = 900L
 
     /** How long the picture outlives its last surface: a rotation, a sheet reopened. */
     private const val RELEASE_GRACE_MS = 4_000L
@@ -138,8 +138,8 @@ object MusicVideoEngine {
     private var lastSeekAt = 0L
     private var seekStartedAt = 0L
 
-    /** How far ahead of the audio a seek is aimed: what the last one took to land. */
-    private var seekLeadMs = 250L
+    /** How far ahead of the audio a seek is aimed: what the last mid-playback seek took to land. */
+    private var seekLeadMs = 180L
 
     /** Resolved streams by video: the stream, the height it was asked at, and when. */
     private val streams = LinkedHashMap<String, Triple<InnerTubeXResolver.VideoStream, Int, Long>>()
@@ -250,7 +250,7 @@ object MusicVideoEngine {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY && seekStartedAt > 0L) {
                 val took = System.currentTimeMillis() - seekStartedAt
-                seekLeadMs = ((seekLeadMs + took) / 2).coerceIn(0L, 1_500L)
+                seekLeadMs = ((seekLeadMs + took) / 2).coerceIn(0L, 500L)
                 seekStartedAt = 0L
             }
         }
@@ -439,19 +439,12 @@ object MusicVideoEngine {
     ): ((Long) -> Long)? {
         if (source.videoId == target.videoId) return { it }
         YtMusicRepository.versionTimeMap(source.videoId, target.videoId)?.let { return it::map }
-        if (audioLyrics.any { it.timeMs > 0L }) {
-            val duration = controller?.duration?.takeIf { it > 0L } ?: source.durationMillis()
-            val lyricsOffset = AppSettings.lyricsOffsetMs.value
-            withTimeoutOrNull(4_000L) {
-                val captions = YouTubeTranscriptLyrics.lyrics(target.videoId).orEmpty()
-                withContext(Dispatchers.Default) {
-                    videoCaptionTimeMap(audioLyrics, captions, duration, lyricsOffset)
-                }
-            }?.let { return it::map }
+        VersionAudioAligner.getCachedOffsetMs(source.videoId, target.videoId)?.let { offset ->
+            return { position -> (position + offset).coerceAtLeast(0L) }
         }
-        val offset = VersionAudioAligner.getCachedOffsetMs(source.videoId, target.videoId)
-            ?: withTimeoutOrNull(20_000L) {
-                coroutineScope {
+        return coroutineScope {
+            val audioJob = async {
+                withTimeoutOrNull(20_000L) {
                     val headReads = listOf(source, target).filter { it.localUri == null }.map { song ->
                         async(Dispatchers.IO) {
                             val uri = Uri.parse(AutomixAnalysisSource.opusUri(song.videoId))
@@ -461,8 +454,28 @@ object MusicVideoEngine {
                     headReads.forEach { it.await() }
                     VersionAudioAligner.findOffsetMs(context, source, target)
                 }
-            } ?: return null
-        return { position -> (position + offset).coerceAtLeast(0L) }
+            }
+            val captionJob = if (audioLyrics.any { it.timeMs > 0L }) {
+                val duration = controller?.duration?.takeIf { it > 0L } ?: source.durationMillis()
+                val lyricsOffset = AppSettings.lyricsOffsetMs.value
+                async {
+                    withTimeoutOrNull(4_000L) {
+                        val captions = YouTubeTranscriptLyrics.lyrics(target.videoId).orEmpty()
+                        withContext(Dispatchers.Default) {
+                            videoCaptionTimeMap(audioLyrics, captions, duration, lyricsOffset)
+                        }
+                    }
+                }
+            } else {
+                null
+            }
+            val audioOffset = audioJob.await()
+            if (audioOffset != null) {
+                captionJob?.cancel()
+                return@coroutineScope { position: Long -> (position + audioOffset).coerceAtLeast(0L) }
+            }
+            captionJob?.await()?.let { it::map }
+        }
     }
 
     private fun ensurePlayer(context: Context): ExoPlayer = player ?: ExoPlayer.Builder(context)
@@ -611,7 +624,7 @@ object MusicVideoEngine {
             exo.playWhenReady = controller?.isPlaying == true
             exo.prepare()
             lastSeekAt = System.currentTimeMillis()
-            seekStartedAt = lastSeekAt
+            seekStartedAt = 0L
             startSync()
         }
     }
@@ -693,8 +706,8 @@ object MusicVideoEngine {
             if (now - lastSeekAt > SEEK_COOLDOWN_MS) seek(exo, picturePosition(audio.currentPosition + seekLeadMs))
             return
         }
-        // Catch up (or wait) over about a second, rather than jumping.
-        val nudge = if (abs(drift) > IGNORE_DRIFT_MS) (-drift / 1000f).coerceIn(-0.1f, 0.1f) else 0f
+        // Catch up (or wait) smoothly rather than jumping.
+        val nudge = if (abs(drift) > IGNORE_DRIFT_MS) (-drift / 650f).coerceIn(-0.15f, 0.15f) else 0f
         setSpeed(exo, speed * (1f + nudge))
     }
 
