@@ -5,94 +5,29 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Where the player gets its lyrics.
- *
- * Sources tried in [order] — the user's own priority list in Settings,
- * defaulting to [LyricsSource.offered]; a [hidden][LyricsSource.hidden] one is
- * never asked, whatever the saved settings say:
- *
- *  - [LrcRed] — Apple Music TTML filed by ISRC, and the catalogue
- *    [BiniLyrics] itself answers from.
- *  - [BetterLyrics], [PaxSenix] and [BiniLyrics] — Apple Music TTML,
- *    per-syllable, from three independent hosts so one having a bad day
- *    doesn't cost the timing.
- *  - [LyricsPlus] — the YouLy+ backend; finest timing of the lot, flakiest hosting.
- *  - [SimpMusicLyrics] — keyed on the video id, so it can't fetch the wrong edit.
- *  - [Unison] — contributed rather than licensed; thin, and occasionally the
- *    only place a track exists.
- *  - [LrcLib], [Musixmatch], [KuGou] — line-synced only, but between them
- *    almost always up, and [KuGou] carries a lot that the others don't.
- *
- * Every enabled source is asked *at the same time*, but their answers are
- * taken in [order]: the loop awaits them one at a time in that sequence, so a
- * lower-priority source finishing first never preempts one still pending
- * ahead of it. Asked one after another instead, a miss on each source would
- * cost its own round trip before the next was even tried, and a track with no
- * lyrics anywhere would spend the best part of a minute finding that out with
- * eight of them. Run together, a miss costs whatever the slowest one needed
- * to still be waited on took.
- *
- * A word-timed answer wins outright. Failing that, a line-timed one is taken
- * from the highest-priority source that had it — better a whole line lighting
- * up in sync than the right animation on lyrics that don't exist.
- *
- * ### Matching on the recording
- *
- * Everything above matches a *name*, and a name is ambiguous in a way that
- * matters: a single and its album cut share a title, an artist and very nearly
- * a length, and routinely differ in the words. An ISRC names one recording and
- * settles it. Two sources accept one — [BiniLyrics] and [LyricsPlus] — and
- * [BiniLyrics] is also the one that hands them out, reporting the ISRC of
- * whatever its own search matched.
- *
- * So the recording is settled *before* anybody is asked for words: one small
- * search against [BiniLyrics], whose answer is a name every other source can
- * use. It costs a round trip at the head of the lookup, which is why it is
- * capped at [IDENTIFY_TIMEOUT_MS] and why its result is kept against the video
- * id — a track asked about twice pays for this once. A downloaded or local file
- * can skip it entirely: its own tags name the recording, which is what the
- * [isrc] parameter is for.
- *
- * Only run when the user has [LyricsSource.BINI_LYRICS] enabled. It is a
- * request to a third party like any other, and a source somebody has turned off
- * is a source this app does not contact — not even for something it would only
- * use to help the sources they left on.
- */
+/** Concurrent catalogue lookup with recording identity and staged fallbacks. */
 object LyricsRepository {
 
     /** Lyrics, and which source they turned out to come from. */
     data class Result(val source: LyricsSource, val lines: List<LyricLine>)
 
-    /**
-     * [sources] is the user's pick from Settings; anything not in it is not
-     * contacted at all. An empty set means no lyrics, which is the same answer
-     * as switching the feature off. [order] is tried first-to-last; a source
-     * missing from it (an upgrade that added one after the order was last
-     * saved) falls in after everything named, in [LyricsSource]'s own order.
-     *
-     * [prioritizeSyllableSync] decides what happens once *something* has come
-     * back: off, the highest-priority source's own answer is taken as-is,
-     * word-synced or not — priority is priority, and second-guessing it with
-     * more network calls after it has already answered is not what "first"
-     * was supposed to mean. On, a merely line-synced answer is kept only as a
-     * fallback, and the search keeps going through the rest of [order] for a
-     * word-synced one, taking the top-priority source that has one.
-     */
+    /** The saved [order] breaks ties between equally suitable results from enabled [sources]. */
     suspend fun lyrics(
         videoId: String,
         title: String,
         artist: String,
         durationMs: Long,
         album: String? = null,
-        sources: Set<LyricsSource> = LyricsSource.entries.toSet(),
-        order: List<LyricsSource> = LyricsSource.entries,
-        prioritizeSyllableSync: Boolean = false,
+        sources: Set<LyricsSource> = LyricsSource.offered.toSet(),
+        order: List<LyricsSource> = LyricsSource.offered,
+        manualSelection: Boolean = false,
         isrc: String? = null,
         /** Called from the provider job itself, including for lazily-started providers. */
         onSourceStarted: ((LyricsSource) -> Unit)? = null,
@@ -126,54 +61,38 @@ object LyricsRepository {
         val recording = known ?: hit?.isrc?.takeIf { it.isNotBlank() }
         val documents = SharedDocuments(this)
 
-        // Genius is a plain text web scraper. To preserve bandwidth and avoid rate-limiting,
-        // it starts lazily and is only contacted if all higher-priority synced sources miss.
-        val racing: List<Pair<LyricsSource, Deferred<Result?>>> = sequence.map { source ->
-            val startMode = if (source == LyricsSource.GENIUS) kotlinx.coroutines.CoroutineStart.LAZY else kotlinx.coroutines.CoroutineStart.DEFAULT
-            source to async(Dispatchers.IO, start = startMode) {
-                onSourceStarted?.invoke(source)
-                try {
-                    val found = fetch(
-                        source,
-                        videoId,
-                        searchTitle,
-                        searchArtist,
-                        durationMs,
-                        album,
-                        recording,
-                        hit,
-                        documents::get,
-                    )?.let { result(source, it) }
-                    onSourceResult?.invoke(source, found)
-                    found
-                } catch (cancelled: CancellationException) {
-                    onSourceCancelled?.invoke(source)
-                    throw cancelled
-                } catch (_: Exception) {
-                    onSourceResult?.invoke(source, null)
-                    null
-                }
+        val fallback = setOf(LyricsSource.GENIUS, LyricsSource.YOUTUBE_AUTO_CAPTIONS)
+
+        suspend fun attempt(source: LyricsSource): Result? {
+            onSourceStarted?.invoke(source)
+            return try {
+                val answer = withTimeoutOrNull(35_000L) {
+                    fetch(source, videoId, searchTitle, searchArtist, durationMs, album,
+                        recording, hit, documents::get)
+                }?.takeIf { lines -> lines.any { !it.isGap } }?.let { result(source, it) }
+                onSourceResult?.invoke(source, answer)
+                answer
+            } catch (cancelled: CancellationException) {
+                onSourceCancelled?.invoke(source)
+                throw cancelled
+            } catch (_: Exception) {
+                onSourceResult?.invoke(source, null)
+                null
             }
         }
 
         try {
-            var lineSynced: Result? = null
-            for ((source, job) in racing) {
-                // If we already found a line-synced or better result, skip Genius completely
-                if (lineSynced != null && source == LyricsSource.GENIUS) continue
-
-                val found = runCatching { job.await() }.getOrNull() ?: continue
-                if (found.lines.any { it.isWordSynced }) return@coroutineScope found
-                if (!prioritizeSyllableSync && found.lines.any { it.timeMs > 0 }) {
-                    return@coroutineScope found
-                }
-                if (lineSynced == null) lineSynced = found
+            if (manualSelection) {
+                return@coroutineScope sequence.singleOrNull()?.let { withContext(Dispatchers.IO) { attempt(it) } }
             }
-            lineSynced
+            val candidates = sequence.filterNot { it in fallback }
+                .map { source -> async(Dispatchers.IO) { attempt(source) } }
+                .awaitAll().filterNotNull()
+            chooseLyrics(title, artist, album, candidates)
+                ?: LyricsSource.GENIUS.takeIf { it in sequence }?.let { withContext(Dispatchers.IO) { attempt(it) } }
+                ?: LyricsSource.YOUTUBE_AUTO_CAPTIONS.takeIf { it in sequence && YOUTUBE_ID.matches(videoId) }
+                    ?.let { withContext(Dispatchers.IO) { attempt(it) } }
         } finally {
-            // Whoever lost the race is no longer worth waiting on, and
-            // coroutineScope will not return while they are still running.
-            racing.forEach { it.second.cancel() }
             documents.cancel()
         }
     }
@@ -195,7 +114,7 @@ object LyricsRepository {
             LyricsSource.LRC_RED -> LrcRed.lyrics(title, artist, durationMs, isrc, get)
             LyricsSource.BETTER_LYRICS -> BetterLyrics.lyrics(title, artist, durationMs, album)
             LyricsSource.BETTER_LYRICS_PORTATO -> BetterLyrics.portato(title, artist, durationMs, album)
-            LyricsSource.LYRICS_PLUS -> LyricsPlus.lyrics(title, artist, durationMs, album, isrc)
+            LyricsSource.LYRICS_PLUS -> LyricsPlus.lyrics(title, artist, durationMs, album, isrc, videoId)
             LyricsSource.BINI_LYRICS ->
                 (hit?.let { BiniLyrics.lyricsFor(it, get) }
                     ?: BiniLyrics.lyrics(title, artist, durationMs, album, isrc, get))
@@ -205,6 +124,10 @@ object LyricsRepository {
             LyricsSource.SIMP_MUSIC -> SimpMusicLyrics.lyrics(videoId, durationMs)
             LyricsSource.YOUTUBE_TRANSCRIPT -> YouTubeTranscriptLyrics.lyrics(videoId)
             LyricsSource.YOUTUBE_MUSIC -> YouTubeMusicLyrics.lyrics(videoId)
+            LyricsSource.YOUTUBE_AUTO_CAPTIONS -> YouTubeTranscriptLyrics.autoCaptions(videoId)
+            LyricsSource.NETEASE -> DirectCatalogLyrics.netEase(title, artist, durationMs)
+            LyricsSource.QQ_MUSIC -> DirectCatalogLyrics.qqMusic(title, artist, durationMs)
+            LyricsSource.DEEZER -> DirectCatalogLyrics.deezer(title, artist, durationMs)
             LyricsSource.LRCLIB -> LrcLib.lyrics(title, artist, durationMs)
             LyricsSource.MUSIXMATCH -> Musixmatch.lyrics(title, artist, durationMs)
             LyricsSource.PAXSENIX -> PaxSenix.lyrics(title, artist, durationMs, album)

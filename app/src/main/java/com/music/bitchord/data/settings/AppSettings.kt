@@ -633,16 +633,6 @@ object AppSettings {
      */
     val lyricsSourceOrder = MutableStateFlow<List<LyricsSource>>(LyricsSource.offered)
 
-    /**
-     * Off, the highest-priority source to answer at all is taken as the
-     * lyrics, word-synced or not. On, a merely line-synced answer is held as
-     * a fallback while the rest of [lyricsSourceOrder] is still checked for a
-     * word-synced one — worth the extra network calls to some, not to others,
-     * which is why it defaults off rather than being how [LyricsRepository]
-     * always behaved.
-     */
-    val prioritizeSyllableSync = MutableStateFlow(false)
-
     /** User-issued credential required by api.paxsenix.org. */
     val paxSenixApiKey = MutableStateFlow("")
 
@@ -1126,7 +1116,6 @@ object AppSettings {
         syncedLyrics.value = prefs.getBoolean(KEY_SYNCED_LYRICS, true)
         lyricsSources.value = readLyricsSources()
         lyricsSourceOrder.value = readLyricsSourceOrder()
-        prioritizeSyllableSync.value = prefs.getBoolean(KEY_PRIORITIZE_SYLLABLE_SYNC, false)
         paxSenixApiKey.value = prefs.getString(KEY_PAXSENIX_API_KEY, "").orEmpty()
         com.music.bitchord.data.lyrics.PaxSenix.setApiKey(paxSenixApiKey.value)
         audioCacheLimitBytes.value = clampCacheLimit(prefs.getLong(KEY_CACHE_LIMIT, DEFAULT_CACHE_LIMIT_BYTES))
@@ -1722,11 +1711,6 @@ object AppSettings {
         return LyricsSource.ordered(saved)
     }
 
-    fun setPrioritizeSyllableSync(value: Boolean) {
-        prioritizeSyllableSync.value = value
-        prefs.edit().putBoolean(KEY_PRIORITIZE_SYLLABLE_SYNC, value).apply()
-    }
-
     fun setPaxSenixApiKey(value: String) {
         val normalized = com.music.bitchord.data.lyrics.normalizePaxSenixApiKey(value)
         paxSenixApiKey.value = normalized
@@ -1735,14 +1719,12 @@ object AppSettings {
     }
 
     /**
-     * Puts the source list, its order and [prioritizeSyllableSync] back the
-     * way a fresh install finds them. [syncedLyrics] itself is left alone —
+     * Restores the source list and order from a fresh install. [syncedLyrics] itself is left alone —
      * this is "start over on *which* lyrics", not "turn lyrics off".
      */
     fun resetLyricsSourceSettings() {
         setLyricsSources(LyricsSource.offered.toSet())
         setLyricsSourceOrder(LyricsSource.offered)
-        setPrioritizeSyllableSync(false)
     }
 
     fun setAnimatedCanvas(value: Boolean) {
@@ -2467,7 +2449,6 @@ object AppSettings {
     private const val KEY_LYRICS_SOURCES = "lyrics_sources"
     private const val KEY_LYRICS_SOURCES_SEEN = "lyrics_sources_seen"
     private const val KEY_LYRICS_SOURCE_ORDER = "lyrics_source_order"
-    private const val KEY_PRIORITIZE_SYLLABLE_SYNC = "prioritize_syllable_sync"
     private const val KEY_PAXSENIX_API_KEY = "paxsenix_api_key"
     private const val KEY_REPLAY_GENRES = "replay_genres"
     private const val KEY_FILTER_NON_MUSIC_AUDIO = "filter_non_music_audio"

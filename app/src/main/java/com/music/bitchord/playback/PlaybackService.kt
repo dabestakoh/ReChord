@@ -7762,9 +7762,8 @@ class PlaybackService : MediaLibraryService() {
                 AppSettings.syncedLyrics,
                 AppSettings.lyricsSources,
                 AppSettings.lyricsSourceOrder,
-                AppSettings.prioritizeSyllableSync,
-            ) { synced, sources, order, prio ->
-                synced to sources
+            ) { synced, sources, order ->
+                Triple(synced, sources, order)
             }.distinctUntilChanged().collect {
                 loadLyricsForCurrentTrack()
             }
@@ -8396,7 +8395,6 @@ class PlaybackService : MediaLibraryService() {
                     album = currentSong.albumName,
                     sources = AppSettings.lyricsSources.value,
                     order = AppSettings.lyricsSourceOrder.value,
-                    prioritizeSyllableSync = AppSettings.prioritizeSyllableSync.value,
                 )
                 lines = found?.lines
             }

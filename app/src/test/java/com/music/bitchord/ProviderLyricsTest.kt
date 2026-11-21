@@ -21,34 +21,33 @@ class ProviderLyricsTest {
 
     @Test
     fun `the imported providers are exposed`() {
-        assertEquals(17, LyricsSource.entries.size)
         assertTrue(LyricsSource.offered.containsAll(listOf(
             LyricsSource.BETTER_LYRICS_PORTATO,
             LyricsSource.PAXSENIX_SPOTIFY,
             LyricsSource.PAXSENIX_MUSIXMATCH,
             LyricsSource.YOUTUBE_TRANSCRIPT,
             LyricsSource.YOUTUBE_MUSIC,
+            LyricsSource.YOUTUBE_AUTO_CAPTIONS,
+            LyricsSource.DEEZER,
+            LyricsSource.NETEASE,
+            LyricsSource.QQ_MUSIC,
+            LyricsSource.SIMP_MUSIC,
         )))
     }
 
     @Test
     fun `hidden providers are kept but never offered`() {
-        assertTrue(LyricsSource.entries.containsAll(listOf(LyricsSource.SIMP_MUSIC, LyricsSource.MEGALOBIZ)))
+        assertTrue(LyricsSource.MEGALOBIZ.hidden)
         assertTrue(LyricsSource.offered.none { it.hidden })
-        assertEquals(LyricsSource.LRC_RED, LyricsSource.offered.first())
+        assertEquals(LyricsSource.BETTER_LYRICS, LyricsSource.ordered(emptyList()).first())
     }
 
     @Test
-    fun `a saved order drops hidden sources and puts a new first source on top`() {
-        // What a previous build saved: every source it had, LRCLIB dragged to
-        // the top, and the two now-hidden ones still in it.
-        val saved = listOf(LyricsSource.LRCLIB) +
-            (LyricsSource.entries - LyricsSource.LRC_RED - LyricsSource.LRCLIB)
+    fun `a saved order preserves existing choices and removes hidden sources`() {
+        val saved = listOf(LyricsSource.LRCLIB, LyricsSource.LRC_RED, LyricsSource.BINI_LYRICS,
+            LyricsSource.BETTER_LYRICS, LyricsSource.MEGALOBIZ)
         val ordered = LyricsSource.ordered(saved)
-        assertEquals(
-            listOf(LyricsSource.LRC_RED, LyricsSource.LRCLIB, LyricsSource.BINI_LYRICS),
-            ordered.take(3),
-        )
+        assertEquals(saved.filterNot { it.hidden }, ordered.filter { it in saved })
         assertEquals(LyricsSource.offered.toSet(), ordered.toSet())
         assertEquals(ordered.size, ordered.distinct().size)
     }

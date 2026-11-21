@@ -633,6 +633,11 @@ object Innertube {
         put("params", Base64.getEncoder().encodeToString(bytes))
     }
 
+    /** The exact video's available caption tracks, without account credentials. */
+    internal suspend fun captionPlayer(videoId: String): JsonObject = postMusicAnonymous("player") {
+        put("videoId", videoId)
+    }
+
     suspend fun search(query: String, params: String? = null, anonymous: Boolean = true): JsonObject =
         if (anonymous) {
             postMusicAnonymous("search", region = searchRegion) {

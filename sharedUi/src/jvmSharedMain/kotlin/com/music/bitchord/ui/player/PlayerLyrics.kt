@@ -82,6 +82,7 @@ import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.alpha
@@ -1629,11 +1630,18 @@ internal fun PosterLyricSpotlight(
     onOpenLyrics: () -> Unit,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
-    val line by remember(lines, clock) {
+    val timed = remember(lines) {
+        lines.any { it.timeMs > 0L || it.isWordSynced || it.sungUntilMs != null }
+    }
+    val index by remember(lines, clock, timed) {
         derivedStateOf {
-            lines.lastOrNull { it.timeMs <= clock.longValue }
-                ?.takeIf { !it.isGap && lines.any { lyric -> lyric.timeMs > 0L } }
+            if (timed) lines.indexOfLast { it.timeMs <= clock.longValue }
+            else lines.indexOfFirst { !it.isGap }
         }
+    }
+    val line = lines.getOrNull(index)?.takeUnless { it.isGap }
+    val nextStarts = remember(lines) {
+        lines.withIndex().associate { (i, current) -> current to lines.getOrNull(i + 1)?.timeMs }
     }
     val style by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
@@ -1686,14 +1694,64 @@ internal fun PosterLyricSpotlight(
                             color = ink, effects = !reduceAnimation, blur = !reduceBlur,
                         )
                     } else {
-                        Text(
-                            text = active.text, style = voiceStyle(type, active.text, false, false),
-                            maxLines = 4, color = ink, overflow = TextOverflow.Ellipsis,
+                        val timing = active.timingSource ?: active
+                        val end = timing.sungUntilMs ?: timing.words.lastOrNull()?.endMs ?: nextStarts[active]
+                        PosterLineEffect(
+                            active, clock, type, ink, style, end,
+                            effects = timed && !reduceAnimation,
+                            blur = !reduceBlur,
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PosterLineEffect(
+    line: LyricLine,
+    clock: MutableLongState,
+    type: TextStyle,
+    ink: Color,
+    style: LyricsStyle,
+    endMs: Long?,
+    effects: Boolean,
+    blur: Boolean,
+) {
+    val textStyle = voiceStyle(type, line.text, false, false)
+    fun emphasis(): Float {
+        if (!effects) return 0f
+        val elapsed = clock.longValue - line.timeMs
+        val length = ((endMs ?: line.timeMs + 420L) - line.timeMs).coerceAtLeast(1L)
+        val attack = (elapsed / 130f).coerceIn(0f, 1f)
+        val release = ((length - elapsed) / 240f).coerceIn(0f, 1f)
+        return minOf(attack, release)
+    }
+    Box(Modifier.graphicsLayer {
+        if (effects && style.rises) {
+            val lift = if (style == LyricsStyle.DEFAULT) 2.dp else 4.dp
+            translationY = -lift.toPx() * emphasis()
+        }
+        if (effects && style.shimmers && blur) {
+            val progress = ((clock.longValue - line.timeMs) /
+                ((endMs ?: line.timeMs + 740L) - line.timeMs).toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+            alpha = 1f - emphasis() * (0.20f - 0.12f * progress)
+        }
+    }) {
+        if (effects && blur && style.blooms) {
+            Text(
+                text = line.text, style = textStyle, maxLines = 4,
+                color = ink, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clearAndSetSemantics {}
+                    .graphicsLayer { alpha = emphasis() * if (style == LyricsStyle.MOTION) 0.85f else 0.50f }
+                    .blur(4.dp, BlurredEdgeTreatment.Unbounded),
+            )
+        }
+        Text(
+            text = line.text, style = textStyle, maxLines = 4,
+            color = ink, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -32,11 +32,7 @@ object LyricsPlus {
 
     private val MIRRORS = listOf(
         "https://lyricsplus.prjktla.my.id",
-        "https://lyricsplus.atomix.one",
         "https://lyricsplus.binimum.org",
-        "https://lyricsplus.prjktla.workers.dev",
-        "https://lyricsplus-seven.vercel.app",
-        "https://lyrics-plus-backend.vercel.app",
     )
 
     private val lastGood = AtomicReference<String?>(null)
@@ -47,13 +43,14 @@ object LyricsPlus {
         durationMs: Long,
         album: String? = null,
         isrc: String? = null,
+        videoId: String? = null,
     ): List<LyricLine>? = coroutineScope {
         val hosts = lastGood.get()
             ?.let { listOf(it) + MIRRORS.filterNot { mirror -> mirror == it } }
             ?: MIRRORS
 
         val pending = hosts.map { host ->
-            host to async(Dispatchers.IO) { fetch(host, title, artist, durationMs, album, isrc) }
+            host to async(Dispatchers.IO) { fetch(host, title, artist, durationMs, album, isrc, videoId) }
         }.toMutableList()
 
         // Take the first mirror to answer with something usable rather than
@@ -83,6 +80,7 @@ object LyricsPlus {
         durationMs: Long,
         album: String?,
         isrc: String?,
+        videoId: String?,
     ): List<LyricLine>? = withContext(Dispatchers.IO) {
         val url = "$host/v2/lyrics/get".toHttpUrl().newBuilder()
             .addQueryParameter("title", title)
@@ -94,15 +92,27 @@ object LyricsPlus {
                 // Sent alongside the name rather than instead of it: unlike
                 // [BiniLyrics] this backend aggregates several catalogues, and
                 // the ones with no ISRC index still need something to match on.
+                if (videoId != null && YOUTUBE_ID.matches(videoId)) addQueryParameter("id", videoId)
                 if (!isrc.isNullOrBlank()) addQueryParameter("isrc", isrc)
             }
             .build()
 
-        val body = lyricsGet(url.toString()) ?: return@withContext null
-        val response = runCatching { lyricsJson.decodeFromString<Response>(body) }.getOrNull()
-            ?: return@withContext null
-        parse(response).takeIf { it.isNotEmpty() }
+        val body = lyricsGet(url.toString(), extended = true) ?: return@withContext null
+        decode(body)
     }
+
+    internal fun decode(body: String): List<LyricLine>? {
+        val envelope = runCatching { lyricsJson.parseToJsonElement(body) as? JsonObject }.getOrNull()
+            ?: return null
+        val synced = envelope["syncedLyrics"].lyricString()
+        synced?.let(::parseTimedLyrics)?.let { return it }
+        val structured = runCatching { lyricsJson.decodeFromString<Response>(body) }.getOrNull()
+        structured?.let(::parse)?.takeIf { it.isNotEmpty() }?.let { return it }
+        return envelope["plainLyrics"].lyricString()?.let(::plainLyricLines)
+    }
+
+    private fun JsonElement?.lyricString(): String? =
+        (this as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
 
     fun parse(response: Response): List<LyricLine> {
         val sung = response.lyrics.orEmpty().mapNotNull { line ->

@@ -436,7 +436,7 @@
     <string name="listenbrainz_token">Token ListenBrainz</string>
     <string name="listenbrainz_token_description">Dán token người dùng ListenBrainz của bạn để bật tính năng scrobbling.</string>
     <string name="listening_history">Lịch sử nghe</string>
-    <string name="lyrics_sources_order">Các nguồn được thử theo thứ tự này. Kéo để sắp xếp lại. Nguồn đầu tiên có lời sẽ được sử dụng, trừ khi ưu tiên lời đồng bộ từng từ.</string>
+    <string name="lyrics_sources_order">Kéo để sắp xếp lại các nguồn. Thứ tự quyết định khi các bản lời phù hợp như nhau.</string>
     <string name="max_delay">Độ trễ tối đa</string>
     <string name="max_delay_subtitle">Độ trễ scrobble tối đa tính bằng giây</string>
     <string name="min_song_duration">Thời lượng bài hát tối thiểu</string>

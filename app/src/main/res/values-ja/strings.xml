@@ -388,7 +388,7 @@
     <string name="listenbrainz_token">ListenBrainzトークン</string>
     <string name="listenbrainz_token_description">スクロブリングを有効にするには、ListenBrainzのユーザートークンを貼り付けてください。</string>
     <string name="listening_history">再生履歴</string>
-    <string name="lyrics_sources_order">ソースはこの順番で試されます。ドラッグして並べ替えられます。音節単位の歌詞が優先されていない限り、歌詞が見つかった最初のソースが採用されます。</string>
+    <string name="lyrics_sources_order">ソースをドラッグして並べ替えます。同程度に適した歌詞がある場合は、この順序で選びます。</string>
     <string name="max_delay">最大遅延</string>
     <string name="max_delay_subtitle">スクロブルまでの最大遅延（秒）</string>
     <string name="min_song_duration">最小の曲の長さ</string>

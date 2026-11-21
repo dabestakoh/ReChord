@@ -388,7 +388,7 @@
     <string name="listenbrainz_token">Token ListenBrainz</string>
     <string name="listenbrainz_token_description">Tempel token pengguna ListenBrainz Anda untuk mengaktifkan scrobbling.</string>
     <string name="listening_history">Riwayat mendengarkan</string>
-    <string name="lyrics_sources_order">Sumber dicoba dalam urutan ini. Seret untuk mengatur ulang urutannya. Sumber pertama yang memiliki lirik akan digunakan, kecuali lirik per suku kata diprioritaskan.</string>
+    <string name="lyrics_sources_order">Seret sumber untuk mengubah urutan. Urutan menentukan pilihan jika lirik sama cocoknya.</string>
     <string name="max_delay">Penundaan maksimum</string>
     <string name="max_delay_subtitle">Penundaan scrobble maksimum dalam detik</string>
     <string name="min_song_duration">Durasi lagu minimum</string>

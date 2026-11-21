@@ -11,8 +11,8 @@ class LyricsLookupKeyTest {
     private val sources = setOf(LyricsSource.LRCLIB, LyricsSource.GENIUS)
     private val order = listOf(LyricsSource.LRCLIB, LyricsSource.GENIUS)
 
-    private fun key(order: List<LyricsSource> = this.order, prioritize: Boolean = false) =
-        lyricsLookupKey("abcdefghijk", sources, order, prioritize)
+    private fun key(order: List<LyricsSource> = this.order) =
+        lyricsLookupKey("abcdefghijk", sources, order)
 
     @Test
     fun `the same track under the same settings is not looked up twice`() {
@@ -20,8 +20,7 @@ class LyricsLookupKeyTest {
     }
 
     @Test
-    fun `reordering sources or switching syllable sync is a new lookup`() {
+    fun `reordering sources triggers a new lookup`() {
         assertNotEquals(key(), key(order = order.reversed()))
-        assertNotEquals(key(), key(prioritize = true))
     }
 }

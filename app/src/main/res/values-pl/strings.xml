@@ -364,7 +364,7 @@
     <string name="listenbrainz_token">Token ListenBrainz</string>
     <string name="listenbrainz_token_description">Wklej token użytkownika ListenBrainz, aby włączyć scrobbling.</string>
     <string name="listening_history">Historia odtwarzania</string>
-    <string name="lyrics_sources_order">Źródła są sprawdzane w tej kolejności. Przeciągnij, aby zmienić ich kolejność. Pierwsze źródło z tekstami wygrywa, chyba że preferowane są teksty zsynchronizowane do sylab.</string>
+    <string name="lyrics_sources_order">Przeciągnij źródła, aby zmienić kolejność. Kolejność rozstrzyga przy równie dopasowanych tekstach.</string>
     <string name="max_delay">Maksymalne opóźnienie</string>
     <string name="max_delay_subtitle">Maksymalne opóźnienie scrobble w sekundach</string>
     <string name="min_song_duration">Minimalny czas trwania piosenki</string>

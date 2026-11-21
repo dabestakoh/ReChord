@@ -404,7 +404,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             emptySet()
         }
         val key = lyricsLookupKey(
-            videoId, sources, AppSettings.lyricsSourceOrder.value, AppSettings.prioritizeSyllableSync.value,
+            videoId, sources, AppSettings.lyricsSourceOrder.value,
         )
         if (lyricsFor == key) return
         // The duration lands a beat after the track, and a database match needs
@@ -458,7 +458,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             val found = LyricsRepository.lyrics(
                 videoId, title, artist, durationMs, album, sources,
-                AppSettings.lyricsSourceOrder.value, AppSettings.prioritizeSyllableSync.value,
+                AppSettings.lyricsSourceOrder.value,
                 onSourceStarted = { source -> providerStarted(generation, source) },
                 onSourceResult = { source, result ->
                     providerFinished(generation, source, result)
@@ -474,7 +474,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Selects a provider from the player drawer. Completed hits are applied
-     * from memory; misses are inert; only an untouched provider goes online.
+     * from memory; an untouched provider or a previous miss can be fetched on demand.
      */
     fun selectLyricsProvider(source: LyricsSource) {
         val request = currentLyricsRequest ?: return
@@ -487,11 +487,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Apply it as soon as the already-running automatic attempt completes.
                 selectedLyricsSource = source
             }
-            LyricsProviderState.NOT_FETCHED, null -> {
+            LyricsProviderState.NOT_FETCHED, LyricsProviderState.NOT_FOUND, null -> {
                 selectedLyricsSource = source
                 fetchLyricsProvider(request, lyricsGeneration, source)
             }
-            LyricsProviderState.NOT_FOUND -> Unit
         }
     }
 
@@ -510,7 +509,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 album = request.album,
                 sources = setOf(source),
                 order = listOf(source),
-                prioritizeSyllableSync = false,
+                manualSelection = true,
                 onSourceStarted = { provider -> providerStarted(generation, provider) },
                 onSourceResult = { provider, result ->
                     providerFinished(generation, provider, result)
@@ -532,6 +531,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         if (generation != lyricsGeneration) return
         if (result == null) {
+            if (lyricsProviderResults.containsKey(source)) return
             _lyricsProviderStates.update { it + (source to LyricsProviderState.NOT_FOUND) }
             return
         }
@@ -3900,5 +3900,4 @@ internal fun lyricsLookupKey(
     videoId: String,
     sources: Set<LyricsSource>,
     order: List<LyricsSource>,
-    prioritizeSyllableSync: Boolean,
-): List<Any> = listOf(videoId, sources, order, prioritizeSyllableSync)
+): List<Any> = listOf(videoId, sources, order)

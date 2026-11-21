@@ -84,7 +84,6 @@ internal object LyricsTag {
                     album = track.albumName,
                     sources = sources,
                     order = AppSettings.lyricsSourceOrder.value,
-                    prioritizeSyllableSync = AppSettings.prioritizeSyllableSync.value,
                 )
             }
         } catch (e: CancellationException) {

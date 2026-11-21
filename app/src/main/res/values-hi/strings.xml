@@ -402,7 +402,7 @@
     <string name="listenbrainz_token">ListenBrainz टोकन</string>
     <string name="listenbrainz_token_description">स्क्रॉबलिंग चालू करने के लिए अपना ListenBrainz यूज़र टोकन पेस्ट करें।</string>
     <string name="listening_history">सुनने का इतिहास</string>
-    <string name="lyrics_sources_order">स्रोत इसी क्रम में आज़माए जाते हैं। क्रम बदलने के लिए खींचें। जब तक सिलेबल लिरिक्स को प्राथमिकता न दी जाए, लिरिक्स वाला पहला स्रोत इस्तेमाल होता है।</string>
+    <string name="lyrics_sources_order">स्रोतों का क्रम बदलने के लिए उन्हें खींचें। समान रूप से उपयुक्त गीतों में क्रम से चुनाव होता है।</string>
     <string name="max_delay">अधिकतम देरी</string>
     <string name="max_delay_subtitle">सेकंड में अधिकतम स्क्रॉबल देरी</string>
     <string name="min_song_duration">गाने की न्यूनतम अवधि</string>

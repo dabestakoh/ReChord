@@ -431,7 +431,7 @@
     <string name="listenbrainz_token">ListenBrainz belirteci</string>
     <string name="listenbrainz_token_description">Scrobbling\'i etkinleştirmek için ListenBrainz kullanıcı belirtecinizi yapıştırın.</string>
     <string name="listening_history">Dinleme geçmişi</string>
-    <string name="lyrics_sources_order">Kaynaklar bu sırayla denenir. Yeniden sıralamak için sürükleyin. Heceli sözler önceliklendirilmedikçe sözleri olan ilk kaynak kazanır.</string>
+    <string name="lyrics_sources_order">Kaynakları yeniden sıralamak için sürükleyin. Eşit derecede uygun şarkı sözlerinde sıra belirleyicidir.</string>
     <string name="max_delay">Maksimum gecikme</string>
     <string name="max_delay_subtitle">Saniye cinsinden maksimum scrobble gecikmesi</string>
     <string name="min_song_duration">Minimum şarkı süresi</string>

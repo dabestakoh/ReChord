@@ -388,7 +388,7 @@
     <string name="listenbrainz_token">ListenBrainz 令牌</string>
     <string name="listenbrainz_token_description">粘贴你的 ListenBrainz 用户令牌以启用 Scrobbling。</string>
     <string name="listening_history">收听记录</string>
-    <string name="lyrics_sources_order">系统会按此顺序尝试各个来源。拖动即可调整顺序。除非优先使用逐字歌词，否则会采用第一个找到歌词的来源。</string>
+    <string name="lyrics_sources_order">拖动可调整来源顺序。多个歌词同样合适时，按此顺序选择。</string>
     <string name="max_delay">最大延迟</string>
     <string name="max_delay_subtitle">Scrobble 的最大延迟（秒）</string>
     <string name="min_song_duration">最短歌曲时长</string>

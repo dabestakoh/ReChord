@@ -73,17 +73,22 @@ private val lastRecordPhases = object : LinkedHashMap<String, Float>(8, 0.75f, t
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean = size > 8
 }
 
-private const val RECORD_WIDTH_FRACTION = 0.682f
+private const val RECORD_WIDTH_FRACTION = 0.703f
 private const val RECORD_HEIGHT_FRACTION = 0.446f
 
-private class RecordGeometry(size: Size) {
+private class RecordGeometry(size: Size, mountTopInset: Int = 0) {
     val radius = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
     val center = Offset(size.width * 0.163f, radius)
-    val pivot = Offset(size.width * 0.887f, minOf(size.width * 0.148f, size.height * 0.19f))
-    val unit = minOf(size.width, size.height)
+    val unit = radius / RECORD_WIDTH_FRACTION
+    // Keep the mount clear of the centered player handle when height limits the record.
+    // Bound the offset by the record radius so the stylus can still reach the inner groove.
+    val pivot = Offset(
+        maxOf(center.x + unit * (0.887f - 0.163f), minOf(size.width * 0.64f, center.x + radius * 1.51f)),
+        maxOf(unit * 0.148f, mountTopInset + unit * 0.088f),
+    )
     private val distance = (center - pivot).getDistance()
     private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
-    val reach = (distance - radius * 0.33f).coerceAtLeast(1f)
+    val reach = (radius * 1.39f).coerceAtLeast(1f)
     val outer = radius * 0.952f
     val inner = radius * 0.565f
 
@@ -431,6 +436,7 @@ internal fun VinylTonearm(
     modifier: Modifier,
     durationMs: Long = 0L,
     trackKey: String? = null,
+    mountTopInset: Int = 0,
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -475,7 +481,7 @@ internal fun VinylTonearm(
     val gesture = Modifier.seekArtwork(
         armPosition, onScrub, onFinish, onCancel, claimDown = true,
         accepts = { bounds, down, tolerance, fraction ->
-            val g = RecordGeometry(bounds)
+            val g = RecordGeometry(bounds, mountTopInset)
             val arm = g.tip(fraction) - g.pivot
             val delta = down - g.pivot
             val projection = ((arm.x * delta.x + arm.y * delta.y) / (arm.x * arm.x + arm.y * arm.y)).coerceIn(0f, 1f)
@@ -483,7 +489,7 @@ internal fun VinylTonearm(
         },
         along = { _, _, _ -> true },
         fraction = { bounds, down, current, initial ->
-            val g = RecordGeometry(bounds)
+            val g = RecordGeometry(bounds, mountTopInset)
             val before = down - g.pivot
             val after = current - g.pivot
             val change = atan2(after.y, after.x) - atan2(before.y, before.x)
@@ -492,7 +498,7 @@ internal fun VinylTonearm(
         onDragging = { seeking = it; onSeeking(it) },
     )
     Canvas(modifier.then(gesture).artworkSeekControls(shown, durationMs, onScrub, onFinish)) {
-        val g = RecordGeometry(size)
+        val g = RecordGeometry(size, mountTopInset)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
         val mountSize = Size(u * 0.143f, u * 0.245f)

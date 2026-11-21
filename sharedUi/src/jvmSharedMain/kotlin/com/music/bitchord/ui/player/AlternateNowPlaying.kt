@@ -107,6 +107,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.music.bitchord.data.model.Song
@@ -229,6 +231,7 @@ internal fun AlternateNowPlaying(
         listOfNotNull(previousSong?.let { -1 to it }, 0 to song, nextSong?.let { 1 to it })
     }
     var dockRoot by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var posterCurveHeight by remember { mutableStateOf<Dp?>(null) }
     var dockRestOrigin by remember { mutableStateOf<Offset?>(null) }
     var artworkSource by remember(pane) { mutableStateOf<LayoutCoordinates?>(null) }
     var artworkAngle by remember(pane) { mutableStateOf<(() -> Float)?>(null) }
@@ -302,6 +305,11 @@ internal fun AlternateNowPlaying(
                     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
                     val controlsHeight = if (posterTransport) maxOf(86.dp, 75.dp * fontScale) else transportHeight
                     var footerHeight by remember { mutableStateOf(0) }
+                    var creditsHeight by remember { mutableStateOf(0) }
+                    val creditsClearance = with(androidx.compose.ui.platform.LocalDensity.current) {
+                        if (compact || creditsHeight == 0) 0.dp
+                        else ((controlsHeight - creditsHeight.toDp()) / 2 - 8.dp).coerceAtLeast(0.dp)
+                    }
                     val reveal = deckReveal ?: remember { Animatable(1f) }
                     val menu: @Composable () -> Unit = {
                         PlaybackPill(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), Modifier.menuAnchor(), onMenu)
@@ -347,7 +355,8 @@ internal fun AlternateNowPlaying(
                     Column(Modifier.fillMaxSize()) {
                         AnimatedContent(
                             targetState = pane,
-                            modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                                .then(if (vinyl) Modifier else Modifier.clipToBounds())
                                 .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
                             transitionSpec = {
                                 if (reduceAnimation) {
@@ -383,47 +392,64 @@ internal fun AlternateNowPlaying(
                                             .graphicsLayer { alpha = 1f - (queuePreview?.invoke() ?: 0f) }
                                         Box(artModifier) {
                                             if (vinyl) {
-                                                for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                    val current = slot == 0
-                                                    val request = when (slot) {
-                                                        -1 -> prevArt
-                                                        1 -> nextArt
-                                                        else -> artworkUrl ?: artwork
+                                                BoxWithConstraints(Modifier.fillMaxSize()) {
+                                                    Box(Modifier.fillMaxWidth()
+                                                        .wrapContentHeight(Alignment.Top, unbounded = true)
+                                                        .height(maxHeight + creditsClearance)) {
+                                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                            val current = slot == 0
+                                                            val request = when (slot) {
+                                                                -1 -> prevArt
+                                                                1 -> nextArt
+                                                                else -> artworkUrl ?: artwork
+                                                            }
+                                                            val color = when (slot) {
+                                                                -1 -> prevColor
+                                                                1 -> nextColor
+                                                                else -> recordPalette
+                                                            }
+                                                            VinylDisc(
+                                                                request, track.swipeIdentity, vinylStyle, color,
+                                                                active && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                                if (current) shown else ({ 0f }),
+                                                                { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
+                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                                },
+                                                                albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                                labelPlacement = if (active && current) ({ coordinates, angle ->
+                                                                    artworkAngle = angle
+                                                                    reportArtwork(coordinates)
+                                                                }) else null,
+                                                                coastOnPause = active && current && !reduceAnimation,
+                                                                coverAlpha = { if (active && current) liveCoverAlpha() else 1f },
+                                                            )
+                                                        }
+                                                        VinylTonearm(
+                                                            shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
+                                                            reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
+                                                            durationMs = durationMs,
+                                                            trackKey = song.swipeIdentity,
+                                                            mountTopInset = if (preview) 0 else stableStatusBarInsets()
+                                                                .getTop(androidx.compose.ui.platform.LocalDensity.current),
+                                                        )
                                                     }
-                                                    val color = when (slot) {
-                                                        -1 -> prevColor
-                                                        1 -> nextColor
-                                                        else -> recordPalette
-                                                    }
-                                                    VinylDisc(
-                                                        request, track.swipeIdentity, vinylStyle, color,
-                                                        active && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
-                                                        if (current) shown else ({ 0f }),
-                                                        { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
-                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
-                                                        },
-                                                        albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                        labelPlacement = if (active && current) ({ coordinates, angle ->
-                                                            artworkAngle = angle
-                                                            reportArtwork(coordinates)
-                                                        }) else null,
-                                                        coastOnPause = active && current && !reduceAnimation,
-                                                        coverAlpha = { if (active && current) liveCoverAlpha() else 1f },
-                                                    )
                                                 }
-                                                VinylTonearm(
-                                                    shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
-                                                    reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
-                                                    durationMs = durationMs,
-                                                    trackKey = song.swipeIdentity,
-                                                )
                                             } else {
                                                 BoxWithConstraints(Modifier.fillMaxSize()) {
+                                                    val previousHeight = maxHeight * if (compact) 0.59f else 0.57f
+                                                    val curveHeight = (previousHeight - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
+                                                    val lyricsRoom = minOf(maxHeight * 0.50f, maxOf(112.dp * fontScale, maxHeight * 0.27f))
+                                                    val artworkHeight = minOf(
+                                                        maxWidth * 1.22f + POSTER_SEEK_FOOTER,
+                                                        (maxHeight - lyricsRoom).coerceAtLeast(previousHeight),
+                                                    )
+                                                    if (active) SideEffect { posterCurveHeight = curveHeight }
                                                     Column(Modifier.fillMaxSize()) {
                                                         PosterArtwork(
-                                                            null, shown, Modifier.fillMaxWidth().weight(if (compact) 0.59f else 0.57f)
+                                                            null, shown, Modifier.fillMaxWidth().height(artworkHeight)
                                                                 .onGloballyPositioned { if (active) reportArtwork(it) }, drag,
                                                             onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
+                                                            curveHeight = curveHeight,
                                                         ) {
                                                             for ((slot, track) in tracks) key(track.swipeIdentity) {
                                                                 val art = when (slot) {
@@ -438,7 +464,7 @@ internal fun AlternateNowPlaying(
                                                             }
                                                         }
                                                         Box(
-                                                            Modifier.fillMaxWidth().weight(if (compact) 0.41f else 0.43f)
+                                                            Modifier.fillMaxWidth().weight(1f)
                                                                 .padding(start = 20.dp, end = if (compact) 20.dp else 72.dp)
                                                                 .graphicsLayer { alpha = textOpacity },
                                                         ) { if (active) key(song.swipeIdentity) { lyrics() } }
@@ -457,7 +483,7 @@ internal fun AlternateNowPlaying(
                                         }
                                     }
                                     PlayerPane.Lyrics, PlayerPane.Queue -> Box(
-                                        Modifier.fillMaxSize()
+                                        Modifier.fillMaxSize().clipToBounds()
                                             .windowInsetsPadding(stableStatusBarInsets())
                                             .padding(start = 18.dp, top = 48.dp, end = 18.dp),
                                     ) {
@@ -486,7 +512,7 @@ internal fun AlternateNowPlaying(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     Column(
-                                        Modifier.weight(1f).then(
+                                        Modifier.weight(1f).onSizeChanged { if (vinyl) creditsHeight = it.height }.then(
                                             if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
                                         ),
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -616,7 +642,9 @@ internal fun AlternateNowPlaying(
                     alpha = 1f - liveCoverAlpha()
                 }.then(if (!curved) Modifier else Modifier.drawWithCache {
                     val fraction = dock.openFraction()
-                    val mask = Path().apply { addPosterMask(size, POSTER_SEEK_FOOTER.toPx(), fraction) }
+                    val mask = Path().apply {
+                        addPosterMask(size, POSTER_SEEK_FOOTER.toPx(), fraction, posterCurveHeight?.toPx())
+                    }
                     onDrawWithContent { clipPath(mask) { this@onDrawWithContent.drawContent() } }
                 }), placeholder = dock.miniPainterFor(song.videoId))
         }
@@ -711,25 +739,26 @@ internal fun LayoutArtwork(artwork: Any?, modifier: Modifier, placeholder: Paint
 
 private val POSTER_SEEK_FOOTER = 38.dp
 
-private fun posterRimPoint(size: Size, fraction: Float) =
-    Offset(size.width * fraction, size.height * (0.95f - 0.33f * fraction * fraction))
+private fun posterRimPoint(size: Size, fraction: Float, curveHeight: Float) =
+    Offset(size.width * fraction, size.height * 0.95f - curveHeight * 0.33f * fraction * fraction)
 
-private fun Path.addPosterMask(bounds: Size, footer: Float, fraction: Float) {
+private fun Path.addPosterMask(bounds: Size, footer: Float, fraction: Float, referenceHeight: Float? = null) {
     val size = Size(bounds.width, (bounds.height - footer).coerceAtLeast(1f))
+    val curveHeight = (referenceHeight ?: size.height).coerceAtMost(size.height)
     fun y(target: Float) = bounds.height + (target - bounds.height) * fraction
-    val left = y(posterRimPoint(size, 0f).y)
+    val left = y(posterRimPoint(size, 0f, curveHeight).y)
     moveTo(0f, left)
-    cubicTo(size.width / 3f, left, size.width * 2f / 3f, y(size.height * 0.84f),
-        size.width, y(posterRimPoint(size, 1f).y))
+    cubicTo(size.width / 3f, left, size.width * 2f / 3f, y(size.height * 0.95f - curveHeight * 0.11f),
+        size.width, y(posterRimPoint(size, 1f, curveHeight).y))
     lineTo(size.width, 0f)
     lineTo(0f, 0f)
     close()
 }
 
-private class PosterArc(size: Size, inward: Float, horizontalInset: Float) {
+private class PosterArc(size: Size, inward: Float, horizontalInset: Float, curveHeight: Float) {
     private val points = Array(49) { index ->
         val x = horizontalInset + (size.width - horizontalInset * 2f) * index / 48f
-        posterRimPoint(size, x / size.width.coerceAtLeast(1f)) - Offset(0f, inward)
+        posterRimPoint(size, x / size.width.coerceAtLeast(1f), curveHeight) - Offset(0f, inward)
     }
     private val distance = FloatArray(points.size).apply {
         for (i in 1 until this.size) this[i] = this[i - 1] + (points[i] - points[i - 1]).getDistance()
@@ -768,6 +797,7 @@ internal fun PosterArtwork(
     onCancel: () -> Unit = {},
     durationMs: Long = 0L,
     reduced: Boolean = true,
+    curveHeight: Dp? = null,
     coverLayers: (@Composable () -> Unit)? = null,
 ) {
     val accent = LocalPlayerAccent.current
@@ -780,18 +810,20 @@ internal fun PosterArtwork(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { 9.dp.toPx() }
     val footer = with(density) { POSTER_SEEK_FOOTER.toPx() }
+    val referenceHeight = with(density) { curveHeight?.toPx() }
     fun coverSize(size: Size) = Size(size.width, (size.height - footer).coerceAtLeast(1f))
     fun seekArc(size: Size): PosterArc {
         val inset = if (endpointLabel == null) size.width * 0.047f else {
             (endpointLabel.size.width + gap * 1.7f).coerceAtMost(size.width * 0.25f)
         }
-        return PosterArc(coverSize(size), -gap, inset)
+        val cover = coverSize(size)
+        return PosterArc(cover, -gap, inset, minOf(referenceHeight ?: cover.height, cover.height))
     }
     val expanded by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "posterArc",
     )
-    val mask = remember(footer) {
-        androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterMask(bounds, footer, 1f) }
+    val mask = remember(footer, referenceHeight) {
+        androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterMask(bounds, footer, 1f, referenceHeight) }
     }
     Box(modifier.clipToBounds()) {
         Box(Modifier.fillMaxSize().clip(mask)) {
@@ -803,7 +835,8 @@ internal fun PosterArtwork(
                 seekArc(size).project(down).second <= tolerance * tolerance
             },
             along = { size, down, motion ->
-                val slope = -0.66f * coverSize(size).height * down.x / (size.width * size.width)
+                val height = coverSize(size).height
+                val slope = -0.66f * minOf(referenceHeight ?: height, height) * down.x / (size.width * size.width)
                 abs(motion.y - slope * motion.x) < abs(motion.x) * 1.3f
             },
             fraction = { size, _, current, _ ->
@@ -888,6 +921,9 @@ internal fun Modifier.seekArtwork(
     val currentScrub by rememberUpdatedState(onScrub)
     val finish by rememberUpdatedState(onFinish)
     val cancel by rememberUpdatedState(onCancel)
+    val currentAccepts by rememberUpdatedState(accepts)
+    val currentAlong by rememberUpdatedState(along)
+    val currentFraction by rememberUpdatedState(fraction)
     val reportDragging by rememberUpdatedState(onDragging)
     return pointerInput(Unit) {
         awaitEachGesture {
@@ -895,7 +931,7 @@ internal fun Modifier.seekArtwork(
             val bounds = Size(size.width.toFloat(), size.height.toFloat())
             if (bounds.isEmpty()) return@awaitEachGesture
             val initial = currentShown()
-            if (!accepts(bounds, down.position, 23.dp.toPx(), initial)) return@awaitEachGesture
+            if (!currentAccepts(bounds, down.position, 23.dp.toPx(), initial)) return@awaitEachGesture
             if (claimDown) down.consume()
 
             var dragging = false
@@ -914,12 +950,12 @@ internal fun Modifier.seekArtwork(
                     if (!dragging) {
                         val delta = change.position - down.position
                         if (delta.getDistance() < viewConfiguration.touchSlop) continue
-                        if (!along(bounds, down.position, delta)) break
+                        if (!currentAlong(bounds, down.position, delta)) break
                         dragging = true
                         reportDragging(true)
                     }
                     change.consume()
-                    currentScrub(fraction(bounds, down.position, change.position, initial).coerceIn(0f, 1f))
+                    currentScrub(currentFraction(bounds, down.position, change.position, initial).coerceIn(0f, 1f))
                 }
             } finally {
                 if (dragging) {

@@ -402,7 +402,7 @@
     <string name="listenbrainz_token">ListenBrainz-Token</string>
     <string name="listenbrainz_token_description">Füge deinen ListenBrainz-Benutzer-Token ein, um Scrobbling zu aktivieren.</string>
     <string name="listening_history">Hörverlauf</string>
-    <string name="lyrics_sources_order">Die Quellen werden in dieser Reihenfolge ausprobiert. Ziehe, um sie neu anzuordnen. Die erste Quelle mit Songtexten gewinnt, sofern nicht Silben-Songtexte priorisiert werden.</string>
+    <string name="lyrics_sources_order">Ziehe, um die Quellen neu zu ordnen. Bei gleich gut passenden Songtexten entscheidet die Reihenfolge.</string>
     <string name="max_delay">Maximale Verzögerung</string>
     <string name="max_delay_subtitle">Maximale Scrobble-Verzögerung in Sekunden</string>
     <string name="min_song_duration">Mindestdauer des Songs</string>
