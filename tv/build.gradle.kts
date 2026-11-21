@@ -95,6 +95,8 @@ android {
             "LISTEN_TOGETHER_SERVER",
             "\"${listenTogetherServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
         )
+        val diagnosticsServer = providers.environmentVariable("RECHORD_DIAGNOSTICS_SERVER").orNull.orEmpty()
+        buildConfigField("String", "DIAGNOSTICS_SERVER", "\"${diagnosticsServer.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         // The TV APKs share a GitHub release with the phone ones and are told
         // apart by name (ReChordTV-v1.8.apk, ReChordTV-v1.8_x86_64.apk), so
         // the updater installs the TV app here, never the phone app. See
