@@ -141,7 +141,7 @@ private val LANDSCAPE_HANDLE_STRIP = 24.dp
 internal fun LandscapePlayerLayout(
     pane: PlayerPane,
     background: @Composable (Modifier) -> Unit,
-    /** The sleeve; handed a modifier that already fixes its square size. */
+    /** The sleeve; handed a modifier that already fixes its size. */
     artwork: @Composable (Modifier) -> Unit,
     /** The row under the sleeve, emitted into its column. */
     actions: @Composable () -> Unit,
@@ -150,6 +150,7 @@ internal fun LandscapePlayerLayout(
     lyricsPane: @Composable () -> Unit,
     queuePane: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    artworkAspect: Float = 1f,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         background(Modifier.fillMaxSize())
@@ -181,18 +182,18 @@ internal fun LandscapePlayerLayout(
                         .padding(horizontal = gutter),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // The sleeve is square and takes whichever of the two axes
-                    // runs out first once the row below has had its height —
-                    // the column's width on a big tablet, the height on
-                    // anything shorter. Measured here rather than estimated,
-                    // so the row under it can never be pushed off the bottom.
+                    // The sleeve is square (or widescreen in video mode) and takes
+                    // whichever axis runs out first once the row below has had its height.
                     BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        artwork(Modifier.size(minOf(maxWidth, maxHeight)))
+                        val ratio = artworkAspect.coerceIn(0.5f, 2.5f)
+                        val fitW = minOf(maxWidth, maxHeight * ratio)
+                        val fitH = fitW / ratio
+                        artwork(Modifier.size(fitW, fitH))
                     }
                     Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
                     actions()

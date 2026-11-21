@@ -888,6 +888,7 @@ fun NowPlayingScreen(
     companionVideoId: String? = null,
     layout: NowPlayingLayout = NowPlayingLayout.DEFAULT,
     onOpenLayoutPicker: (() -> Unit)? = null,
+    onToggleRotate: (() -> Unit)? = null,
     fullVideoMode: Boolean = false,
     fullVideoSearching: Boolean = false,
     onExitVideoMode: () -> Unit = {},
@@ -969,12 +970,13 @@ fun NowPlayingScreen(
     val openListenTogetherMembers: () -> Unit = { showListenTogetherMembers = true }
 
     val syncedLyricsEnabled by PlayerSettings.syncedLyrics.collectAsStateWithLifecycle()
-    val lyricsOffsetMs by PlayerSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
+    val perSongOffsets by PlayerSettings.perSongLyricsOffsets.collectAsStateWithLifecycle()
+    val lyricsOffsetMs = perSongOffsets[song.videoId] ?: 0
     val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     // A lambda, not a value: read by the lyric strip and panel in scopes of
     // their own, so a tick recomposes them and not the player around them.
-    val lyricsPlayhead = rememberLyricPlayhead(position)
+    val lyricsPlayhead = rememberLyricPlayhead(position, song.videoId)
     val seekToLyric: (Long) -> Unit = { lineTimeMs ->
         onSeek(adjustedLyricsSeekTarget(lineTimeMs, lyricsOffsetMs))
     }
@@ -1007,11 +1009,11 @@ fun NowPlayingScreen(
         val lineHeight = MaterialTheme.typography.titleLarge.lineHeight
         maxOf(HEADER_HEIGHT, (lineHeight.takeIf { it.isSpecified }?.toDp() ?: 28.dp) * 2)
     }
-    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !sideways && !fullVideoMode
+    val alternateLayout = layout != NowPlayingLayout.DEFAULT
     val pictureId = companionVideoId ?: song.videoId
-    val videoAllowed = fullVideoMode || !alternateLayout
+    val videoAllowed = layout == NowPlayingLayout.DEFAULT && !layoutPreview
     val videoMode = videoAllowed && (companionVideoId != null || showsMusicVideo(song))
-    val videoPresentation = videoMode || fullVideoMode
+    val videoPresentation = videoAllowed && (videoMode || fullVideoMode)
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
     // to it, in place of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
@@ -1884,6 +1886,10 @@ fun NowPlayingScreen(
         }
         if (lyricsOffsetOpen) {
             LyricsOffsetSheet(
+                songId = song.videoId,
+                lyrics = lyrics.orEmpty(),
+                isPlaying = isPlaying && position.advancing,
+                currentPositionMs = { position.positionMs },
                 hazeState = playerHaze,
                 onDismiss = onDismissLyricsOffset,
             )
@@ -2171,9 +2177,9 @@ fun NowPlayingScreen(
                         isPlaying = isPlaying && position.advancing,
                         active = active,
                         onSeekToLine = seekToLyric,
-                        controlsOpen = if (alternateLayout) lyricsControlsOpen else true,
-                        onRevealControls = { if (alternateLayout) lyricsControlsOpen = true },
-                        onHideControls = { if (alternateLayout) lyricsControlsOpen = false },
+                        controlsOpen = if (alternateLayout && !sideways) lyricsControlsOpen else true,
+                        onRevealControls = { if (alternateLayout && !sideways) lyricsControlsOpen = true },
+                        onHideControls = { if (alternateLayout && !sideways) lyricsControlsOpen = false },
                         translationProgress = particleProgress,
                         canPick = lyricsShareEnabled,
                         picking = lyricPicker.picking,
@@ -2198,7 +2204,7 @@ fun NowPlayingScreen(
                 onMove = onMoveInQueue,
                 onClear = onClearQueue,
                 onDragActiveChange = onQueueDragActiveChange,
-                collapsePlayerOnScroll = alternateLayout && active,
+                collapsePlayerOnScroll = alternateLayout && !sideways && active,
                 onRevealPlayer = { queueControlsOpen = true },
                 onHidePlayer = { queueControlsOpen = false },
                 onScrollingChange = onScroll,
@@ -2219,7 +2225,10 @@ fun NowPlayingScreen(
                     artRequest = art.request,
                     rendered = videoRendered,
                     onRenderedChanged = { videoRendered = it },
-                    onExitFullscreen = exitFullscreen,
+                    onExitFullscreen = {
+                        exitFullscreen()
+                        if (fullVideoMode) onExitVideoMode()
+                    },
                     onOpenQuality = { showVideoQuality = true },
                     scrubber = {
                         PlayerScrubber(
@@ -2316,12 +2325,16 @@ fun NowPlayingScreen(
                         key(song.videoId) {
                             if (layout == NowPlayingLayout.POSTER) {
                                 PosterLyricSpotlight(
-                                    lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    lines = (if (lyricsTranslation.subLines != null) lyrics.orEmpty() else lyricsTranslation.displayedLyrics)
+                                        .takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    subLines = lyricsTranslation.subLines.takeIf { syncedLyricsEnabled },
+                                    subAlpha = if (lyricsTranslation.showingRomanization) 0.74f else 0.56f,
                                     title = song.title,
                                     trackKey = song.videoId,
                                     playhead = lyricsPlayhead,
                                     isPlaying = isPlaying && position.advancing,
                                     onOpenLyrics = openLyrics,
+                                    titleTargetCoords = LocalPosterTitleTarget.current,
                                 )
                             } else if (syncedLyricsEnabled) {
                                 CurrentLyricStrip(
@@ -2342,13 +2355,47 @@ fun NowPlayingScreen(
                     },
                     quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
                     actions = { playerActions(false) },
+                    landscape = sideways,
+                    onToggleRotate = onToggleRotate,
+                    videoAspect = videoAspectState.value,
+                    video = if (videoPresentation) {
+                        {
+                            Box(Modifier.fillMaxSize()) {
+                                if (!videoRendered || !videoMode) {
+                                    LayoutArtwork(art.request.takeIf { remoteArt != null }, Modifier.fillMaxSize())
+                                }
+                                if (videoMode) {
+                                    MusicVideoSurface(
+                                        videoId = pictureId,
+                                        fit = true,
+                                        onRenderedChanged = { videoRendered = it },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                                VideoCornerControls(
+                                    fullscreen = false,
+                                    onToggleFullscreen = enterFullscreen,
+                                    onOpenQuality = { showVideoQuality = true },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                )
+                                if (videoStatus != null) {
+                                    Text(
+                                        videoStatus,
+                                        color = Color.White,
+                                        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                                    )
+                                }
+                            }
+                        }
+                    } else null,
                 )
             }
         } else if (landscape) {
             // Paused always wins outright over a scrub in progress — see
-            // [ARTWORK_PAUSE_SHRINK_SCALE].
+            // [ARTWORK_PAUSE_SHRINK_SCALE]. Keep video mode unscaled.
             val landscapeArtScale by animateFloatAsState(
                 targetValue = when {
+                    videoPresentation -> ARTWORK_EXPANDED_SCALE
                     !isPlaying -> ARTWORK_PAUSE_SHRINK_SCALE
                     scrub.scrubbing -> ARTWORK_DRAG_SHRINK_SCALE
                     else -> ARTWORK_EXPANDED_SCALE
@@ -2408,6 +2455,7 @@ fun NowPlayingScreen(
                         queueOpen -> PlayerPane.Queue
                         else -> PlayerPane.Main
                     },
+                    artworkAspect = if (videoPresentation) videoAspectState.value.coerceIn(1.2f, 2.4f) else 1f,
                     background = { backgroundModifier ->
                         // The whole screen is the sheets' frost source: there is
                         // no full-bleed banner here to be it instead.
@@ -3770,11 +3818,18 @@ fun NowPlayingScreen(
                                 ) {
                                     // Black with a spinner under the picture until
                                     // its first frame lands.
-                                    if (!videoRendered) {
+                                    if (!videoRendered && (videoMode || fullVideoSearching)) {
                                         VideoLoadingBackdrop(
                                             Modifier
                                                 .fillMaxSize()
                                                 .clip(RoundedCornerShape(10.dp)),
+                                        )
+                                    } else if (!videoRendered) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxSize()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color.Black),
                                         )
                                     }
                                     if (videoMode) {

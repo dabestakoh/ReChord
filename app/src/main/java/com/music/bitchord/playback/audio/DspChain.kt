@@ -84,6 +84,7 @@ class DspChain(
         // see; the loudness stage's limiter is what catches whatever survives.
         loudness.holdLimiter = equalizer.isShaping
         loudness.process(block)
+        PosterSpectrumTap.observe(block, currentSampleRate)
     }
 
     @Suppress("DEPRECATION")

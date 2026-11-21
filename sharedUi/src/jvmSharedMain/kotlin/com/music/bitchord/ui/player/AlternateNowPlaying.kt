@@ -1,6 +1,7 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.text.style.TextAlign
@@ -25,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -47,12 +50,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -60,19 +67,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -144,6 +161,8 @@ internal fun Modifier.openLayoutOnHold(action: (() -> Unit)?): Modifier {
     }
 }
 
+internal val LocalPosterTitleTarget = compositionLocalOf<(() -> LayoutCoordinates?)?> { null }
+
 @Composable
 internal fun AlternateNowPlaying(
     layout: NowPlayingLayout,
@@ -197,13 +216,23 @@ internal fun AlternateNowPlaying(
     onOpenArtist: (String?, String) -> Unit = { _, _ -> },
     spinRecord: Boolean = isPlaying,
     dock: PlayerDock? = null,
+    landscape: Boolean = false,
+    onToggleRotate: (() -> Unit)? = null,
+    video: (@Composable () -> Unit)? = null,
+    videoAspect: Float = 16f / 9f,
 ) {
     val vinyl = layout == NowPlayingLayout.VINYL
     val haptics = rememberHaptics()
+    val scope = rememberCoroutineScope()
     val topHold = Modifier.openLayoutOnHold(onOpenPicker)
     val artHold = Modifier.openLayoutOnHold(onOpenPicker)
     val accent = LocalPlayerAccent.current
     val base = Color(0xFF141417)
+    val smoothBackdrop by animateColorAsState(
+        targetValue = artworkBackdrop.takeUnless { it == Color.Unspecified || it == Color.White } ?: Color(0xFF3E4147),
+        animationSpec = if (reduceAnimation) snap() else tween(650),
+        label = "alternateBackdropTone",
+    )
     val swipe = rememberAlternateTrackSwipe(
         song, previousSong, nextSong, pane == PlayerPane.Main && !reduceAnimation, record = vinyl,
     )
@@ -215,6 +244,41 @@ internal fun AlternateNowPlaying(
     val nextColor = nextAnalysis.accent ?: Color.Unspecified
     val vinylStyle by PlayerSettings.vinylAppearance.collectAsStateWithLifecycle()
     val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val posterVisualizerEnabled by PlayerSettings.posterVisualizer.collectAsStateWithLifecycle()
+    val visualizerActive = !vinyl && !preview && posterVisualizerEnabled && pane == PlayerPane.Main && video == null
+    val visualizerLevels = remember { FloatArray(24) }
+    val visualizerRaw = remember { FloatArray(24) }
+    val visualizerTick = remember { mutableLongStateOf(0L) }
+    DisposableEffect(visualizerActive) {
+        PlayerPlatform.host.setVisualizerActive(visualizerActive)
+        onDispose { PlayerPlatform.host.setVisualizerActive(false) }
+    }
+    LaunchedEffect(visualizerActive, isPlaying, reduceAnimation) {
+        if (!visualizerActive || reduceAnimation) {
+            visualizerLevels.fill(0f)
+            visualizerTick.longValue++
+            return@LaunchedEffect
+        }
+        var lastNs = 0L
+        while (true) {
+            val now = withFrameNanos { it }
+            val dt = if (lastNs == 0L) 0.016f else ((now - lastNs) / 1e9f).coerceIn(0.001f, 0.08f)
+            lastNs = now
+            val heard = isPlaying && PlayerPlatform.host.readVisualizerSpectrum(visualizerRaw)
+            var maxLevel = 0f
+            val attack = (dt * 22f).coerceIn(0f, 1f)
+            val decay = (dt * 8.5f).coerceIn(0f, 1f)
+            for (i in visualizerLevels.indices) {
+                val target = if (heard) visualizerRaw[i] else 0f
+                val cur = visualizerLevels[i]
+                val next = cur + (target - cur) * if (target > cur) attack else decay
+                visualizerLevels[i] = if (next < 0.003f) 0f else next
+                if (visualizerLevels[i] > maxLevel) maxLevel = visualizerLevels[i]
+            }
+            visualizerTick.longValue = now
+            if (!isPlaying && maxLevel == 0f) break
+        }
+    }
     var seekingArm by remember { mutableStateOf(false) }
     val artworkStride = if (vinyl) 1.64f else 1f
     val gesture = if (preview) Modifier else Modifier.alternateTrackGesture(
@@ -272,9 +336,9 @@ internal fun AlternateNowPlaying(
                     )
                 }
             }
-            val current = colors(artworkBackdrop)
-            val previous = colors(if (prevColor == Color.Unspecified && !prevAnalysis.unavailable) artworkBackdrop else prevColor)
-            val next = colors(if (nextColor == Color.Unspecified && !nextAnalysis.unavailable) artworkBackdrop else nextColor)
+            val current = colors(smoothBackdrop)
+            val previous = colors(if (prevColor == Color.Unspecified && !prevAnalysis.unavailable) smoothBackdrop else prevColor)
+            val next = colors(if (nextColor == Color.Unspecified && !nextAnalysis.unavailable) smoothBackdrop else nextColor)
             onDrawBehind {
                 drawRect(current)
                 val offset = swipe.artworkOffset(song)
@@ -312,23 +376,48 @@ internal fun AlternateNowPlaying(
                     val safeTop = stableStatusBarInsets()
                     val mountTopInset = if (preview) 0 else safeTop.getTop(density)
                     val reveal = deckReveal ?: remember { Animatable(1f) }
-                    val showPosterRail = posterTransport && (deckVisible || reveal.value > 0f)
-                    val paneEndInset = if (showPosterRail) 72.dp else 18.dp
+                    val showPosterRail = posterTransport && pane == PlayerPane.Main && queuePreview == null && (deckVisible || reveal.value > 0f)
+                    val paneEndInset = 18.dp
+                    val heartPop = remember { Animatable(1f) }
+                    var wasLiked by remember(song.swipeIdentity) { mutableStateOf(liked) }
+                    LaunchedEffect(liked) {
+                        if (liked && !wasLiked && !reduceAnimation) {
+                            heartPop.snapTo(0.82f)
+                            heartPop.animateTo(1.22f, spring(dampingRatio = 0.42f, stiffness = 700f))
+                            heartPop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f))
+                        }
+                        wasLiked = liked
+                    }
+                    val prevNudge = remember { Animatable(0f) }
+                    val nextNudge = remember { Animatable(0f) }
                     val menu: @Composable () -> Unit = {
-                        PlaybackPill(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), Modifier.menuAnchor(), onMenu)
+                        PlaybackPill(
+                            Icons.Rounded.MoreHoriz, stringResource(Res.string.more), Modifier.menuAnchor(),
+                            reduced = reduceAnimation, onClick = onMenu,
+                        )
                     }
                     val favorite: @Composable () -> Unit = {
                         PlaybackPill(
                             icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                             description = stringResource(if (liked) Res.string.remove_from_liked else Res.string.like),
+                            reduced = reduceAnimation,
+                            extraScale = heartPop.value,
                             onClick = { haptics.play(Haptic.Tap); onFavorite() },
                         )
                     }
                     val previous: @Composable () -> Unit = {
                         PlaybackPill(
                             Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
+                            reduced = reduceAnimation,
+                            extraOffsetX = prevNudge.value.dp,
                         ) {
-                            if (vinyl) swipe.expectTrack(previousSong, 1f)
+                            if (!reduceAnimation) {
+                                scope.launch {
+                                    prevNudge.animateTo(-4.5f, spring(dampingRatio = 0.5f, stiffness = 900f))
+                                    prevNudge.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
+                                }
+                            }
+                            swipe.expectTrack(previousSong, 1f)
                             haptics.play(Haptic.SkipPrevious)
                             onPrevious()
                         }
@@ -343,145 +432,336 @@ internal fun AlternateNowPlaying(
                                 if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
                                 stringResource(if (isPlaying) Res.string.pause else Res.string.play),
                                 true,
+                                reduced = reduceAnimation,
                             ) { haptics.play(if (isPlaying) Haptic.Pause else Haptic.Resume); onPlayPause() }
                         }
                     }
                     val next: @Composable () -> Unit = {
                         PlaybackPill(
                             Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
+                            reduced = reduceAnimation,
+                            extraOffsetX = nextNudge.value.dp,
                         ) {
-                            if (vinyl) swipe.expectTrack(nextSong, -1f)
+                            if (!reduceAnimation) {
+                                scope.launch {
+                                    nextNudge.animateTo(4.5f, spring(dampingRatio = 0.5f, stiffness = 900f))
+                                    nextNudge.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
+                                }
+                            }
+                            swipe.expectTrack(nextSong, -1f)
                             haptics.play(Haptic.SkipNext)
                             onNext()
                         }
                     }
-                    Column(Modifier.fillMaxSize()) {
-                        AnimatedContent(
-                            targetState = pane,
-                            modifier = Modifier.fillMaxWidth().weight(1f)
-                                .then(if (vinyl) Modifier else Modifier.clipToBounds())
-                                .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
-                            transitionSpec = {
-                                if (reduceAnimation) {
-                                    fadeIn(snap()) togetherWith fadeOut(snap())
-                                } else {
-                                    val forward = targetState != PlayerPane.Main
-                                    val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
-                                        if (forward) min(it / 4, 132) else -it / 12
-                                    } + fadeIn(tween(durationMillis = 145, delayMillis = 105))
-                                    val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
-                                        if (forward) -it / 12 else min(it / 4, 132)
-                                    } + fadeOut(tween(durationMillis = 100))
-                                    enter togetherWith exit
+                    val rotatePill: (@Composable () -> Unit)? = if (!preview && onToggleRotate != null) {
+                        {
+                            PlaybackPill(
+                                icon = Icons.Rounded.ScreenRotation,
+                                description = stringResource(Res.string.rotate_player),
+                                reduced = reduceAnimation,
+                                onClick = { haptics.play(Haptic.Tap); onToggleRotate() },
+                            )
+                        }
+                    } else null
+                    var stageCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                    var creditsTitleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+                    var vinylMaxDiscBottom by remember { mutableStateOf<Float?>(null) }
+                    val vinylClearancePx = with(density) { 8.dp.toPx() }
+                    val videoRatio = videoAspect.coerceIn(1.2f, 2.4f)
+                    val videoActive = video != null
+
+                    val stageMaxWidth = maxWidth
+                    val stageMaxHeight = maxHeight
+                    var posterSidewaysSeekExpand by remember { mutableStateOf(0f) }
+                    CompositionLocalProvider(LocalPosterTitleTarget provides { creditsTitleCoords }) {
+                        if (landscape) {
+                            Row(
+                                Modifier
+                                    .fillMaxSize()
+                                    .then(
+                                        if (vinyl && !preview) {
+                                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 2.dp, bottom = 2.dp)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                            ) {
+                                val leftWidth = if (vinyl) stageMaxWidth * 0.50f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
+                                Box(
+                                    Modifier
+                                        .width(leftWidth)
+                                        .fillMaxHeight()
+                                        .clipToBounds()
+                                        .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (videoActive) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                                .aspectRatio(videoRatio)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(Color.Black),
+                                        ) {
+                                            video?.invoke()
+                                        }
+                                    } else if (vinyl) {
+                                        val drag = onScrub.takeIf { canSeek && pane == PlayerPane.Main }
+                                        val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
+                                        Box(Modifier.fillMaxSize().then(gesture).then(artHold)) {
+                                            for ((slot, track) in tracks) {
+                                                val current = slot == 0
+                                                if (!current && !swipingNow) continue
+                                                key(track.swipeIdentity) {
+                                                    val request = when (slot) {
+                                                        -1 -> prevArt
+                                                        1 -> nextArt
+                                                        else -> artworkUrl ?: artwork
+                                                    }
+                                                    val color = when (slot) {
+                                                        -1 -> prevColor
+                                                        1 -> nextColor
+                                                        else -> recordPalette
+                                                    }
+                                                    VinylDisc(
+                                                        request, track.swipeIdentity, vinylStyle, color,
+                                                        pane == PlayerPane.Main && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                        if (current) shown else ({ 0f }),
+                                                        { current && seekingArm },
+                                                        Modifier.fillMaxSize().graphicsLayer {
+                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                        },
+                                                        albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                        labelPlacement = if (pane == PlayerPane.Main && current) ({ coordinates, angle ->
+                                                            artworkAngle = angle
+                                                            reportArtwork(coordinates)
+                                                        }) else null,
+                                                        coastOnPause = pane == PlayerPane.Main && current && !reduceAnimation,
+                                                        coverAlpha = { if (pane == PlayerPane.Main && current) liveCoverAlpha() else 1f },
+                                                        mountTopInset = 0,
+                                                        landscape = true,
+                                                    )
+                                                }
+                                            }
+                                            VinylTonearm(
+                                                shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
+                                                reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
+                                                durationMs = durationMs,
+                                                trackKey = song.swipeIdentity,
+                                                mountTopInset = 0,
+                                                isPlaying = isPlaying,
+                                                landscape = true,
+                                            )
+                                        }
+                                    } else {
+                                        val drag = onScrub.takeIf { canSeek && pane == PlayerPane.Main }
+                                        Box(Modifier.fillMaxSize().then(gesture).then(artHold)) {
+                                            PosterArtworkSideways(
+                                                shown = shown,
+                                                modifier = Modifier.fillMaxSize().onGloballyPositioned {
+                                                    if (pane == PlayerPane.Main) reportArtwork(it)
+                                                },
+                                                onScrub = drag,
+                                                onFinish = onScrubFinished,
+                                                onCancel = onScrubCanceled,
+                                                durationMs = durationMs,
+                                                reduced = reduceAnimation,
+                                                trackKey = song.swipeIdentity,
+                                                isPlaying = isPlaying,
+                                                onSeekExpand = { posterSidewaysSeekExpand = it },
+                                                visualizer = visualizerActive,
+                                                visualizerLevels = { visualizerLevels },
+                                                visualizerTick = { visualizerTick.longValue },
+                                            ) {
+                                                for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                    val art = when (slot) {
+                                                        -1 -> prevArt
+                                                        1 -> nextArt
+                                                        else -> artworkUrl ?: artwork
+                                                    }
+                                                    LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                        if (slot == 0 && pane == PlayerPane.Main) alpha = liveCoverAlpha()
+                                                    })
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            },
-                            label = "alternatePlayerPane",
-                        ) { shownPane ->
-                            val active = shownPane == pane
-                            val paneModifier = if (active) Modifier else {
-                                Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+
+                                AnimatedContent(
+                                    targetState = pane,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .then(
+                                            if (!vinyl && !preview) {
+                                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 10.dp, bottom = 10.dp)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .padding(start = 14.dp, end = 18.dp),
+                                    transitionSpec = {
+                                        if (reduceAnimation) {
+                                            fadeIn(snap()) togetherWith fadeOut(snap())
+                                        } else {
+                                            fadeIn(tween(180, delayMillis = 80)) togetherWith fadeOut(tween(110))
+                                        }
+                                    },
+                                    label = "alternateLandscapePane",
+                                ) { shownPane ->
+                                    val active = shownPane == pane
+                                    when (shownPane) {
+                                        PlayerPane.Main -> Column(
+                                            Modifier.fillMaxSize().padding(top = 4.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            if (!vinyl) {
+                                                Row(
+                                                    Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
+                                                }
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .weight(1f)
+                                                        .padding(vertical = 8.dp)
+                                                        .graphicsLayer {
+                                                            alpha = textOpacity
+                                                            translationX = posterSidewaysSeekExpand * 14.dp.toPx()
+                                                        },
+                                                    contentAlignment = Alignment.CenterStart,
+                                                ) {
+                                                    if (active) key(song.swipeIdentity) { lyrics() }
+                                                }
+                                            }
+                                            Column(
+                                                Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .onGloballyPositioned { creditsTitleCoords = it }
+                                                        .graphicsLayer { alpha = textOpacity },
+                                                ) {
+                                                    PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                }
+                                                if (playbackOrigin != null) {
+                                                    PlaybackOriginCaption(
+                                                        playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                                    )
+                                                }
+                                                if (vinyl) {
+                                                    Box(
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .height(38.dp)
+                                                            .graphicsLayer { alpha = textOpacity },
+                                                        contentAlignment = Alignment.CenterStart,
+                                                    ) {
+                                                        if (active) lyrics()
+                                                    }
+                                                    Row(
+                                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                    ) {
+                                                        previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
+                                                    }
+                                                }
+                                                if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
+                                                volume?.invoke()
+                                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                                    quality()
+                                                }
+                                                actions()
+                                            }
+                                        }
+                                        PlayerPane.Lyrics, PlayerPane.Queue -> Box(
+                                            Modifier.fillMaxSize().clipToBounds().padding(top = 24.dp),
+                                        ) {
+                                            if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
                                         }
                                     }
                                 }
                             }
-                            Box(Modifier.fillMaxSize().then(paneModifier)) {
-                                when (shownPane) {
-                                    PlayerPane.Main -> {
-                                        val drag = onScrub.takeIf { canSeek && active }
-                                        val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
-                                            .graphicsLayer { alpha = 1f - (queuePreview?.invoke() ?: 0f) }
-                                        Box(artModifier) {
-                                            if (vinyl) {
-                                                BoxWithConstraints(Modifier.fillMaxSize()) {
-                                                    Box(Modifier.fillMaxWidth().height(minOf(maxHeight, artworkLimit))) {
-                                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                            val current = slot == 0
-                                                            val request = when (slot) {
-                                                                -1 -> prevArt
-                                                                1 -> nextArt
-                                                                else -> artworkUrl ?: artwork
-                                                            }
-                                                            val color = when (slot) {
-                                                                -1 -> prevColor
-                                                                1 -> nextColor
-                                                                else -> recordPalette
-                                                            }
-                                                            VinylDisc(
-                                                                request, track.swipeIdentity, vinylStyle, color,
-                                                                active && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
-                                                                if (current) shown else ({ 0f }),
-                                                                { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
-                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
-                                                                },
-                                                                albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                                labelPlacement = if (active && current) ({ coordinates, angle ->
-                                                                    artworkAngle = angle
-                                                                    reportArtwork(coordinates)
-                                                                }) else null,
-                                                                coastOnPause = active && current && !reduceAnimation,
-                                                                coverAlpha = { if (active && current) liveCoverAlpha() else 1f },
-                                                                mountTopInset = mountTopInset,
-                                                            )
-                                                        }
-                                                        VinylTonearm(
-                                                            shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
-                                                            reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
-                                                            durationMs = durationMs,
-                                                            trackKey = song.swipeIdentity,
-                                                            mountTopInset = mountTopInset,
-                                                        )
-                                                    }
-                                                }
-                                            } else {
-                                                BoxWithConstraints(Modifier.fillMaxSize()) {
-                                                    val stageHeight = minOf(maxHeight, artworkLimit)
-                                                    val previousHeight = stageHeight * if (compact) 0.59f else 0.57f
-                                                    val curveHeight = (previousHeight - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
-                                                    val lyricsRoom = minOf(stageHeight * 0.50f, maxOf(112.dp * fontScale, stageHeight * 0.30f))
-                                                    val coverHeight = (minOf(
-                                                        stageHeight - lyricsRoom,
-                                                        maxWidth * 1.22f + POSTER_SEEK_FOOTER,
-                                                    ) - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
-                                                    // The rim is lowest at the left. Reserve its gap, the seek
-                                                    // touch radius or timestamp height, and a little text clearance.
-                                                    val seekFooter = (9.dp + maxOf(23.dp, 16.dp * fontScale) + 4.dp -
-                                                        coverHeight * 0.05f).coerceAtLeast(8.dp)
-                                                    if (active) SideEffect {
-                                                        posterCurveHeight = curveHeight
-                                                        posterSeekFooter = seekFooter
-                                                    }
-                                                    Column(Modifier.fillMaxWidth().height(stageHeight)) {
-                                                        PosterArtwork(
-                                                            null, shown, Modifier.fillMaxWidth().height(coverHeight + seekFooter)
-                                                                .onGloballyPositioned { if (active) reportArtwork(it) }, drag,
-                                                            onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
-                                                            curveHeight = curveHeight,
-                                                            seekFooter = seekFooter,
-                                                        ) {
-                                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                                val art = when (slot) {
-                                                                    -1 -> prevArt
-                                                                    1 -> nextArt
-                                                                    else -> artworkUrl ?: artwork
-                                                                }
-                                                                LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
-                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width
-                                                                    if (slot == 0 && active) alpha = liveCoverAlpha()
-                                                                })
-                                                            }
-                                                        }
-                                                        Box(
-                                                            Modifier.fillMaxWidth().weight(1f)
-                                                                .padding(start = 20.dp, end = if (compact) 20.dp else 72.dp)
-                                                                .graphicsLayer { alpha = textOpacity },
-                                                        ) { if (active) key(song.swipeIdentity) { lyrics() } }
-                                                    }
-                                                }
-                                            }
+                        } else {
+                            val vinylMain = vinyl && pane == PlayerPane.Main && !videoActive
+                            val vinylAlpha by animateFloatAsState(
+                                if (vinylMain) 1f else 0f,
+                                animationSpec = when {
+                                    reduceAnimation -> snap()
+                                    vinylMain -> tween(durationMillis = 145, delayMillis = 105)
+                                    else -> tween(durationMillis = 100)
+                                },
+                                label = "vinylPaneAlpha",
+                            )
+                            val vinylSlide by animateFloatAsState(
+                                if (vinylMain) 0f else 1f,
+                                animationSpec = when {
+                                    reduceAnimation -> snap()
+                                    vinylMain -> spring(dampingRatio = 0.86f, stiffness = 285f)
+                                    else -> spring(dampingRatio = 0.90f, stiffness = 420f)
+                                },
+                                label = "vinylPaneSlide",
+                            )
+                            Box(Modifier.fillMaxSize().onGloballyPositioned { stageCoords = it }) {
+                                if (vinyl && (vinylMain || vinylAlpha > 0.001f)) {
+                                    val drag = onScrub.takeIf { canSeek && vinylMain }
+                                    val vinylStageModifier = Modifier
+                                        .fillMaxSize()
+                                        .then(if (vinylMain) gesture.then(artHold) else Modifier.clearAndSetSemantics {})
+                                        .graphicsLayer {
+                                            alpha = (vinylAlpha * (1f - (queuePreview?.invoke() ?: 0f))).coerceIn(0f, 1f)
+                                            translationY = -vinylSlide * (size.height / 12f)
                                         }
+                                    Box(vinylStageModifier) {
+                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                            val current = slot == 0
+                                            val request = when (slot) {
+                                                -1 -> prevArt
+                                                1 -> nextArt
+                                                else -> artworkUrl ?: artwork
+                                            }
+                                            val color = when (slot) {
+                                                -1 -> prevColor
+                                                1 -> nextColor
+                                                else -> recordPalette
+                                            }
+                                            VinylDisc(
+                                                request, track.swipeIdentity, vinylStyle, color,
+                                                vinylMain && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                if (current) shown else ({ 0f }),
+                                                { current && seekingArm },
+                                                Modifier.fillMaxSize().graphicsLayer {
+                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                },
+                                                albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                labelPlacement = if (vinylMain && current) ({ coordinates, angle ->
+                                                    artworkAngle = angle
+                                                    reportArtwork(coordinates)
+                                                }) else null,
+                                                coastOnPause = vinylMain && current && !reduceAnimation,
+                                                coverAlpha = { if (vinylMain && current) liveCoverAlpha() else 1f },
+                                                mountTopInset = mountTopInset,
+                                                maxDiscBottom = vinylMaxDiscBottom,
+                                            )
+                                        }
+                                        VinylTonearm(
+                                            shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
+                                            reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
+                                            durationMs = durationMs,
+                                            trackKey = song.swipeIdentity,
+                                            mountTopInset = mountTopInset,
+                                            maxDiscBottom = vinylMaxDiscBottom,
+                                            isPlaying = isPlaying,
+                                        )
                                         if (statusScrimAlpha > 0f) {
                                             Box(
                                                 Modifier.fillMaxWidth().height(80.dp).background(
@@ -492,94 +772,294 @@ internal fun AlternateNowPlaying(
                                             )
                                         }
                                     }
-                                    PlayerPane.Lyrics, PlayerPane.Queue -> Box(
-                                        Modifier.fillMaxSize().clipToBounds()
-                                            .windowInsetsPadding(stableStatusBarInsets())
-                                            .padding(start = 18.dp, top = 48.dp, end = paneEndInset),
-                                    ) {
-                                        if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
-                                    }
                                 }
-                                if (queuePreview != null && shownPane == PlayerPane.Main) {
-                                    Box(Modifier.fillMaxSize().windowInsetsPadding(stableStatusBarInsets())
-                                        .padding(start = 18.dp, end = paneEndInset, top = 48.dp)
-                                        .graphicsLayer {
-                                            alpha = ((queuePreview() - 0.45f) / 0.55f).coerceIn(0f, 1f)
-                                            translationY = (1f - queuePreview()) * 26.dp.toPx()
+                                Column(Modifier.fillMaxSize()) {
+                                    AnimatedContent(
+                                        targetState = pane,
+                                        modifier = Modifier.fillMaxWidth().weight(1f)
+                                            .then(if (vinyl) Modifier else Modifier.clipToBounds())
+                                            .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
+                                        transitionSpec = {
+                                            if (reduceAnimation) {
+                                                fadeIn(snap()) togetherWith fadeOut(snap())
+                                            } else {
+                                                val forward = targetState != PlayerPane.Main
+                                                val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
+                                                    if (forward) min(it / 4, 132) else -it / 12
+                                                } + fadeIn(tween(durationMillis = 145, delayMillis = 105))
+                                                val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
+                                                    if (forward) -it / 12 else min(it / 4, 132)
+                                                } + fadeOut(tween(durationMillis = 100))
+                                                enter togetherWith exit
+                                            }
+                                        },
+                                        label = "alternatePlayerPane",
+                                    ) { shownPane ->
+                                        val active = shownPane == pane
+                                        val paneModifier = if (active) Modifier else {
+                                            Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                                                awaitPointerEventScope {
+                                                    while (true) {
+                                                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                                    }
+                                                }
+                                            }
                                         }
-                                        .clearAndSetSemantics {},
-                                    ) { queuePane(false) }
-                                }
-                            }
-                        }
-                        SlidingPlayerDeck(visible = deckVisible, reveal = reveal, reduced = reduceAnimation,
-                            modifier = Modifier.clipToBounds(),
-                        ) {
-                            Column(Modifier.fillMaxWidth().onSizeChanged { fullDeckHeight = it.height }) {
-                                Row(
-                                    Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    Column(
-                                        Modifier.weight(1f).then(
-                                            if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
-                                        ),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Box(Modifier.fillMaxWidth().graphicsLayer {
-                                            alpha = if (pane == PlayerPane.Main) textOpacity else 1f
-                                        }) {
-                                            PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
-                                        }
-                                        if (playbackOrigin != null && pane == PlayerPane.Main) {
-                                            PlaybackOriginCaption(
-                                                playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
-                                            )
-                                        }
-                                        if (vinyl) {
-                                            // Reserve the same placement for the credits across all three panes.
-                                            Box(
-                                                Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
-                                                    alpha = textOpacity
-                                                },
-                                                contentAlignment = Alignment.CenterStart,
-                                            ) {
-                                                if (pane == PlayerPane.Main) lyrics()
+                                        Box(Modifier.fillMaxSize().then(paneModifier)) {
+                                            when (shownPane) {
+                                                PlayerPane.Main -> {
+                                                    if (vinyl && !videoActive) {
+                                                        Spacer(Modifier.fillMaxSize())
+                                                    } else if (vinyl && videoActive) {
+                                                        Box(
+                                                            Modifier
+                                                                .fillMaxSize()
+                                                                .windowInsetsPadding(stableStatusBarInsets())
+                                                                .padding(start = 16.dp, end = 16.dp, top = 46.dp, bottom = 12.dp)
+                                                                .graphicsLayer { alpha = 1f - (queuePreview?.invoke() ?: 0f) },
+                                                            contentAlignment = Alignment.Center,
+                                                        ) {
+                                                            Box(
+                                                                Modifier
+                                                                    .fillMaxWidth()
+                                                                    .aspectRatio(videoRatio)
+                                                                    .clip(RoundedCornerShape(16.dp))
+                                                                    .background(Color.Black),
+                                                            ) {
+                                                                video?.invoke()
+                                                            }
+                                                        }
+                                                    } else {
+                                                        val drag = onScrub.takeIf { canSeek && active }
+                                                        var posterSeekExpand by remember { mutableStateOf(0f) }
+                                                        val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
+                                                            .graphicsLayer { alpha = 1f - (queuePreview?.invoke() ?: 0f) }
+                                                        Box(artModifier) {
+                                                            BoxWithConstraints(Modifier.fillMaxSize()) {
+                                                                val stageHeight = minOf(maxHeight, artworkLimit)
+                                                                val previousHeight = stageHeight * if (compact) 0.59f else 0.57f
+                                                                val curveHeight = (previousHeight - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
+                                                                val lyricsRoom = minOf(stageHeight * 0.50f, maxOf(112.dp * fontScale, stageHeight * 0.30f))
+                                                                val coverHeight = (minOf(
+                                                                    stageHeight - lyricsRoom,
+                                                                    maxWidth * 1.22f + POSTER_SEEK_FOOTER,
+                                                                ) - POSTER_SEEK_FOOTER).coerceAtLeast(1.dp)
+                                                                // The rim is lowest at the left. Reserve its gap, the seek
+                                                                // touch radius or timestamp height, and a little text clearance.
+                                                                val seekFooter = (9.dp + maxOf(23.dp, 16.dp * fontScale) + 4.dp -
+                                                                    coverHeight * 0.05f).coerceAtLeast(8.dp)
+                                                                if (active) SideEffect {
+                                                                    posterCurveHeight = curveHeight
+                                                                    posterSeekFooter = seekFooter
+                                                                }
+                                                                Column(Modifier.fillMaxWidth().height(stageHeight)) {
+                                                                    if (videoActive) {
+                                                                        Box(
+                                                                            Modifier
+                                                                                .fillMaxWidth()
+                                                                                .windowInsetsPadding(stableStatusBarInsets())
+                                                                                .padding(start = 16.dp, end = 16.dp, top = 46.dp, bottom = 10.dp),
+                                                                            contentAlignment = Alignment.Center,
+                                                                        ) {
+                                                                            Box(
+                                                                                Modifier
+                                                                                    .fillMaxWidth()
+                                                                                    .aspectRatio(videoRatio)
+                                                                                    .clip(RoundedCornerShape(16.dp))
+                                                                                    .background(Color.Black),
+                                                                            ) {
+                                                                                video?.invoke()
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        PosterArtwork(
+                                                                            null, shown, Modifier.fillMaxWidth().height(coverHeight + seekFooter)
+                                                                                .onGloballyPositioned { if (active) reportArtwork(it) }, drag,
+                                                                            onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
+                                                                            curveHeight = curveHeight,
+                                                                            seekFooter = seekFooter,
+                                                                            onSeekExpand = { posterSeekExpand = it },
+                                                                            trackKey = song.swipeIdentity,
+                                                                            isPlaying = isPlaying,
+                                                                            visualizer = visualizerActive,
+                                                                            visualizerLevels = { visualizerLevels },
+                                                                            visualizerTick = { visualizerTick.longValue },
+                                                                        ) {
+                                                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                                                val art = when (slot) {
+                                                                                    -1 -> prevArt
+                                                                                    1 -> nextArt
+                                                                                    else -> artworkUrl ?: artwork
+                                                                                }
+                                                                                LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                                                    if (slot == 0 && active) alpha = liveCoverAlpha()
+                                                                                })
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    Box(
+                                                                        Modifier.fillMaxWidth().weight(1f)
+                                                                            .padding(start = 20.dp, end = if (compact) 20.dp else 72.dp)
+                                                                            .graphicsLayer {
+                                                                                alpha = textOpacity
+                                                                                translationY = posterSeekExpand * 14.dp.toPx()
+                                                                            },
+                                                                    ) { if (active) key(song.swipeIdentity) { lyrics() } }
+                                                                }
+                                                            }
+                                                        }
+                                                        if (statusScrimAlpha > 0f && !videoActive) {
+                                                            Box(
+                                                                Modifier.fillMaxWidth().height(80.dp).background(
+                                                                    Brush.verticalGradient(
+                                                                        listOf(Color.Black.copy(alpha = statusScrimAlpha), Color.Transparent),
+                                                                    ),
+                                                                ),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                PlayerPane.Lyrics, PlayerPane.Queue -> Box(
+                                                    Modifier.fillMaxSize().clipToBounds()
+                                                        .windowInsetsPadding(stableStatusBarInsets())
+                                                        .padding(start = 18.dp, top = 48.dp, end = paneEndInset),
+                                                ) {
+                                                    if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
+                                                }
+                                            }
+                                            if (queuePreview != null && shownPane == PlayerPane.Main) {
+                                                Box(Modifier.fillMaxSize().windowInsetsPadding(stableStatusBarInsets())
+                                                    .padding(start = 18.dp, end = paneEndInset, top = 48.dp)
+                                                    .graphicsLayer {
+                                                        alpha = ((queuePreview() - 0.45f) / 0.55f).coerceIn(0f, 1f)
+                                                        translationY = (1f - queuePreview()) * 26.dp.toPx()
+                                                    }
+                                                    .clearAndSetSemantics {},
+                                                ) { queuePane(false) }
                                             }
                                         }
                                     }
-                                    if (posterTransport) {
-                                        Spacer(Modifier.width(52.dp))
-                                    } else if (compact) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Column { menu(); favorite(); previous() }
-                                            Column(Modifier.align(Alignment.Bottom)) { play(); next() }
+                                    SlidingPlayerDeck(visible = deckVisible, reveal = reveal, reduced = reduceAnimation,
+                                        modifier = Modifier.clipToBounds(),
+                                    ) {
+                                        val inlinePaneControls = !compact && pane != PlayerPane.Main
+                                        Column(Modifier.fillMaxWidth().onSizeChanged { fullDeckHeight = it.height }) {
+                                            if (inlinePaneControls) {
+                                                Column(
+                                                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    Box(
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .onGloballyPositioned { creditsTitleCoords = it },
+                                                    ) {
+                                                        PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                    }
+                                                    Row(
+                                                        Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                    ) {
+                                                        previous(); play(); next(); favorite(); menu()
+                                                    }
+                                                }
+                                            } else {
+                                                Row(
+                                                    Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                ) {
+                                                    Column(
+                                                        Modifier
+                                                            .weight(1f)
+                                                            .align(Alignment.Bottom)
+                                                            .padding(bottom = 10.dp)
+                                                            .onGloballyPositioned { coords ->
+                                                                val root = stageCoords
+                                                                if (vinyl && root != null && root.isAttached && coords.isAttached) {
+                                                                    val topY = root.localPositionOf(coords, Offset.Zero).y
+                                                                    vinylMaxDiscBottom = (topY - vinylClearancePx).coerceAtLeast(1f)
+                                                                }
+                                                            },
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                    ) {
+                                                        Box(
+                                                            Modifier
+                                                                .fillMaxWidth()
+                                                                .onGloballyPositioned { creditsTitleCoords = it }
+                                                                .graphicsLayer {
+                                                                    alpha = if (pane == PlayerPane.Main) textOpacity else 1f
+                                                                },
+                                                        ) {
+                                                            PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                        }
+                                                        if (playbackOrigin != null && pane == PlayerPane.Main) {
+                                                            PlaybackOriginCaption(
+                                                                playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                                            )
+                                                        }
+                                                        if (vinyl) {
+                                                            // Reserve the same placement for the credits across all three panes.
+                                                            Box(
+                                                                Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
+                                                                    alpha = textOpacity
+                                                                },
+                                                                contentAlignment = Alignment.CenterStart,
+                                                            ) {
+                                                                if (pane == PlayerPane.Main) lyrics()
+                                                            }
+                                                        }
+                                                    }
+                                                    if (posterTransport) {
+                                                        Spacer(Modifier.width(52.dp))
+                                                    } else if (compact) {
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                            Column { menu(); favorite(); previous() }
+                                                            Column(Modifier.align(Alignment.Bottom)) { play(); next() }
+                                                        }
+                                                    } else {
+                                                        Column { menu(); favorite(); previous(); play(); next() }
+                                                    }
+                                                }
+                                            }
+                                            Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }.padding(horizontal = 20.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                            ) {
+                                                if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = true)
+                                                volume?.invoke()
+                                                quality()
+                                                actions()
+                                                Spacer(Modifier.height(6.dp))
+                                            }
                                         }
-                                    } else {
-                                        Column { menu(); favorite(); previous(); play(); next() }
                                     }
                                 }
-                                Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }.padding(horizontal = 20.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = true)
-                                    volume?.invoke()
-                                    quality()
-                                    actions()
-                                    Spacer(Modifier.height(6.dp))
+                                if (showPosterRail) {
+                                    Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp)
+                                        .offset { IntOffset(0, -footerHeight) }
+                                        .graphicsLayer {
+                                            alpha = reveal.value
+                                            translationY = (1f - reveal.value) * footerHeight
+                                        }) {
+                                        rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
+                                    }
+                                } else if (vinyl && !compact && rotatePill != null && pane == PlayerPane.Main && queuePreview == null && (deckVisible || reveal.value > 0f)) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(end = 14.dp)
+                                            .offset { IntOffset(0, -(footerHeight + controlsHeight.roundToPx())) }
+                                            .graphicsLayer {
+                                                alpha = reveal.value
+                                                translationY = (1f - reveal.value) * footerHeight
+                                            },
+                                    ) {
+                                        rotatePill()
+                                    }
                                 }
                             }
-                        }
-                    }
-                    if (showPosterRail) {
-                        Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp)
-                            .offset { IntOffset(0, -footerHeight) }
-                            .graphicsLayer {
-                                alpha = reveal.value
-                                translationY = (1f - reveal.value) * footerHeight
-                            }) {
-                            menu(); favorite(); previous(); play(); next()
                         }
                     }
                 }
@@ -605,7 +1085,6 @@ internal fun AlternateNowPlaying(
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
                         .clickable(onClick = onDismissPane).graphicsLayer { alpha = liveCoverAlpha() })
                 }
-
             }
         }
     }
@@ -709,16 +1188,27 @@ private fun PlaybackPill(
     icon: ImageVector,
     description: String,
     modifier: Modifier = Modifier,
+    reduced: Boolean = false,
+    extraScale: Float = 1f,
+    extraOffsetX: Dp = 0.dp,
     onClick: () -> Unit,
 ) {
-    PlaybackPillFrame(onClick, true, modifier) {
+    PlaybackPillFrame(onClick, true, modifier, reduced = reduced, extraScale = extraScale, extraOffsetX = extraOffsetX) {
         Icon(icon, description, tint = LocalPlayerAccent.current, modifier = Modifier.size(23.dp))
     }
 }
 
 @Composable
-private fun PlaybackPill(icon: DrawableResource, description: String, enabled: Boolean, onClick: () -> Unit) {
-    PlaybackPillFrame(onClick, enabled) {
+private fun PlaybackPill(
+    icon: DrawableResource,
+    description: String,
+    enabled: Boolean,
+    reduced: Boolean = false,
+    extraScale: Float = 1f,
+    extraOffsetX: Dp = 0.dp,
+    onClick: () -> Unit,
+) {
+    PlaybackPillFrame(onClick, enabled, reduced = reduced, extraScale = extraScale, extraOffsetX = extraOffsetX) {
         Icon(
             painterResource(icon), description, modifier = Modifier.size(22.dp),
             tint = LocalPlayerAccent.current.copy(alpha = if (enabled) 1f else 0.32f),
@@ -731,11 +1221,34 @@ private fun PlaybackPillFrame(
     onClick: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    reduced: Boolean = false,
+    extraScale: Float = 1f,
+    extraOffsetX: Dp = 0.dp,
     icon: @Composable () -> Unit,
 ) {
-    IconButton(onClick, enabled = enabled, modifier = modifier.size(52.dp, 48.dp)) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.84f else 1f,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = 0.54f, stiffness = 720f),
+        label = "pillPressScale",
+    )
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        interactionSource = interaction,
+        modifier = modifier.size(52.dp, 48.dp),
+    ) {
         Box(
-            Modifier.size(46.dp, 39.dp).background(LocalPlayerAccent.current.copy(alpha = 0.13f), CircleShape),
+            Modifier
+                .size(46.dp, 39.dp)
+                .graphicsLayer {
+                    val s = pressScale * extraScale
+                    scaleX = s
+                    scaleY = s
+                    translationX = extraOffsetX.toPx()
+                }
+                .background(LocalPlayerAccent.current.copy(alpha = 0.13f), CircleShape),
             contentAlignment = Alignment.Center,
         ) { icon() }
     }
@@ -752,6 +1265,94 @@ internal fun LayoutArtwork(artwork: Any?, modifier: Modifier, placeholder: Paint
 }
 
 private val POSTER_SEEK_FOOTER = 38.dp
+private const val POSTER_START_PEEK_MS = 3_000L
+private const val POSTER_RELEASE_HOLD_MS = 1_400L
+
+@Composable
+private fun rememberPosterRimExpand(
+    seeking: Boolean,
+    isPlaying: Boolean,
+    trackKey: String?,
+    enabled: Boolean,
+    reduced: Boolean,
+): Float {
+    val expand = remember { Animatable(0f) }
+    var wasSeeking by remember { mutableStateOf(false) }
+    var lastPeekTrack by remember { mutableStateOf<String?>(null) }
+    var wasPlaying by remember { mutableStateOf(false) }
+
+    LaunchedEffect(seeking, reduced) {
+        if (seeking) {
+            wasSeeking = true
+            if (reduced) expand.snapTo(1f) else expand.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 340f))
+        } else if (wasSeeking) {
+            wasSeeking = false
+            if (reduced) {
+                expand.snapTo(0f)
+            } else {
+                delay(POSTER_RELEASE_HOLD_MS)
+                expand.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 170f))
+            }
+        }
+    }
+
+    LaunchedEffect(trackKey, isPlaying, enabled, reduced) {
+        if (!enabled || reduced || trackKey == null) {
+            wasPlaying = isPlaying
+            return@LaunchedEffect
+        }
+        val started = isPlaying && (!wasPlaying || trackKey != lastPeekTrack)
+        wasPlaying = isPlaying
+        if (started && !seeking) {
+            lastPeekTrack = trackKey
+            expand.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 340f))
+            delay(POSTER_START_PEEK_MS)
+            if (!seeking) {
+                expand.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = 170f))
+            }
+        }
+    }
+
+    return expand.value
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCurvedRimVisualizer(
+    measure: PathMeasure,
+    levels: FloatArray,
+    color: Color,
+    expandAmount: Float,
+    outwardSign: Float,
+    maxBarPx: Float,
+    baseOffsetPx: Float,
+    barStrokePx: Float,
+) {
+    val totalLen = measure.length
+    if (totalLen <= 1f || levels.isEmpty()) return
+    val count = levels.size
+    val pad = totalLen * 0.03f
+    val span = (totalLen - pad * 2f).coerceAtLeast(1f)
+    val push = baseOffsetPx + expandAmount * 6.dp.toPx()
+    for (i in 0 until count) {
+        val level = levels[i].coerceIn(0f, 1f)
+        if (level <= 0.005f) continue
+        val dist = pad + span * (i + 0.5f) / count
+        val pt = measure.getPosition(dist)
+        val tan = measure.getTangent(dist)
+        // Normal perpendicular to the arc tangent, oriented outward from the artwork.
+        val nx = -tan.y * outwardSign
+        val ny = tan.x * outwardSign
+        val len = (2.dp.toPx() + level * maxBarPx)
+        val start = Offset(pt.x + nx * push, pt.y + ny * push)
+        val end = Offset(start.x + nx * len, start.y + ny * len)
+        drawLine(
+            color = color.copy(alpha = (0.28f + level * 0.44f).coerceIn(0f, 0.78f)),
+            start = start,
+            end = end,
+            strokeWidth = barStrokePx,
+            cap = StrokeCap.Round,
+        )
+    }
+}
 
 private fun posterRimPoint(size: Size, fraction: Float, curveHeight: Float) =
     Offset(size.width * fraction, size.height * 0.95f - curveHeight * 0.33f * fraction * fraction)
@@ -813,6 +1414,12 @@ internal fun PosterArtwork(
     reduced: Boolean = true,
     curveHeight: Dp? = null,
     seekFooter: Dp = POSTER_SEEK_FOOTER,
+    onSeekExpand: (Float) -> Unit = {},
+    trackKey: String? = null,
+    isPlaying: Boolean = false,
+    visualizer: Boolean = false,
+    visualizerLevels: (() -> FloatArray)? = null,
+    visualizerTick: (() -> Long)? = null,
     coverLayers: (@Composable () -> Unit)? = null,
 ) {
     val accent = LocalPlayerAccent.current
@@ -834,9 +1441,14 @@ internal fun PosterArtwork(
         val cover = coverSize(size)
         return PosterArc(cover, -gap, inset, minOf(referenceHeight ?: cover.height, cover.height))
     }
-    val expanded by animateFloatAsState(
-        if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "posterArc",
+    val expanded = rememberPosterRimExpand(
+        seeking = seeking,
+        isPlaying = isPlaying,
+        trackKey = trackKey,
+        enabled = onScrub != null && durationMs > 0L,
+        reduced = reduced,
     )
+    SideEffect { onSeekExpand(expanded) }
     val mask = remember(footer, referenceHeight) {
         androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterMask(bounds, footer, 1f, referenceHeight) }
     }
@@ -865,9 +1477,22 @@ internal fun PosterArtwork(
             val measure = PathMeasure().apply { setPath(arc.path, false) }
             val played = Path()
             onDrawBehind {
+                visualizerTick?.invoke()
                 val amount = expanded.coerceIn(0f, 1f)
                 val progress = shown().coerceIn(0f, 1f)
                 val width = (2.1f + 2.6f * amount).dp.toPx()
+                if (visualizer && visualizerLevels != null) {
+                    drawCurvedRimVisualizer(
+                        measure = measure,
+                        levels = visualizerLevels(),
+                        color = ink,
+                        expandAmount = amount,
+                        outwardSign = 1f,
+                        maxBarPx = 18.dp.toPx(),
+                        baseOffsetPx = 5.dp.toPx(),
+                        barStrokePx = 3.dp.toPx(),
+                    )
+                }
                 drawPath(arc.path, ink.copy(alpha = 0.59f), style = Stroke(width, cap = StrokeCap.Round))
                 played.reset()
                 if (measure.getSegment(0f, measure.length * progress, played, true)) {
@@ -888,6 +1513,162 @@ internal fun PosterArtwork(
                 }
             }
         })
+    }
+}
+
+private fun posterSidewaysRimPoint(size: Size, fraction: Float): Offset =
+    Offset(size.width * 0.90f - size.width * 0.24f * fraction * fraction, size.height * fraction)
+
+private fun Path.addPosterSidewaysMask(bounds: Size, gutter: Float) {
+    val cover = Size((bounds.width - gutter).coerceAtLeast(1f), bounds.height)
+    val top = posterSidewaysRimPoint(cover, 0f).x
+    moveTo(0f, 0f)
+    lineTo(top, 0f)
+    cubicTo(
+        top,
+        cover.height / 3f,
+        cover.width * 0.90f - cover.width * 0.08f,
+        cover.height * 2f / 3f,
+        posterSidewaysRimPoint(cover, 1f).x,
+        cover.height,
+    )
+    lineTo(0f, cover.height)
+    close()
+}
+
+private class PosterSidewaysArc(size: Size, outward: Float, verticalInset: Float) {
+    private val points = Array(49) { index ->
+        val y = (size.height - verticalInset) - (size.height - verticalInset * 2f) * index / 48f
+        posterSidewaysRimPoint(size, y / size.height.coerceAtLeast(1f)) + Offset(outward, 0f)
+    }
+    private val distance = FloatArray(points.size).apply {
+        for (i in 1 until this.size) this[i] = this[i - 1] + (points[i] - points[i - 1]).getDistance()
+    }
+    val length get() = distance.last()
+    val path = Path().apply {
+        moveTo(points.first().x, points.first().y)
+        for (point in points.drop(1)) lineTo(point.x, point.y)
+    }
+
+    fun project(position: Offset): Pair<Float, Float> {
+        var best = Float.POSITIVE_INFINITY
+        var at = 0f
+        for (i in 1 until points.size) {
+            val delta = position - points[i - 1]
+            val edge = points[i] - points[i - 1]
+            val t = ((delta.x * edge.x + delta.y * edge.y) /
+                (edge.x * edge.x + edge.y * edge.y).coerceAtLeast(1f)).coerceIn(0f, 1f)
+            val miss = (delta - edge * t).getDistanceSquared()
+            if (miss < best) {
+                best = miss
+                at = distance[i - 1] + (distance[i] - distance[i - 1]) * t
+            }
+        }
+        return at / length.coerceAtLeast(1f) to best
+    }
+}
+
+@Composable
+private fun PosterArtworkSideways(
+    shown: () -> Float,
+    modifier: Modifier,
+    onScrub: ((Float) -> Unit)? = null,
+    onFinish: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    durationMs: Long = 0L,
+    reduced: Boolean = true,
+    trackKey: String? = null,
+    isPlaying: Boolean = false,
+    onSeekExpand: (Float) -> Unit = {},
+    visualizer: Boolean = false,
+    visualizerLevels: (() -> FloatArray)? = null,
+    visualizerTick: (() -> Long)? = null,
+    coverLayers: @Composable () -> Unit,
+) {
+    val accent = LocalPlayerAccent.current
+    val ink = if (accent.luminance() < 0.33f) lerp(accent, Color.White, 0.48f) else lerp(accent, Color.White, 0.25f)
+    val timeColor = accent.copy(alpha = 0.72f)
+    val measurer = rememberTextMeasurer()
+    val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
+    val endpointLabel = if (durationMs > 0L) measurer.measure(formatTime(durationMs), timeStyle) else null
+    var seeking by remember { mutableStateOf(false) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val gap = with(density) { 9.dp.toPx() }
+    val gutter = with(density) { 42.dp.toPx() }
+    fun coverSize(size: Size) = Size((size.width - gutter).coerceAtLeast(1f), size.height)
+    fun seekArc(size: Size): PosterSidewaysArc {
+        val cover = coverSize(size)
+        val inset = (if (endpointLabel != null) endpointLabel.size.height + gap * 2.2f else cover.height * 0.08f)
+            .coerceIn(18f, cover.height * 0.22f)
+        return PosterSidewaysArc(cover, gap, inset)
+    }
+    val expanded = rememberPosterRimExpand(
+        seeking = seeking,
+        isPlaying = isPlaying,
+        trackKey = trackKey,
+        enabled = onScrub != null && durationMs > 0L,
+        reduced = reduced,
+    )
+    SideEffect { onSeekExpand(expanded) }
+    val mask = remember(gutter) {
+        androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterSidewaysMask(bounds, gutter) }
+    }
+    Box(modifier.clipToBounds()) {
+        Box(Modifier.fillMaxSize().clip(mask)) { coverLayers() }
+        val rimGesture = Modifier.seekArtwork(
+            shown, onScrub, onFinish, onCancel,
+            accepts = { size, down, tolerance, _ ->
+                seekArc(size).project(down).second <= tolerance * tolerance
+            },
+            along = { _, _, motion -> abs(motion.y) >= abs(motion.x) * 0.6f },
+            fraction = { size, _, current, _ ->
+                seekArc(size).project(current).first
+            },
+            onDragging = { seeking = it },
+        )
+        Box(
+            Modifier.fillMaxSize().then(rimGesture)
+                .artworkSeekControls(shown, durationMs, onScrub, onFinish)
+                .drawWithCache {
+                    val arc = seekArc(size)
+                    val measure = PathMeasure().apply { setPath(arc.path, false) }
+                    val played = Path()
+                    onDrawBehind {
+                        visualizerTick?.invoke()
+                        val amount = expanded.coerceIn(0f, 1f)
+                        val progress = shown().coerceIn(0f, 1f)
+                        val width = (2.1f + 2.6f * amount).dp.toPx()
+                        if (visualizer && visualizerLevels != null) {
+                            drawCurvedRimVisualizer(
+                                measure = measure,
+                                levels = visualizerLevels(),
+                                color = ink,
+                                expandAmount = amount,
+                                outwardSign = 1f,
+                                maxBarPx = 15.dp.toPx(),
+                                baseOffsetPx = 5.dp.toPx(),
+                                barStrokePx = 2.8.dp.toPx(),
+                            )
+                        }
+                        drawPath(arc.path, ink.copy(alpha = 0.59f), style = Stroke(width, cap = StrokeCap.Round))
+                        played.reset()
+                        if (measure.getSegment(0f, measure.length * progress, played, true)) {
+                            drawPath(played, ink, style = Stroke(width, cap = StrokeCap.Round))
+                        }
+                        if (endpointLabel != null && measure.length > 0f) {
+                            val elapsed = measurer.measure(formatTime((durationMs * progress).toLong()), timeStyle)
+                            val botPt = measure.getPosition(0f)
+                            val topPt = measure.getPosition(measure.length)
+                            val botX = (botPt.x + gap * 0.35f).coerceIn(2f, (size.width - elapsed.size.width - 4f).coerceAtLeast(2f))
+                            val botY = (botPt.y + gap * 0.45f).coerceAtMost((size.height - elapsed.size.height - 6f).coerceAtLeast(2f))
+                            drawText(elapsed, color = timeColor, topLeft = Offset(botX, botY))
+                            val topX = (topPt.x + gap * 0.35f).coerceIn(2f, (size.width - endpointLabel.size.width - 4f).coerceAtLeast(2f))
+                            val topY = (topPt.y - endpointLabel.size.height - gap * 0.55f).coerceAtLeast(6f)
+                            drawText(endpointLabel, color = timeColor, topLeft = Offset(topX, topY))
+                        }
+                    }
+                },
+        )
     }
 }
 

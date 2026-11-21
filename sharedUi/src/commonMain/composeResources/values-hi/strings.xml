@@ -235,8 +235,23 @@
     <string name="vinyl_metallic">धातुई</string>
     <string name="vinyl_glitter">चमकीले कण</string>
     <string name="vinyl_picture_disc">चित्र वाला रिकॉर्ड</string>
+    <string name="vinyl_pinwheel">पिनव्हील</string>
+    <string name="vinyl_tri_color">तीन-रंग</string>
+    <string name="vinyl_gold_record">गोल्ड रिकॉर्ड</string>
+    <string name="vinyl_accent_color">एक्सेंट रंग</string>
+    <string name="vinyl_hex_codes">कस्टम हेक्स</string>
     <string name="vinyl_custom_hex">कस्टम रंग (हेक्स)</string>
     <string name="vinyl_secondary_hex">दूसरा रंग (हेक्स)</string>
     <string name="vinyl_automatic">स्वचालित</string>
     <string name="vinyl_hex_error">छह हेक्स अंक डालें</string>
+    <string name="rotate_player">Rotate player</string>
+    <string name="lyrics_provider_api_key_required">API key required</string>
+    <string name="lyrics_provider_unavailable">Unavailable</string>
+    <string name="lyrics_auto_sync">Auto-sync</string>
+    <string name="lyrics_auto_sync_listening">Listening to vocals…</string>
+    <string name="lyrics_auto_sync_synced">Synced (%1$s)</string>
+    <string name="lyrics_auto_sync_undo">Undo</string>
+    <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
+    <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
+    <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
 </resources>

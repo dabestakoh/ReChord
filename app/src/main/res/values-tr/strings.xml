@@ -1455,8 +1455,14 @@
     <string name="export_diagnostic_log">Tanılama günlüğünü dışa aktar</string>
     <string name="diagnostic_report_error">Tanılama raporu açılamadı veya dışa aktarılamadı.</string>
     <string name="now_playing_layout">Şimdi çalıyor düzeni</string>
+    <string name="settings_app_appearance">Uygulama Görünümü</string>
+    <string name="settings_now_playing_skin">Oynatıcı Teması</string>
+    <string name="settings_lyrics_all_skins">Şarkı Sözleri (Tüm Temalar)</string>
+    <string name="poster_live_lyrics_subtitle">Poster ekranında canlı senkronize sözleri göster</string>
     <string name="lyrics_style">Şarkı sözü biçimi</string>
     <string name="lyrics_style_scope">Genişletilmiş şarkı sözlerine uygulanır. Poster kendi efektini kullanır.</string>
     <string name="video_mode">Video modu</string>
     <string name="vinyl_appearance">Plak görünümü</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

@@ -6,4 +6,6 @@ enum class LyricsProviderState {
     FETCHING,
     FOUND,
     NOT_FOUND,
+    API_KEY_REQUIRED,
+    UNAVAILABLE,
 }

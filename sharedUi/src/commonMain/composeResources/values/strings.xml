@@ -324,8 +324,23 @@
     <string name="vinyl_metallic">Metallic</string>
     <string name="vinyl_glitter">Glitter</string>
     <string name="vinyl_picture_disc">Picture disc</string>
+    <string name="vinyl_pinwheel">Pinwheel</string>
+    <string name="vinyl_tri_color">Tri-Color</string>
+    <string name="vinyl_gold_record">Gold Record</string>
+    <string name="vinyl_accent_color">Accent color</string>
+    <string name="vinyl_hex_codes">Custom hex</string>
     <string name="vinyl_custom_hex">Custom color (hex)</string>
     <string name="vinyl_secondary_hex">Secondary color (hex)</string>
     <string name="vinyl_automatic">Automatic</string>
     <string name="vinyl_hex_error">Enter six hex digits</string>
+    <string name="rotate_player">Rotate player</string>
+    <string name="lyrics_provider_api_key_required">API key required</string>
+    <string name="lyrics_provider_unavailable">Unavailable</string>
+    <string name="lyrics_auto_sync">Auto-sync</string>
+    <string name="lyrics_auto_sync_listening">Listening to vocals…</string>
+    <string name="lyrics_auto_sync_synced">Synced (%1$s)</string>
+    <string name="lyrics_auto_sync_undo">Undo</string>
+    <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
+    <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
+    <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
 </resources>

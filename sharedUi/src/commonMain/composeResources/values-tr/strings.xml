@@ -235,8 +235,23 @@
     <string name="vinyl_metallic">Metalik</string>
     <string name="vinyl_glitter">Simli</string>
     <string name="vinyl_picture_disc">Resimli plak</string>
+    <string name="vinyl_pinwheel">Fırıldak</string>
+    <string name="vinyl_tri_color">Üç Renkli</string>
+    <string name="vinyl_gold_record">Altın Plak</string>
+    <string name="vinyl_accent_color">Vurgu rengi</string>
+    <string name="vinyl_hex_codes">Özel Hex</string>
     <string name="vinyl_custom_hex">Özel renk (hex)</string>
     <string name="vinyl_secondary_hex">İkincil renk (hex)</string>
     <string name="vinyl_automatic">Otomatik</string>
     <string name="vinyl_hex_error">Altı onaltılık rakam girin</string>
+    <string name="rotate_player">Rotate player</string>
+    <string name="lyrics_provider_api_key_required">API key required</string>
+    <string name="lyrics_provider_unavailable">Unavailable</string>
+    <string name="lyrics_auto_sync">Auto-sync</string>
+    <string name="lyrics_auto_sync_listening">Listening to vocals…</string>
+    <string name="lyrics_auto_sync_synced">Synced (%1$s)</string>
+    <string name="lyrics_auto_sync_undo">Undo</string>
+    <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
+    <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
+    <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
 </resources>

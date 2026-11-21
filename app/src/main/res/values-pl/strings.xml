@@ -1538,8 +1538,14 @@
     <string name="export_diagnostic_log">Eksportuj dziennik diagnostyczny</string>
     <string name="diagnostic_report_error">Nie udało się otworzyć ani wyeksportować raportu diagnostycznego.</string>
     <string name="now_playing_layout">Układ odtwarzacza</string>
+    <string name="settings_app_appearance">Wygląd aplikacji</string>
+    <string name="settings_now_playing_skin">Skórka odtwarzacza</string>
+    <string name="settings_lyrics_all_skins">Teksty (Wszystkie skórki)</string>
+    <string name="poster_live_lyrics_subtitle">Pokaż zsynchronizowany tekst na ekranie Plakatu</string>
     <string name="lyrics_style">Styl tekstu piosenki</string>
     <string name="lyrics_style_scope">Dotyczy rozszerzonego widoku tekstu. Plakat używa własnego efektu.</string>
     <string name="video_mode">Tryb wideo</string>
     <string name="vinyl_appearance">Wygląd winylu</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>
