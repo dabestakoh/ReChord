@@ -77,7 +77,7 @@ private val lastRecordPhases = object : LinkedHashMap<String, Float>(8, 0.75f, t
 private const val RECORD_WIDTH_FRACTION = 0.703f
 private const val RECORD_HEIGHT_FRACTION = 0.446f
 
-private class RecordGeometry(size: Size, mountTopInset: Int = 0) {
+internal class RecordGeometry(size: Size, mountTopInset: Int = 0) {
     val radius = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
     val unit = radius / RECORD_WIDTH_FRACTION
     val reach = (radius * 1.39f).coerceAtLeast(1f)
