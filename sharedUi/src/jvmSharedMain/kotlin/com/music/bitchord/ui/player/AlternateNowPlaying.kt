@@ -429,8 +429,14 @@ internal fun AlternateNowPlaying(
                                                             reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
                                                             durationMs = durationMs,
                                                             trackKey = song.swipeIdentity,
-                                                            mountTopInset = if (preview) 0 else stableStatusBarInsets()
-                                                                .getTop(androidx.compose.ui.platform.LocalDensity.current),
+                                                            mountTopInset = if (preview) 0 else {
+                                                                val safeTop = stableStatusBarInsets()
+                                                                with(androidx.compose.ui.platform.LocalDensity.current) {
+                                                                    safeTop.getTop(this) + if (compact) {
+                                                                        (playerHandleTop(0f) + 9.dp).roundToPx()
+                                                                    } else 0
+                                                                }
+                                                            },
                                                         )
                                                     }
                                                 }
