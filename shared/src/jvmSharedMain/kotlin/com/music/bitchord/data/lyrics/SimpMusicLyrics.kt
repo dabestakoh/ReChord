@@ -23,30 +23,30 @@ object SimpMusicLyrics {
 
     private const val BASE = "https://api-lyrics.simpmusic.org/v1/"
 
+    private const val FALLBACK = "https://musicfy-yt-music-server.onrender.com/v1/"
+
     /** Duration slack when the database holds several cuts of one video. */
     private const val DURATION_TOLERANCE_SECONDS = 10
 
     suspend fun lyrics(videoId: String, durationMs: Long): List<LyricLine>? =
         withContext(Dispatchers.IO) {
-            if (videoId.isBlank()) return@withContext null
-            val body = lyricsGet(BASE + videoId) ?: return@withContext null
-            val response = runCatching { lyricsJson.decodeFromString<Response>(body) }.getOrNull()
-            if (response == null || !response.success) return@withContext null
-
+            if (!YOUTUBE_ID.matches(videoId)) return@withContext null
             val seconds = (durationMs / 1000).toInt()
-            val track = response.data.orEmpty()
-                .filter { seconds <= 0 || abs((it.duration ?: 0) - seconds) <= DURATION_TOLERANCE_SECONDS }
-                .minByOrNull { abs((it.duration ?: 0) - seconds) }
-                ?: return@withContext null
-
-            // Word timing first; a line-synced answer from here is no better
-            // than LRCLIB's, but it is still better than nothing.
-            track.richSyncLyrics?.takeIf { it.isNotBlank() }
-                ?.let { EnhancedLrc.parse(it) }
-                ?.takeIf { it.isNotEmpty() }
-                ?: track.syncedLyrics?.takeIf { it.isNotBlank() }
-                    ?.let { LrcLib.parseLrc(it) }
-                    ?.takeIf { it.isNotEmpty() }
+            for (host in listOf(BASE, FALLBACK)) {
+                val body = lyricsGet(host + videoId, extended = true) ?: continue
+                val response = runCatching { lyricsJson.decodeFromString<Response>(body) }.getOrNull()
+                if (response?.success != true) continue
+                val tracks = response.data.orEmpty()
+                    .filter { seconds <= 0 || abs((it.duration ?: 0) - seconds) <= DURATION_TOLERANCE_SECONDS }
+                    .sortedBy { abs((it.duration ?: 0) - seconds) }
+                for (track in tracks) {
+                    val lines = track.richSyncLyrics?.let(::parseTimedLyrics)
+                        ?: track.syncedLyrics?.let(::parseTimedLyrics)
+                        ?: track.plainLyrics?.let(::plainLyricLines)
+                    if (lines != null) return@withContext lines
+                }
+            }
+            null
         }
 
     @Serializable

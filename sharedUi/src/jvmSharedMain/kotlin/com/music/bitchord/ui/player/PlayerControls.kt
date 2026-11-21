@@ -98,6 +98,7 @@ import org.jetbrains.compose.resources.vectorResource
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -331,6 +332,7 @@ internal fun PlaybackQualityLabel(
     song: Song,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
+    reserveSpace: Boolean = false,
 ) {
     val wifiQuality by PlayerSettings.audioQualityWifi.collectAsStateWithLifecycle()
     val cellularQuality by PlayerSettings.audioQualityCellular.collectAsStateWithLifecycle()
@@ -352,13 +354,33 @@ internal fun PlaybackQualityLabel(
     // should keep saying "loading" through that stretch rather than going
     // blank only to possibly say "loading" again a moment later.
     val racingLossless by NerdStats.racingLossless.collectAsStateWithLifecycle()
-    LosslessOrStats(
+    val badge: @Composable (Modifier) -> Unit = { placement -> LosslessOrStats(
         isLoading = isLoading,
         stillRacing = song.videoId in racingLossless,
         losslessRequested = effectiveQuality == AudioQuality.LOSSLESS,
         nerdStats = nerdStats,
-        modifier = modifier,
-    )
+        modifier = placement,
+    ) }
+    if (reserveSpace) {
+        val lossless = painterResource(Res.drawable.ic_lossless).intrinsicSize.height
+        val atmos = painterResource(Res.drawable.ic_dolby_atmos).intrinsicSize.height
+        val iconHeight = with(LocalDensity.current) { maxOf(lossless, atmos, 13.dp.toPx()).toDp() }
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Spacer(Modifier.height(iconHeight))
+            Text(
+                text = "",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = (MaterialTheme.typography.labelMedium.fontSize.value + BADGE_SIZE_BUMP).sp,
+                ),
+                minLines = 1,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+            badge(Modifier)
+        }
+    } else {
+        badge(modifier)
+    }
 }
 
 /**
@@ -366,7 +388,7 @@ internal fun PlaybackQualityLabel(
  * it what Automix's analysis is doing. Nothing at all while the setting is off.
  */
 @Composable
-internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
+internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier, reserveSpace: Boolean = false) {
     val showNerdStats by PlayerSettings.showNerdStats.collectAsStateWithLifecycle()
     if (!showNerdStats) return
     val nerdStats by NerdStats.current.collectAsStateWithLifecycle()
@@ -399,9 +421,11 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier,
     ) {
-        nerdStats?.describe()?.let { stats ->
+        val stats = nerdStats?.describe()
+        if (stats != null || reserveSpace) {
             Text(
-                text = stats,
+                text = stats.orEmpty(),
+                modifier = if (stats == null) Modifier.clearAndSetSemantics {} else Modifier,
                 style = nerdStyle,
                 color = Color.White.copy(alpha = 0.65f),
                 maxLines = 1,
@@ -413,11 +437,7 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
         // report on analysis nothing is going to use, which is noise rather
         // than a stat.
         if (smartFadeOn) {
-            Text(
-                // Both sides always named, even when they agree, so the line
-                // reads the same way every time and the eye can find the half
-                // it wants without re-parsing the sentence.
-                text = when {
+            val summary = when {
                     // Ahead of the video case because it is the broader one:
                     // in a party nothing is analysed for any song, video or
                     // not, so naming the video limitation there would describe
@@ -433,18 +453,27 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier) {
                         smartAnalysis.current.localizedLabel(),
                         smartAnalysis.next.localizedLabel(),
                     )
-                },
-                style = nerdStyle,
-                // Dimmer than the measured line above it: that one describes
-                // the audio, this one describes the app, and the ranking
-                // should show.
-                color = Color.White.copy(alpha = 0.5f),
-                // The detailed line runs long on a phone: a second line rather
-                // than an ellipsis through the part that says what the mix is.
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            }
+            val measurer = rememberTextMeasurer()
+            val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val overflows = measurer.measure(
+                    summary, nerdStyle, softWrap = false, maxLines = 1, constraints = constraints,
+                ).hasVisualOverflow
+                Text(
+                    text = summary,
+                    style = nerdStyle,
+                    color = Color.White.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    textAlign = if (overflows) TextAlign.Left else TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (overflows) Modifier.fadingEdges(16.dp, start = { if (rtl) 1f else 0f },
+                            end = { if (rtl) 0f else 1f }) else Modifier,
+                    ),
+                )
+            }
         }
     }
 }
@@ -589,9 +618,11 @@ internal fun PlayerActionRow(
     onCycleRepeat: () -> Unit,
     onToggleAutoplay: () -> Unit,
     onOpenOutput: () -> Unit,
+    showModesInActionRow: Boolean = true,
 ) {
     // Just the output glyph in the middle.
-    val compact = !queueOpen
+    val showModes = queueOpen && showModesInActionRow
+    val compact = !showModes
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Sized for the wider of the two capsules — the three-up one — whether
         // that or the output one is up, so the lyrics and queue glyphs
@@ -629,7 +660,7 @@ internal fun PlayerActionRow(
                 )
             }
             AnimatedContent(
-                targetState = queueOpen,
+                targetState = showModes,
                 transitionSpec = {
                     (fadeIn(tween(180, delayMillis = 140)) togetherWith fadeOut(tween(140)))
                         // Unclipped: the capsule's own rounded ends are what
@@ -642,50 +673,10 @@ internal fun PlayerActionRow(
                 if (showQueueModes) {
                     // Spaced the same as the output capsule, so the two
                     // read as one control growing a segment.
-                    Pill {
-                        PillSegment(
-                            icon = BitChordIcons.Shuffle,
-                            contentDescription = stringResource(
-                                if (shuffleEnabled) Res.string.shuffle_on else Res.string.shuffle_off,
-                            ),
-                            onClick = onToggleShuffle,
-                            highlighted = shuffleEnabled,
-                            haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
-                            tapWindowMs = SHUFFLE_TAP_WINDOW_MS,
-                        )
-                        PillDivider()
-                        PillSegment(
-                            icon = if (repeatMode == RepeatModes.ONE) null else BitChordIcons.Repeat,
-                            label = if (repeatMode == RepeatModes.ONE) "1" else null,
-                            contentDescription = when (repeatMode) {
-                                RepeatModes.ONE -> stringResource(Res.string.repeat_one)
-                                RepeatModes.ALL -> stringResource(Res.string.repeat_all)
-                                else -> stringResource(Res.string.repeat_off)
-                            },
-                            onClick = onCycleRepeat,
-                            highlighted = repeatMode != RepeatModes.OFF,
-                            // Three states, so the buzz tracks the edges of the
-                            // cycle: leaving off rises, returning to off falls,
-                            // and the step between the two repeat modes is just
-                            // a selection.
-                            haptic = when (repeatMode) {
-                                RepeatModes.OFF -> Haptic.ToggleOn
-                                RepeatModes.ONE -> Haptic.ToggleOff
-                                else -> Haptic.Select
-                            },
-                        )
-                        PillDivider()
-                        PillSegment(
-                            icon = BitChordIcons.Infinity,
-                            contentDescription = stringResource(
-                                if (autoplayEnabled) Res.string.autoplay_on else Res.string.autoplay_off,
-                            ),
-                            onClick = onToggleAutoplay,
-                            highlighted = autoplayEnabled,
-                            haptic = if (autoplayEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
-                            tapWindowMs = AUTOPLAY_TAP_WINDOW_MS,
-                        )
-                    }
+                    PlayerQueueModes(
+                        shuffleEnabled, repeatMode, autoplayEnabled,
+                        onToggleShuffle, onCycleRepeat, onToggleAutoplay,
+                    )
                 } else {
                     val output = rememberOutputGlyph()
                     BottomGlyph(
@@ -710,6 +701,61 @@ internal fun PlayerActionRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun PlayerQueueModes(
+    shuffleEnabled: Boolean,
+    repeatMode: Int,
+    autoplayEnabled: Boolean,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    onToggleAutoplay: () -> Unit,
+) {
+    Pill {
+        PillSegment(
+            icon = BitChordIcons.Shuffle,
+            contentDescription = stringResource(
+                if (shuffleEnabled) Res.string.shuffle_on else Res.string.shuffle_off,
+            ),
+            onClick = onToggleShuffle,
+            highlighted = shuffleEnabled,
+            haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
+            tapWindowMs = SHUFFLE_TAP_WINDOW_MS,
+        )
+        PillDivider()
+        PillSegment(
+            icon = if (repeatMode == RepeatModes.ONE) null else BitChordIcons.Repeat,
+            label = if (repeatMode == RepeatModes.ONE) "1" else null,
+            contentDescription = when (repeatMode) {
+                RepeatModes.ONE -> stringResource(Res.string.repeat_one)
+                RepeatModes.ALL -> stringResource(Res.string.repeat_all)
+                else -> stringResource(Res.string.repeat_off)
+            },
+            onClick = onCycleRepeat,
+            highlighted = repeatMode != RepeatModes.OFF,
+            // Three states, so the buzz tracks the edges of the
+            // cycle: leaving off rises, returning to off falls,
+            // and the step between the two repeat modes is just
+            // a selection.
+            haptic = when (repeatMode) {
+                RepeatModes.OFF -> Haptic.ToggleOn
+                RepeatModes.ONE -> Haptic.ToggleOff
+                else -> Haptic.Select
+            },
+        )
+        PillDivider()
+        PillSegment(
+            icon = BitChordIcons.Infinity,
+            contentDescription = stringResource(
+                if (autoplayEnabled) Res.string.autoplay_on else Res.string.autoplay_off,
+            ),
+            onClick = onToggleAutoplay,
+            highlighted = autoplayEnabled,
+            haptic = if (autoplayEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
+            tapWindowMs = AUTOPLAY_TAP_WINDOW_MS,
+        )
     }
 }
 
@@ -1619,7 +1665,7 @@ internal fun Modifier.bleedHorizontally(gutter: Dp): Modifier = layout { measura
     }
 }
 
-private fun formatTime(ms: Long): String {
+internal fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"
     val minutes = TimeUnit.MILLISECONDS.toMinutes(ms)
     val seconds = TimeUnit.MILLISECONDS.toSeconds(ms) % 60

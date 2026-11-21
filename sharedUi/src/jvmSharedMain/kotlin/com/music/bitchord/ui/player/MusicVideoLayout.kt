@@ -34,6 +34,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import com.music.bitchord.sharedui.resources.Res
+import com.music.bitchord.sharedui.resources.enter_full_screen
+import com.music.bitchord.sharedui.resources.exit_full_screen
 import com.music.bitchord.sharedui.resources.video_quality
 import com.music.bitchord.sharedui.resources.video_quality_auto
 import com.music.bitchord.ui.haptics.Haptic
@@ -86,6 +88,9 @@ internal fun FullscreenVideoPlayer(
     scrubber: @Composable () -> Unit,
     transport: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    pictureId: String? = song.videoId,
+    status: String? = null,
+    showArtworkUntilReady: Boolean = false,
 ) {
     HideSystemBars(true)
     var controlsShown by remember { mutableStateOf(true) }
@@ -107,14 +112,32 @@ internal fun FullscreenVideoPlayer(
                 indication = null,
             ) { controlsShown = !controlsShown },
     ) {
-        // Black with a spinner until the picture's first frame lands.
-        if (!rendered) VideoLoadingBackdrop(Modifier.fillMaxSize())
-        MusicVideoSurface(
-            videoId = song.videoId,
-            fit = true,
-            onRenderedChanged = onRenderedChanged,
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (!rendered || pictureId == null) {
+            if (showArtworkUntilReady) {
+                AsyncImage(
+                    model = artRequest, contentDescription = null,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
+                )
+            }
+            if (status != null) {
+                Text(
+                    status, color = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            } else {
+                VideoLoadingBackdrop(Modifier.fillMaxSize())
+            }
+        }
+        if (pictureId != null) {
+            MusicVideoSurface(
+                videoId = pictureId,
+                fit = true,
+                onRenderedChanged = onRenderedChanged,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         AnimatedVisibility(
             visible = controlsShown,
@@ -234,7 +257,9 @@ internal fun VideoCornerControls(
         ) {
             Icon(
                 imageVector = if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                contentDescription = null,
+                contentDescription = stringResource(
+                    if (fullscreen) Res.string.exit_full_screen else Res.string.enter_full_screen,
+                ),
                 tint = Color.White,
                 modifier = Modifier.size(22.dp),
             )

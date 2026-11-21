@@ -633,6 +633,45 @@ object Innertube {
         put("params", Base64.getEncoder().encodeToString(bytes))
     }
 
+    /** The exact video's available caption tracks, without account credentials. */
+    internal enum class CaptionClient(
+        val clientName: String,
+        val version: String,
+        val clientId: String,
+        val userAgent: String? = null,
+        val osVersion: String? = null,
+    ) {
+        ANDROID_VR("ANDROID_VR", "1.61.48", "28",
+            "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Oculus Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)"),
+        IOS("IOS", "21.03.1", "5", "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)", "18.2.22C152"),
+        WEB_REMIX("WEB_REMIX", "", "67"),
+    }
+
+    internal suspend fun captionPlayer(videoId: String, identity: CaptionClient): JsonObject {
+        if (identity == CaptionClient.WEB_REMIX) return postMusicAnonymous("player") {
+            put("videoId", videoId)
+        }
+        return client.post("$YOUTUBE_ORIGIN/youtubei/v1/player") {
+            contentType(ContentType.Application.Json)
+            parameter("prettyPrint", "false")
+            header("X-YouTube-Client-Name", identity.clientId)
+            header("X-YouTube-Client-Version", identity.version)
+            identity.userAgent?.let { header("User-Agent", it) }
+            setBody(buildJsonObject {
+                putJsonObject("context") {
+                    putJsonObject("client") {
+                        put("clientName", identity.clientName)
+                        put("clientVersion", identity.version)
+                        identity.osVersion?.let { put("osVersion", it) }
+                        put("hl", currentLanguage)
+                        currentRegion?.let { put("gl", it) }
+                    }
+                }
+                put("videoId", videoId)
+            })
+        }.body()
+    }
+
     suspend fun search(query: String, params: String? = null, anonymous: Boolean = true): JsonObject =
         if (anonymous) {
             postMusicAnonymous("search", region = searchRegion) {

@@ -170,9 +170,16 @@ import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.data.settings.AppFont
+import com.music.bitchord.data.settings.LyricsStyle
+import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
+import com.music.bitchord.ui.player.LyricsStyleSample
+import com.music.bitchord.ui.player.NowPlayingLayoutPicker
+import com.music.bitchord.ui.player.lyricsStyleLabel
+import com.music.bitchord.ui.player.nowPlayingLayoutLabel
+import com.music.bitchord.ui.player.VinylAppearanceEditor
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
 import com.music.bitchord.data.AppDiagnostics
 import kotlinx.coroutines.Dispatchers
@@ -255,12 +262,11 @@ fun SettingsScreen(
     val liquidGlassSupported = isGlassSupported()
     val lyricsBlur by AppSettings.lyricsBlur.collectAsStateWithLifecycle()
     val animatedCanvas by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
-    val canvasOverCellular by AppSettings.canvasOverCellular.collectAsStateWithLifecycle()
     val signatureApiEnabled by AppSettings.signatureApiEnabled.collectAsStateWithLifecycle()
     val signatureApiUrl by AppSettings.signatureApiUrl.collectAsStateWithLifecycle()
-    val fullBleedArtwork by AppSettings.fullBleedArtwork.collectAsStateWithLifecycle()
     val fullBleedDetailArtwork by AppSettings.fullBleedDetailArtwork.collectAsStateWithLifecycle()
-    val playerTheme by AppSettings.playerTheme.collectAsStateWithLifecycle()
+    val nowPlayingLayout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
+    val lyricsStyle by AppSettings.lyricsStyle.collectAsStateWithLifecycle()
     val syncedLyrics by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
     val lyricsSources by AppSettings.lyricsSources.collectAsStateWithLifecycle()
     val translationLanguage by AppSettings.translationLanguage.collectAsStateWithLifecycle()
@@ -289,7 +295,6 @@ fun SettingsScreen(
     val exportDownloads by AppSettings.exportDownloads.collectAsStateWithLifecycle()
     val syncDownloadedPlaylists by AppSettings.syncDownloadedPlaylists.collectAsStateWithLifecycle()
     val stopOnTaskRemoved by AppSettings.stopOnTaskRemoved.collectAsStateWithLifecycle()
-    val hideVolumeBar by AppSettings.hideVolumeBar.collectAsStateWithLifecycle()
     val hideStatusBarInPlayer by AppSettings.hideStatusBarInPlayer.collectAsStateWithLifecycle()
     val hideSongStatus by AppSettings.hideSongStatus.collectAsStateWithLifecycle()
     val showQueueHistory by AppSettings.showQueueHistory.collectAsStateWithLifecycle()
@@ -1132,27 +1137,6 @@ fun SettingsScreen(
                     )
                 }
             }
-            // Left out where the player won't honour it: a window too wide for
-            // the player to fill and too narrow to stand a page beside it keeps
-            // the sleeve either way. A docked pane is a phone's width, so it does
-            // honour it — see [fullBleedArtworkAvailable].
-            if (fullBleedArtworkAvailable(windowWidth)) {
-                val fullScreenCoverArtTitle = stringResource(R.string.full_screen_cover_art)
-                row(fullScreenCoverArtTitle, "artwork", "player") {
-                    SettingsRow(
-                        icon = SfIcons.Fullscreen,
-                        title = fullScreenCoverArtTitle,
-                        subtitle = stringResource(R.string.full_screen_cover_art_subtitle),
-                        trailing = {
-                            IosSwitch(
-                                checked = fullBleedArtwork,
-                                onCheckedChange = AppSettings::setFullBleedArtwork,
-                            )
-                        },
-                        onClick = { AppSettings.setFullBleedArtwork(!fullBleedArtwork) },
-                    )
-                }
-            }
             // Listed at every width: the page itself keeps the framed sleeve
             // wherever a square the window's width wouldn't fit — see
             // [ReleaseHeader].
@@ -1171,18 +1155,60 @@ fun SettingsScreen(
                     onClick = { AppSettings.setFullBleedDetailArtwork(!fullBleedDetailArtwork) },
                 )
             }
-            val playerThemeTitle = stringResource(R.string.player_theme)
-            row(playerThemeTitle, "background", "player", "mesh", "gradient", "legacy", "simple", "blur") {
+            val layoutTitle = stringResource(R.string.now_playing_layout)
+            row(layoutTitle, "player", "vinyl", "poster") {
                 SettingsRow(
-                    icon = SfIcons.Gradient,
-                    title = playerThemeTitle,
-                    subtitle = playerTheme.description(),
+                    icon = SfIcons.Appearance,
+                    title = layoutTitle,
+                    subtitle = nowPlayingLayoutLabel(nowPlayingLayout),
+                    onClick = { onOpenChoice(SettingsChoiceKind.NOW_PLAYING_LAYOUT) },
                 )
-                SegmentedControl(
-                    options = PlayerTheme.entries.map { it.localizedLabel() },
-                    selectedIndex = PlayerTheme.entries.indexOf(playerTheme),
-                    onSelect = { AppSettings.setPlayerTheme(PlayerTheme.entries[it]) },
-                    modifier = Modifier.padding(start = ROW_INSET, end = ROW_INSET, bottom = 14.dp),
+            }
+            if (searching) {
+                val defaultOptions = listOf(
+                    R.string.full_screen_cover_art, R.string.player_theme,
+                    R.string.animated_cover_cellular, R.string.spotify_canvas_auto_hide,
+                )
+                for (option in defaultOptions) {
+                    val label = stringResource(option)
+                    row(label, "player", "default") {
+                        SettingsRow(
+                            icon = SfIcons.Appearance, title = label,
+                            subtitle = nowPlayingLayoutLabel(NowPlayingLayout.DEFAULT),
+                            onClick = { onOpenChoice(SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS) },
+                        )
+                    }
+                }
+                for ((layout, page) in listOf(
+                    NowPlayingLayout.DEFAULT to SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS,
+                    NowPlayingLayout.VINYL to SettingsChoiceKind.VINYL_LAYOUT_SETTINGS,
+                    NowPlayingLayout.POSTER to SettingsChoiceKind.POSTER_LAYOUT_SETTINGS,
+                )) {
+                    val label = stringResource(R.string.hide_volume_bar)
+                    val skin = nowPlayingLayoutLabel(layout)
+                    row(label, skin, "$label $skin", "$skin $label", "volume") {
+                        SettingsRow(
+                            icon = SfIcons.VolumeOff, title = label, subtitle = skin,
+                            onClick = { onOpenChoice(page) },
+                        )
+                    }
+                }
+            }
+            val vinylTitle = stringResource(R.string.vinyl_appearance)
+            row(vinylTitle, "vinyl", "record", "color", "finish") {
+                SettingsRow(
+                    icon = SfIcons.Appearance,
+                    title = vinylTitle,
+                    onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
+                )
+            }
+            val lyricsStyleTitle = stringResource(R.string.lyrics_style)
+            row(lyricsStyleTitle, "lyrics", "motion", "karaoke") {
+                SettingsRow(
+                    icon = SfIcons.MusicNote,
+                    title = lyricsStyleTitle,
+                    subtitle = lyricsStyleLabel(lyricsStyle),
+                    onClick = { onOpenChoice(SettingsChoiceKind.LYRICS_STYLE) },
                 )
             }
             val animatedCoverArtTitle = stringResource(R.string.animated_cover_art)
@@ -1209,14 +1235,6 @@ fun SettingsScreen(
             // plays, so on cellular this is not a one-time video cost but
             // that cost repeated on every loop — see AppSettings.canvasOverCellular.
             if (animatedCanvas) {
-                val coverCellularTitle = stringResource(R.string.animated_cover_cellular)
-                row(coverCellularTitle, "canvas", "cellular", divided = false) {
-                    SettingsSubRow(
-                        title = coverCellularTitle,
-                        checked = canvasOverCellular,
-                        onCheckedChange = AppSettings::setCanvasOverCellular,
-                    )
-                }
                 val spotifyCanvasTitle = stringResource(R.string.integrate_spotify_canvas)
                 row(spotifyCanvasTitle, "spotify", "canvas", divided = false) {
                     Row(
@@ -1678,21 +1696,6 @@ fun SettingsScreen(
                         )
                     },
                     onClick = { AppSettings.setStopOnTaskRemoved(!stopOnTaskRemoved) },
-                )
-            }
-            val hideVolumeBarTitle = stringResource(R.string.hide_volume_bar)
-            row(hideVolumeBarTitle, "volume", "player") {
-                SettingsRow(
-                    icon = SfIcons.VolumeOff,
-                    title = hideVolumeBarTitle,
-                    subtitle = stringResource(R.string.hide_volume_bar_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = hideVolumeBar,
-                            onCheckedChange = AppSettings::setHideVolumeBar,
-                        )
-                    },
-                    onClick = { AppSettings.setHideVolumeBar(!hideVolumeBar) },
                 )
             }
             val hideStatusBarTitle = stringResource(R.string.hide_status_bar_in_player)
@@ -2863,6 +2866,12 @@ enum class SettingsChoiceKind(@param:StringRes val title: Int) {
     BIT_PERFECT(R.string.bit_perfect_output),
     FONT(R.string.font),
     HOME(R.string.home),
+    NOW_PLAYING_LAYOUT(R.string.now_playing_layout),
+    DEFAULT_LAYOUT_SETTINGS(R.string.now_playing_layout),
+    VINYL_LAYOUT_SETTINGS(R.string.now_playing_layout),
+    POSTER_LAYOUT_SETTINGS(R.string.now_playing_layout),
+    VINYL_APPEARANCE(R.string.vinyl_appearance),
+    LYRICS_STYLE(R.string.lyrics_style),
 }
 
 @Composable
@@ -2935,6 +2944,8 @@ fun SettingsChoicePage(
     onConfirmBitPerfect: (BitPerfectMode) -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
+    currentArtwork: String? = null,
+    windowWidth: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp,
 ) {
     Column(
         modifier
@@ -3024,6 +3035,104 @@ fun SettingsChoicePage(
             }
 
             SettingsChoiceKind.HOME -> HomeSectionSettings()
+            SettingsChoiceKind.NOW_PLAYING_LAYOUT,
+            SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS,
+            SettingsChoiceKind.VINYL_LAYOUT_SETTINGS,
+            SettingsChoiceKind.POSTER_LAYOUT_SETTINGS -> {
+                val layout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
+                var defaultHide by rememberSaveable { mutableStateOf(AppSettings.hideVolumeBar.value) }
+                var vinylHide by rememberSaveable { mutableStateOf(AppSettings.hideVinylVolumeBar.value) }
+                var posterHide by rememberSaveable { mutableStateOf(AppSettings.hidePosterVolumeBar.value) }
+                var fullBleed by rememberSaveable { mutableStateOf(AppSettings.fullBleedArtwork.value) }
+                var theme by rememberSaveable { mutableStateOf(AppSettings.playerTheme.value) }
+                var cellular by rememberSaveable { mutableStateOf(AppSettings.canvasOverCellular.value) }
+                var autoHide by rememberSaveable { mutableStateOf(AppSettings.spotifyCanvasAutoHide.value) }
+                val coversEnabled by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
+                val hideVolume: (NowPlayingLayout) -> Boolean = { skin ->
+                    when (skin) {
+                        NowPlayingLayout.DEFAULT -> defaultHide
+                        NowPlayingLayout.VINYL -> vinylHide
+                        NowPlayingLayout.POSTER -> posterHide
+                    }
+                }
+                NowPlayingLayoutPicker(
+                    selected = layout,
+                    initialPage = when (choice) {
+                        SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS -> NowPlayingLayout.DEFAULT
+                        SettingsChoiceKind.VINYL_LAYOUT_SETTINGS -> NowPlayingLayout.VINYL
+                        SettingsChoiceKind.POSTER_LAYOUT_SETTINGS -> NowPlayingLayout.POSTER
+                        else -> layout
+                    },
+                    onApply = {
+                        AppSettings.applyNowPlayingLayoutSettings(
+                            it, defaultHide, vinylHide, posterHide, fullBleed, theme, cellular, autoHide,
+                        )
+                        onChosen()
+                    },
+                    onDismiss = onChosen,
+                    modifier = Modifier.fillMaxWidth(),
+                    showTitle = false,
+                    artwork = currentArtwork,
+                    hideVolumeFor = hideVolume,
+                    defaultArtworkFullBleed = fullBleed,
+                    defaultPlayerTheme = theme,
+                    options = { skin ->
+                        Column(Modifier.fillMaxWidth().padding(horizontal = ROW_INSET)) {
+                            SettingsSubRow(stringResource(R.string.hide_volume_bar), checked = hideVolume(skin),
+                                onCheckedChange = { hidden ->
+                                    when (skin) {
+                                        NowPlayingLayout.DEFAULT -> defaultHide = hidden
+                                        NowPlayingLayout.VINYL -> vinylHide = hidden
+                                        NowPlayingLayout.POSTER -> posterHide = hidden
+                                    }
+                                },
+                            )
+                            if (skin == NowPlayingLayout.DEFAULT) {
+                                if (fullBleedArtworkAvailable(windowWidth)) {
+                                    SettingsSubRow(stringResource(R.string.full_screen_cover_art),
+                                        checked = fullBleed, onCheckedChange = { fullBleed = it },
+                                        subtitle = stringResource(R.string.full_screen_cover_art_subtitle))
+                                }
+                                SettingsRow(
+                                    icon = SfIcons.Gradient, title = stringResource(R.string.player_theme),
+                                    subtitle = theme.description(),
+                                )
+                                SegmentedControl(
+                                    options = PlayerTheme.entries.map { it.localizedLabel() },
+                                    selectedIndex = theme.ordinal,
+                                    onSelect = { theme = PlayerTheme.entries[it] },
+                                    modifier = Modifier.padding(horizontal = ROW_INSET, vertical = 8.dp),
+                                )
+                                if (coversEnabled) {
+                                    SettingsSubRow(stringResource(R.string.animated_cover_cellular),
+                                        checked = cellular, onCheckedChange = { cellular = it })
+                                    SettingsSubRow(stringResource(R.string.spotify_canvas_auto_hide),
+                                        checked = autoHide, onCheckedChange = { autoHide = it },
+                                        subtitle = stringResource(R.string.spotify_canvas_auto_hide_subtitle))
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+            SettingsChoiceKind.VINYL_APPEARANCE -> {
+                val appearance by AppSettings.vinylAppearance.collectAsStateWithLifecycle()
+                VinylAppearanceEditor(
+                    appearance, AppSettings::setVinylAppearance, currentArtwork,
+                    Modifier.fillMaxWidth().padding(horizontal = ROW_INSET),
+                )
+            }
+            SettingsChoiceKind.LYRICS_STYLE -> {
+                val style by AppSettings.lyricsStyle.collectAsStateWithLifecycle()
+                LyricsStyleSample(style, Modifier.fillMaxWidth().padding(ROW_INSET))
+                ChoiceGroup(
+                    options = LyricsStyle.entries - LyricsStyle.DEFAULT,
+                    selected = style,
+                    label = { lyricsStyleLabel(it) },
+                    footer = stringResource(R.string.lyrics_style_scope),
+                    onSelect = AppSettings::setLyricsStyle,
+                )
+            }
             SettingsChoiceKind.FONT -> {
                 val selected by AppSettings.appFont.collectAsStateWithLifecycle()
                 ChoiceGroup(

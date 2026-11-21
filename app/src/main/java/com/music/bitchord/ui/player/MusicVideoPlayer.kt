@@ -37,6 +37,10 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.metrolist.innertubex.extraction.StreamResolveException
 import com.music.bitchord.data.Http
 import com.music.bitchord.data.YtMusicRepository
+import com.music.bitchord.data.lyrics.LyricLine
+import com.music.bitchord.data.lyrics.YouTubeTranscriptLyrics
+import com.music.bitchord.data.lyrics.videoCaptionTimeMap
+import com.music.bitchord.data.model.durationMillis
 import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.innertube.InnerTubeXResolver
 import com.music.bitchord.data.model.Song
@@ -109,7 +113,7 @@ object MusicVideoEngine {
         val audioId: String,
         val queueEntryId: String?,
         val song: Song,
-        val videoTime: (Long) -> Long,
+        val videoTime: ((Long) -> Long)?,
         val tapAt: Long,
     )
 
@@ -345,6 +349,13 @@ object MusicVideoEngine {
         refresh()
     }
 
+    internal fun clearCompanion(source: Song, targetId: String) {
+        val current = companion ?: return
+        if (current.audioId == source.videoId && current.queueEntryId == source.queueEntryId &&
+            current.song.videoId == targetId
+        ) clearCompanion()
+    }
+
     // Resolve only the URL in parallel. The visible surface owns the one video
     // decoder, and the audio controller never receives a replacement item.
     suspend fun showCompanion(
@@ -353,6 +364,9 @@ object MusicVideoEngine {
         target: Song,
         tapAt: Long,
         isCurrent: () -> Boolean,
+        allowApproximate: Boolean = false,
+        audioLyrics: List<LyricLine> = emptyList(),
+        onShown: () -> Unit = {},
     ): Boolean = coroutineScope {
         readQualityPreference(context.applicationContext)
         val cap = capFor(target.videoId)
@@ -372,17 +386,20 @@ object MusicVideoEngine {
                 null
             }
         }
-        val mapping = try {
-            companionTime(context, source, target)?.also {
-                TrackLog.d(TAG, "companion alignment ready after ${SystemClock.elapsedRealtime() - tapAt}ms", source.videoId)
+        val alignment = async {
+            try {
+                companionTime(context, source, target, audioLyrics)?.also {
+                    TrackLog.d(TAG, "companion alignment ready after ${SystemClock.elapsedRealtime() - tapAt}ms", source.videoId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                TrackLog.w(TAG, "companion alignment failed: ${e.javaClass.simpleName}", source.videoId)
+                null
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            TrackLog.w(TAG, "companion alignment failed: ${e.javaClass.simpleName}", source.videoId)
-            null
         }
-        if (mapping == null) {
+        val requiredMapping = if (allowApproximate) null else alignment.await()
+        if (!allowApproximate && requiredMapping == null) {
             picture.cancel()
             return@coroutineScope false
         }
@@ -394,17 +411,44 @@ object MusicVideoEngine {
         if (current.videoId != source.videoId || current.queueEntryId != source.queueEntryId) {
             return@coroutineScope false
         }
+        val mapping = requiredMapping ?: if (alignment.isCompleted) alignment.await() else null
+        val shown = CompanionPicture(source.videoId, source.queueEntryId, target, mapping, tapAt)
         noPicture.remove(target.videoId)
         _aspect.value = stream.aspect.takeIf { it > 0f } ?: (16f / 9f)
-        companion = CompanionPicture(source.videoId, source.queueEntryId, target, mapping, tapAt)
+        companion = shown
         _companionVideoId.value = target.videoId
+        onShown()
         TrackLog.d(TAG, "companion picture ready after ${SystemClock.elapsedRealtime() - tapAt}ms", source.videoId)
         refresh()
+        if (mapping == null) {
+            val refined = alignment.await()
+            if (refined != null && companion === shown && isCurrent()) {
+                companion = shown.copy(videoTime = refined)
+                lastSeekAt = 0L
+                sync()
+            }
+        }
         true
     }
 
-    private suspend fun companionTime(context: Context, source: Song, target: Song): ((Long) -> Long)? {
+    private suspend fun companionTime(
+        context: Context,
+        source: Song,
+        target: Song,
+        audioLyrics: List<LyricLine>,
+    ): ((Long) -> Long)? {
+        if (source.videoId == target.videoId) return { it }
         YtMusicRepository.versionTimeMap(source.videoId, target.videoId)?.let { return it::map }
+        if (audioLyrics.any { it.timeMs > 0L }) {
+            val duration = controller?.duration?.takeIf { it > 0L } ?: source.durationMillis()
+            val lyricsOffset = AppSettings.lyricsOffsetMs.value
+            withTimeoutOrNull(4_000L) {
+                val captions = YouTubeTranscriptLyrics.lyrics(target.videoId).orEmpty()
+                withContext(Dispatchers.Default) {
+                    videoCaptionTimeMap(audioLyrics, captions, duration, lyricsOffset)
+                }
+            }?.let { return it::map }
+        }
         val offset = VersionAudioAligner.getCachedOffsetMs(source.videoId, target.videoId)
             ?: withTimeoutOrNull(20_000L) {
                 coroutineScope {
@@ -557,7 +601,7 @@ object MusicVideoEngine {
             val upstream = OkHttpDataSource.Factory(Http.client)
                 .setDefaultRequestProperties(stream.headers)
             val source = ProgressiveMediaSource.Factory(ChunkedDataSource.Factory(upstream, CHUNK_BYTES))
-                .createMediaSource(MediaItem.fromUri(stream.url))
+                .createMediaSource(MediaItem.Builder().setMediaId(videoId).setUri(stream.url).build())
             if (stream.aspect > 0f) _aspect.value = stream.aspect
             _quality.value = _quality.value.copy(heights = stream.heights, activeHeight = stream.height)
             loadedProfile = stream.profileId
@@ -585,8 +629,15 @@ object MusicVideoEngine {
         if (activeCompanion()?.song?.videoId == videoId) clearCompanion() else unload()
     }
 
-    private fun picturePosition(audioPositionMs: Long): Long =
-        (activeCompanion()?.videoTime?.invoke(audioPositionMs) ?: audioPositionMs).coerceAtLeast(0L)
+    private fun picturePosition(audioPositionMs: Long): Long {
+        val position = audioPositionMs.coerceAtLeast(0L)
+        val current = activeCompanion() ?: return position
+        current.videoTime?.let { return it(position).coerceAtLeast(0L) }
+        // Match the playhead provisionally while the exact offset is being measured.
+        val video = player?.takeIf { it.currentMediaItem?.mediaId == current.song.videoId }
+        val duration = video?.duration?.takeIf { it > 0L }
+        return if (duration == null) position else position % duration
+    }
 
     private fun unload() {
         loadJob?.cancel()
@@ -619,10 +670,15 @@ object MusicVideoEngine {
     private fun sync() {
         val audio = controller ?: return
         val exo = player ?: return
-        if (loadedId == null || exo.playbackState == Player.STATE_IDLE || exo.playbackState == Player.STATE_ENDED) return
+        if (loadedId == null || exo.playbackState == Player.STATE_IDLE) return
         val speed = audio.playbackParameters.speed
         val audioPos = picturePosition(audio.currentPosition)
         val now = System.currentTimeMillis()
+        if (exo.playbackState == Player.STATE_ENDED) {
+            // A repeat or seek can take the audio back into the clip after its last frame.
+            if (audioPos < exo.duration - 100L && now - lastSeekAt > 120L) seek(exo, audioPos)
+            return
+        }
         if (!audio.isPlaying) {
             exo.playWhenReady = false
             setSpeed(exo, speed)

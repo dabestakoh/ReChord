@@ -1,5 +1,10 @@
 package com.music.bitchord.data.lyrics
 
+import com.music.bitchord.data.model.Song
+
+fun Song.lyricsArtist(): String =
+    artists.map { it.name }.filter(String::isNotBlank).distinct().joinToString().ifBlank { artist }
+
 /**
  * A YouTube title, as a lyrics database would have indexed it.
  *

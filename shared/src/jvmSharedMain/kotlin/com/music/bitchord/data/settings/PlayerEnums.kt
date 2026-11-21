@@ -27,6 +27,30 @@ enum class AudioQuality(
     ;
 }
 
+enum class NowPlayingLayout { DEFAULT, VINYL, POSTER }
+
+enum class VinylColorMode { BLACK, ALBUM, CUSTOM }
+
+enum class VinylFinish {
+    PLAIN, TRANSLUCENT, SMOKED, MARBLED, SWIRL, GALAXY, SPLATTER, SPLIT, COLOR_IN_COLOR,
+    SHIMMER, METALLIC, GLITTER, PICTURE_DISC,
+}
+
+data class VinylAppearance(
+    val colorMode: VinylColorMode = VinylColorMode.BLACK,
+    val finish: VinylFinish = VinylFinish.PLAIN,
+    val customColor: Int = 0xFF275C79.toInt(),
+    val secondaryColor: Int? = null,
+)
+
+enum class LyricsStyle(val rises: Boolean, val blooms: Boolean, val shimmers: Boolean) {
+    DEFAULT(rises = true, blooms = true, shimmers = false),
+    MOTION(rises = true, blooms = true, shimmers = false),
+    WAVE(rises = false, blooms = true, shimmers = true),
+    LIFT(rises = true, blooms = false, shimmers = false),
+    PLAIN(rises = false, blooms = false, shimmers = false),
+}
+
 /** What the phone's main player stands on, below the artwork. */
 enum class PlayerTheme {
     /** The artwork's own colours hung off its bottom edge, as a mesh. */

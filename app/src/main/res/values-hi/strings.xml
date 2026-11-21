@@ -402,7 +402,7 @@
     <string name="listenbrainz_token">ListenBrainz टोकन</string>
     <string name="listenbrainz_token_description">स्क्रॉबलिंग चालू करने के लिए अपना ListenBrainz यूज़र टोकन पेस्ट करें।</string>
     <string name="listening_history">सुनने का इतिहास</string>
-    <string name="lyrics_sources_order">स्रोत इसी क्रम में आज़माए जाते हैं। क्रम बदलने के लिए खींचें। जब तक सिलेबल लिरिक्स को प्राथमिकता न दी जाए, लिरिक्स वाला पहला स्रोत इस्तेमाल होता है।</string>
+    <string name="lyrics_sources_order">स्रोतों का क्रम बदलने के लिए उन्हें खींचें। समान रूप से उपयुक्त गीतों में क्रम से चुनाव होता है।</string>
     <string name="max_delay">अधिकतम देरी</string>
     <string name="max_delay_subtitle">सेकंड में अधिकतम स्क्रॉबल देरी</string>
     <string name="min_song_duration">गाने की न्यूनतम अवधि</string>
@@ -1497,4 +1497,9 @@
     <string name="diagnostic_report_github">संवेदनशील जानकारी हटाकर रिपोर्ट GitHub पर प्रकाशित करता है।</string>
     <string name="export_diagnostic_log">निदान लॉग निर्यात करें</string>
     <string name="diagnostic_report_error">निदान रिपोर्ट खोली या निर्यात नहीं की जा सकी।</string>
+    <string name="now_playing_layout">प्लेयर का लेआउट</string>
+    <string name="lyrics_style">गीत के बोलों की शैली</string>
+    <string name="lyrics_style_scope">यह विस्तृत गीत दृश्य पर लागू होता है। पोस्टर का अपना प्रभाव है।</string>
+    <string name="video_mode">वीडियो मोड</string>
+    <string name="vinyl_appearance">विनाइल का रूप</string>
 </resources>

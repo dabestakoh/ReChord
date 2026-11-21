@@ -421,7 +421,7 @@
     <string name="listenbrainz_token">Токен ListenBrainz</string>
     <string name="listenbrainz_token_description">Вставьте токен пользователя ListenBrainz, чтобы включить скробблинг.</string>
     <string name="listening_history">История прослушивания</string>
-    <string name="lyrics_sources_order">Источники пробуются в этом порядке. Перетащите, чтобы изменить порядок. Побеждает первый источник с текстом, если только не приоритизирован текст по слогам.</string>
+    <string name="lyrics_sources_order">Перетащите источники, чтобы изменить порядок. Порядок определяет выбор между одинаково подходящими текстами.</string>
     <string name="max_delay">Максимальная задержка</string>
     <string name="max_delay_subtitle">Максимальная задержка скробблинга в секундах</string>
     <string name="min_song_duration">Минимальная длительность песни</string>
@@ -1529,4 +1529,9 @@
     <string name="diagnostic_report_github">Публикует отчёт без конфиденциальных данных на GitHub.</string>
     <string name="export_diagnostic_log">Экспортировать журнал диагностики</string>
     <string name="diagnostic_report_error">Не удалось открыть или экспортировать отчёт о диагностике.</string>
+    <string name="now_playing_layout">Вид проигрывателя</string>
+    <string name="lyrics_style">Стиль текста песни</string>
+    <string name="lyrics_style_scope">Применяется в расширенном режиме текста. У постера свой эффект.</string>
+    <string name="video_mode">Режим видео</string>
+    <string name="vinyl_appearance">Внешний вид винила</string>
 </resources>

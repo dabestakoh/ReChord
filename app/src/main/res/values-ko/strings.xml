@@ -612,7 +612,7 @@
     <string name="listenbrainz_token">ListenBrainz 토큰</string>
     <string name="listenbrainz_token_description">스크로블을 켜려면 ListenBrainz 사용자 토큰을 붙여넣으세요.</string>
     <string name="listening_history">청취 기록</string>
-    <string name="lyrics_sources_order">이 순서대로 소스에 접근합니다. 드래그하여 순서를 변경하세요. 음절 단위 가사를 우선으로 설정하지 않았다면 가사가 있는 첫 번째 소스를 사용합니다.</string>
+    <string name="lyrics_sources_order">소스를 드래그하여 순서를 변경하세요. 적합도가 같은 가사는 이 순서로 선택됩니다.</string>
     <string name="paxsenix_api_key">PaxSenix API 키</string>
     <string name="paxsenix_api_key_configured">PaxSenix API 키 — 설정됨</string>
     <string name="paxsenix_api_key_missing">PaxSenix API key — 선택, 설정되지 않음</string>
@@ -1347,4 +1347,9 @@
     <string name="diagnostic_report_github">민감한 정보를 제거한 보고서를 GitHub에 게시합니다.</string>
     <string name="export_diagnostic_log">진단 로그 내보내기</string>
     <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
+    <string name="now_playing_layout">재생 화면 레이아웃</string>
+    <string name="lyrics_style">가사 스타일</string>
+    <string name="lyrics_style_scope">확장 가사 화면에 적용됩니다. 포스터는 전용 효과를 사용합니다.</string>
+    <string name="video_mode">동영상 모드</string>
+    <string name="vinyl_appearance">바이닐 모양</string>
 </resources>

@@ -364,7 +364,7 @@
     <string name="listenbrainz_token">Token ListenBrainz</string>
     <string name="listenbrainz_token_description">Wklej token użytkownika ListenBrainz, aby włączyć scrobbling.</string>
     <string name="listening_history">Historia odtwarzania</string>
-    <string name="lyrics_sources_order">Źródła są sprawdzane w tej kolejności. Przeciągnij, aby zmienić ich kolejność. Pierwsze źródło z tekstami wygrywa, chyba że preferowane są teksty zsynchronizowane do sylab.</string>
+    <string name="lyrics_sources_order">Przeciągnij źródła, aby zmienić kolejność. Kolejność rozstrzyga przy równie dopasowanych tekstach.</string>
     <string name="max_delay">Maksymalne opóźnienie</string>
     <string name="max_delay_subtitle">Maksymalne opóźnienie scrobble w sekundach</string>
     <string name="min_song_duration">Minimalny czas trwania piosenki</string>
@@ -1537,4 +1537,9 @@
     <string name="diagnostic_report_github">Publikuje raport bez danych wrażliwych w serwisie GitHub.</string>
     <string name="export_diagnostic_log">Eksportuj dziennik diagnostyczny</string>
     <string name="diagnostic_report_error">Nie udało się otworzyć ani wyeksportować raportu diagnostycznego.</string>
+    <string name="now_playing_layout">Układ odtwarzacza</string>
+    <string name="lyrics_style">Styl tekstu piosenki</string>
+    <string name="lyrics_style_scope">Dotyczy rozszerzonego widoku tekstu. Plakat używa własnego efektu.</string>
+    <string name="video_mode">Tryb wideo</string>
+    <string name="vinyl_appearance">Wygląd winylu</string>
 </resources>

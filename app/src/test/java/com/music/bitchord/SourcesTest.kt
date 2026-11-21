@@ -775,7 +775,21 @@ class SourcesTest {
         assertNull(TrackMatcher.best(listOf(officialAudio, sameTitleCover), target))
         assertEquals(
             officialAudio,
-            TrackMatcher.bestOfficialAudioForVideo(listOf(sameTitleCover, officialAudio), target),
+            TrackMatcher.bestOfficialCounterpart(listOf(sameTitleCover, officialAudio), target),
+        )
+    }
+
+    @Test
+    fun `video mode can match a longer official video for the playing audio`() {
+        val target = TrackMatcher.Target("Big Dawgs", "Hanumankind, Kalmi", durationSec = 191)
+        val officialVideo = song("Big Dawgs (Official Video)", "Hanumankind, Kalmi", "6:31")
+            .copy(videoId = "official-video", isVideo = true)
+        val unrelatedCover = song("Big Dawgs", "Unrelated Cover Artist", "3:11")
+            .copy(videoId = "cover", isVideo = true)
+
+        assertEquals(
+            officialVideo,
+            TrackMatcher.bestOfficialCounterpart(listOf(unrelatedCover, officialVideo), target),
         )
     }
 

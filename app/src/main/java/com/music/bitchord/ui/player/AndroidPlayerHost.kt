@@ -27,6 +27,7 @@ import com.music.bitchord.data.lyrics.LyricLine
 import com.music.bitchord.data.lyrics.LyricsTranslation
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.data.settings.LastPlayerScreen
 import com.music.bitchord.playback.MusicOnlyPlayback
 import com.music.bitchord.playback.AudioOutputStatus
@@ -73,8 +74,15 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val hideSongStatus get() = AppSettings.hideSongStatus
         override val showQueueHistory get() = AppSettings.showQueueHistory
         override val hideVolumeBar get() = AppSettings.hideVolumeBar
+        override fun hideVolumeBarFor(layout: NowPlayingLayout) = when (layout) {
+            NowPlayingLayout.DEFAULT -> AppSettings.hideVolumeBar
+            NowPlayingLayout.VINYL -> AppSettings.hideVinylVolumeBar
+            NowPlayingLayout.POSTER -> AppSettings.hidePosterVolumeBar
+        }
         override val hideStatusBar get() = AppSettings.hideStatusBarInPlayer
         override val lastPlayerScreen get() = AppSettings.lastPlayerScreen
+        override val lyricsStyle get() = AppSettings.lyricsStyle
+        override val vinylAppearance get() = AppSettings.vinylAppearance
         override val playerTheme get() = AppSettings.playerTheme
         override val lyricsBlur get() = AppSettings.lyricsBlur
         override val lyricsOffsetMs get() = AppSettings.lyricsOffsetMs

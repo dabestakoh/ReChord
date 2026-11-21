@@ -111,6 +111,7 @@ import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.lyrics.EmbeddedLyrics
 import com.music.bitchord.data.lyrics.LyricLine
 import com.music.bitchord.data.lyrics.LyricsRepository
+import com.music.bitchord.data.lyrics.lyricsArtist
 import com.music.bitchord.data.model.NOTIFICATION_ART_PX
 import com.music.bitchord.data.model.PlaybackSourceType
 import com.music.bitchord.data.model.SearchFilter
@@ -2072,7 +2073,7 @@ class PlaybackService : MediaLibraryService() {
                 ?: LyricsRepository.lyrics(
                     videoId = song.videoId,
                     title = song.title,
-                    artist = song.artist,
+                    artist = song.lyricsArtist(),
                     durationMs = durationMs,
                     album = song.albumName,
                     sources = AppSettings.lyricsSources.value,
@@ -7762,9 +7763,8 @@ class PlaybackService : MediaLibraryService() {
                 AppSettings.syncedLyrics,
                 AppSettings.lyricsSources,
                 AppSettings.lyricsSourceOrder,
-                AppSettings.prioritizeSyllableSync,
-            ) { synced, sources, order, prio ->
-                synced to sources
+            ) { synced, sources, order ->
+                Triple(synced, sources, order)
             }.distinctUntilChanged().collect {
                 loadLyricsForCurrentTrack()
             }
@@ -8391,12 +8391,11 @@ class PlaybackService : MediaLibraryService() {
                 val found = LyricsRepository.lyrics(
                     videoId = currentSong.videoId,
                     title = currentSong.title,
-                    artist = currentSong.artist,
+                    artist = currentSong.lyricsArtist(),
                     durationMs = trackDurationMs,
                     album = currentSong.albumName,
                     sources = AppSettings.lyricsSources.value,
                     order = AppSettings.lyricsSourceOrder.value,
-                    prioritizeSyllableSync = AppSettings.prioritizeSyllableSync.value,
                 )
                 lines = found?.lines
             }
@@ -9046,7 +9045,7 @@ class PlaybackService : MediaLibraryService() {
                 castPrevious()
                 return
             }
-            wrappedPlayer.seekToPrevious()
+            wrappedPlayer.seekToPreviousMediaItem()
         }
 
         override fun seekToNextMediaItem() {

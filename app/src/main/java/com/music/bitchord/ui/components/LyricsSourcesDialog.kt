@@ -90,7 +90,6 @@ fun LyricsSourcesDialog(
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val selected by AppSettings.lyricsSources.collectAsStateWithLifecycle()
     val savedOrder by AppSettings.lyricsSourceOrder.collectAsStateWithLifecycle()
-    val prioritizeSyllableSync by AppSettings.prioritizeSyllableSync.collectAsStateWithLifecycle()
     val paxSenixApiKey by AppSettings.paxSenixApiKey.collectAsStateWithLifecycle()
     var showPaxSenixKeyDialog by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(ALERT_CORNER)
@@ -190,12 +189,6 @@ fun LyricsSourcesDialog(
                 onClick = { showPaxSenixKeyDialog = true },
             )
             AlertRule()
-            SyllableSyncToggle(
-                checked = prioritizeSyllableSync,
-                onToggle = { AppSettings.setPrioritizeSyllableSync(!prioritizeSyllableSync) },
-            )
-
-            AlertRule()
             AlertAction(
                 label = stringResource(R.string.reset_to_default),
                 emphasised = false,
@@ -236,56 +229,6 @@ fun LyricsSourcesDialog(
                 }
             },
         )
-    }
-}
-
-/**
- * Whether a merely line-synced answer is good enough on its own, or worth
- * holding out on for a word-synced one further down the priority order —
- * see the note on [AppSettings.prioritizeSyllableSync]. A single row rather
- * than one more entry in the checkable list above: this isn't a source to
- * ask or not, it's a rule about what to do once one has answered.
- */
-@Composable
-private fun SyllableSyncToggle(checked: Boolean, onToggle: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = ACTION_HEIGHT)
-            .background(
-                if (pressed) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f) else Color.Transparent,
-            )
-            .clickable(
-                indication = null,
-                interactionSource = interactionSource,
-                onClick = onToggle,
-            )
-            .padding(horizontal = 16.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.prioritize_syllable_lyrics),
-                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = stringResource(R.string.prioritize_syllable_lyrics_subtitle),
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp, lineHeight = 15.sp),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        if (checked) {
-            Icon(
-                imageVector = Icons.Rounded.Check,
-                contentDescription = stringResource(R.string.enabled),
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(19.dp),
-            )
-        }
     }
 }
 

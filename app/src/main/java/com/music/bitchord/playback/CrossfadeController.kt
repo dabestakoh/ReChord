@@ -2396,7 +2396,6 @@ class CrossfadeController(
     private var loopPlanned: LoopMix.Plan? = null
 
     /** Why the pair gets no loop mix, for the log and the stats line; null when it does. */
-    private var loopRefusal: String? = null
     private var lastLoopVerdict = ""
     private var loopIncomingStarted = false
     private var lastLoopPositionMs = -1L
@@ -2449,7 +2448,7 @@ class CrossfadeController(
 
     /**
      * The loop mix for [current] -> [next], planned once per pair and analysis,
-     * or null when the pair gets none (see [loopRefusal]).
+     * or null when the pair gets none.
      */
     private fun loopPlanFor(
         player: ExoPlayer,
@@ -2500,7 +2499,6 @@ class CrossfadeController(
     }
 
     private fun noteLoopVerdict(pair: String, plan: LoopMix.Plan?, refusal: String?) {
-        loopRefusal = refusal
         val verdict = "$pair: " + (plan?.let { "loop mix at ${"%.2f".format(Locale.ROOT, it.out.loopStart)}s · ${describeLoop(it)}" } ?: "no loop mix ($refusal)")
         if (verdict == lastLoopVerdict) return
         lastLoopVerdict = verdict
@@ -2838,7 +2836,6 @@ class CrossfadeController(
     private fun loopFallBack(reason: String) {
         Log.d(TAG, "loop mix falls back to a blend: $reason")
         loopPlanned = null
-        loopRefusal = reason
         loopBail(reason, settle = false)
     }
 
@@ -2879,16 +2876,14 @@ class CrossfadeController(
                 m < session.clock.releaseAt -> "looping"
                 else -> "letting go"
             }
-            val aligned = session.alignedErrorMs.takeIf { it.isFinite() }
-                ?.let { " · handover ${"%+.1f".format(Locale.ROOT, it)} ms" }.orEmpty()
-            return "Automix · $stage · ${describeLoop(session.plan)}$aligned"
+            return "Automix · $stage"
         }
         val nextIndex = player.nextMediaItemIndex
         val next = if (nextIndex == C.INDEX_UNSET) null else player.getMediaItemAt(nextIndex)
         val planned = loopPlanned
         if (planned != null && next != null && loopPlanKey?.startsWith("${item.mediaId}->${next.mediaId}|") == true) {
             val inSeconds = (planned.out.loopStart - player.currentPosition / 1000.0).coerceAtLeast(0.0)
-            return "Automix · loop mix in ${ceil(inSeconds).toInt()} s · ${describeLoop(planned)}"
+            return "Automix · loop mix in ${ceil(inSeconds).toInt()} s"
         }
         val plan = lastSmartPlan
         if (plan != null && !plan.blocked && next != null && AppSettings.smartTransitionWindow.value != null) {
@@ -2896,15 +2891,13 @@ class CrossfadeController(
             val whenText = if (inSeconds > 0) "in ${ceil(inSeconds).toInt()} s" else "now"
             val bars = if (plan.beatSeconds > 0) (plan.fadeSeconds / (4 * plan.beatSeconds)).roundToInt() else 0
             val length = if (bars > 0) "$bars bars" else "${"%.1f".format(Locale.ROOT, plan.fadeSeconds)} s"
-            val why = plan.policyReasons.firstOrNull()?.let { " · $it" }.orEmpty()
-            val noLoop = loopRefusal?.let { " · no loop: $it" }.orEmpty()
             return when (plan.transitionStyle) {
-                TransitionStyle.EQUAL_POWER -> "Automix · crossfading $whenText · ${"%.0f".format(Locale.ROOT, plan.fadeSeconds)} s$why$noLoop"
-                TransitionStyle.DJ_FILTER -> "Automix · filter mix $whenText · $length$why$noLoop"
+                TransitionStyle.EQUAL_POWER -> "Automix · crossfading $whenText"
+                TransitionStyle.DJ_FILTER -> "Automix · filter mix $whenText · $length"
                 else -> {
                     val rate = plan.incomingPlaybackRate
                     val stretch = if (abs(rate - 1) < 0.0005) "same tempo" else "next at ${"%.3f".format(Locale.ROOT, rate)}×"
-                    "Automix · mixing $whenText · $length · $stretch$noLoop"
+                    "Automix · mixing $whenText · $stretch"
                 }
             }
         }
@@ -2917,13 +2910,17 @@ class CrossfadeController(
             if (state == TrackAnalysisState.FAILED || !analysis.isUsable) return "failed"
             val side = if (outgoing) analysis.tailBeats else analysis.headBeats
             val bpm = side?.bpm ?: analysis.bpm
-            val confidence = side?.confidence ?: analysis.beatConfidence
-            val key = analysis.key.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
-            val grid = if (side != null) "model grid" else "dsp grid"
-            val refining = if (state == TrackAnalysisState.REFINING) ", refining" else ""
-            return "analysed (${bpm.roundToInt()} BPM$key, $grid ${"%.2f".format(Locale.ROOT, confidence)}$refining)"
+            return if (state == TrackAnalysisState.REFINING) "refining" else "${bpm.roundToInt()} BPM"
         }
-        return "Automix · this song: ${label(item, true)} · next: ${label(next, false)}"
+        val current = label(item, true)
+        val upcoming = label(next, false)
+        return when {
+            current == "analysing…" && upcoming == current -> "Automix · analysing both tracks…"
+            next == null -> "Automix · $current"
+            current.endsWith(" BPM") && upcoming.endsWith(" BPM") ->
+                "Automix · ready · ${current.removeSuffix(" BPM")} → $upcoming"
+            else -> "Automix · $current · next: $upcoming"
+        }
     }
 
     // ---- Lifecycle of a transition -----------------------------------------

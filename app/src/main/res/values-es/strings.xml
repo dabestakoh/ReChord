@@ -415,7 +415,7 @@
     <string name="listenbrainz_token">Token de ListenBrainz</string>
     <string name="listenbrainz_token_description">Pega tu token de usuario de ListenBrainz para activar el scrobbling.</string>
     <string name="listening_history">Historial de reproducción</string>
-    <string name="lyrics_sources_order">Las fuentes se prueban en este orden. Arrástralas para reordenarlas. Se usa la primera que encuentre una letra, salvo que priorices letras por sílabas.</string>
+    <string name="lyrics_sources_order">Arrastra las fuentes para reordenarlas. El orden decide entre letras igual de adecuadas.</string>
     <string name="max_delay">Retraso máximo</string>
     <string name="max_delay_subtitle">Retraso máximo del scrobbling en segundos</string>
     <string name="min_song_duration">Duración mínima de canción</string>
@@ -1469,4 +1469,9 @@
     <string name="diagnostic_report_github">Publica un informe sin datos sensibles en GitHub.</string>
     <string name="export_diagnostic_log">Exportar registro de diagnóstico</string>
     <string name="diagnostic_report_error">No se pudo abrir ni exportar el informe de diagnóstico.</string>
+    <string name="now_playing_layout">Diseño del reproductor</string>
+    <string name="lyrics_style">Estilo de letras</string>
+    <string name="lyrics_style_scope">Se aplica a la vista de letras ampliada. Póster usa su propio efecto.</string>
+    <string name="video_mode">Modo de vídeo</string>
+    <string name="vinyl_appearance">Aspecto del vinilo</string>
 </resources>

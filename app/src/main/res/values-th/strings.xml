@@ -416,7 +416,7 @@
     <string name="listenbrainz_token">โทเคน ListenBrainz</string>
     <string name="listenbrainz_token_description">วางโทเคนผู้ใช้ ListenBrainz ของคุณเพื่อเปิดใช้งานการสโครบเบิล</string>
     <string name="listening_history">ประวัติการฟัง</string>
-    <string name="lyrics_sources_order">แหล่งข้อมูลจะถูกลองตามลำดับนี้ ลากเพื่อจัดลำดับใหม่ แหล่งข้อมูลแรกที่มีเนื้อเพลงจะถูกใช้ เว้นแต่ตั้งค่าให้เนื้อเพลงแบบพยางค์มาก่อน</string>
+    <string name="lyrics_sources_order">ลากแหล่งเนื้อเพลงเพื่อจัดลำดับใหม่ หากเนื้อเพลงเหมาะสมเท่ากัน ระบบจะเลือกตามลำดับนี้</string>
     <string name="max_delay">ความล่าช้าสูงสุด</string>
     <string name="max_delay_subtitle">ความล่าช้าสูงสุดในการสโครบเบิล หน่วยเป็นวินาที</string>
     <string name="min_song_duration">ความยาวเพลงขั้นต่ำ</string>
@@ -1480,4 +1480,9 @@
     <string name="diagnostic_report_github">เผยแพร่รายงานที่ตัดข้อมูลส่วนตัวออกแล้วบน GitHub</string>
     <string name="export_diagnostic_log">ส่งออกบันทึกการวินิจฉัย</string>
     <string name="diagnostic_report_error">ไม่สามารถเปิดหรือส่งออกรายงานการวินิจฉัยได้</string>
+    <string name="now_playing_layout">รูปแบบหน้ากำลังเล่น</string>
+    <string name="lyrics_style">สไตล์เนื้อเพลง</string>
+    <string name="lyrics_style_scope">ใช้กับหน้าจอเนื้อเพลงแบบขยาย โปสเตอร์ใช้เอฟเฟกต์ของตัวเอง</string>
+    <string name="video_mode">โหมดวิดีโอ</string>
+    <string name="vinyl_appearance">รูปลักษณ์แผ่นเสียง</string>
 </resources>

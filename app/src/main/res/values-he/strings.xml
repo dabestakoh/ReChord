@@ -367,7 +367,7 @@
     <string name="listenbrainz_token">אסימון ListenBrainz</string>
     <string name="listenbrainz_token_description">הדבק את אסימון המשתמש של ListenBrainz כדי להפעיל scrobbling.</string>
     <string name="listening_history">היסטוריית האזנה</string>
-    <string name="lyrics_sources_order">המקורות נבדקים בסדר זה. גרור כדי לשנות סדר. המקור הראשון עם מילים מנצח, אלא אם ניתנת עדיפות למילים לפי הברות.</string>
+    <string name="lyrics_sources_order">גררו את המקורות כדי לסדר אותם מחדש. הסדר קובע בין מילים שמתאימות באותה מידה.</string>
     <string name="max_delay">השהיה מקסימלית</string>
     <string name="max_delay_subtitle">עיכוב scrobble מקסימלי בשניות</string>
     <string name="min_song_duration">משך שיר מינימלי</string>
@@ -1502,4 +1502,9 @@
     <string name="diagnostic_report_github">פרסום דוח ללא מידע רגיש ב-GitHub.</string>
     <string name="export_diagnostic_log">ייצוא יומן אבחון</string>
     <string name="diagnostic_report_error">לא ניתן לפתוח או לייצא את דוח האבחון.</string>
+    <string name="now_playing_layout">פריסת הנגן</string>
+    <string name="lyrics_style">סגנון המילים</string>
+    <string name="lyrics_style_scope">חל על תצוגת המילים המורחבת. לפוסטר יש אפקט משלו.</string>
+    <string name="video_mode">מצב וידאו</string>
+    <string name="vinyl_appearance">מראה התקליט</string>
 </resources>

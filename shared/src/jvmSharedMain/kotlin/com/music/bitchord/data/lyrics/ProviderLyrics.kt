@@ -72,12 +72,23 @@ object ProviderLyrics {
     )
 }
 
+internal fun parseTimedLyrics(raw: String): List<LyricLine>? {
+    val body = EnhancedLrc.decodeEntities(raw).trim()
+    val lines = if (KaraokeLrc.looksLike(body)) KaraokeLrc.parse(body)
+        else EnhancedLrc.parse(body).ifEmpty { LrcLib.parseLrc(body) }
+    return lines.takeIf { result -> result.any { !it.isGap } }
+}
+
+internal fun plainLyricLines(raw: String): List<LyricLine>? =
+    raw.lineSequence().map(String::trim).filter(String::isNotEmpty)
+        .map { LyricLine(0L, EnhancedLrc.decodeEntities(it)) }.toList().takeIf { it.isNotEmpty() }
+
 /** QQ/QRC and NetEase YRC: millisecond line and word ranges. */
 object KaraokeLrc {
     private val LINE = Regex("""^\[(\d{1,8}),(\d{1,8})](.*)$""")
-    private val PREFIX_WORD = Regex("""\((\d{1,8}),(\d{1,8})(?:,\d{1,8})?\)([^()]*)""")
-    private val SUFFIX_WORD = Regex("""([^()]*)\((\d{1,8}),(\d{1,8})(?:,\d{1,8})?\)""")
-    private val WORD_TIME = Regex("""\(\d{1,8},\d{1,8}(?:,\d{1,8})?\)""")
+    private val PREFIX_WORD = Regex("""\((\d{1,8}),(\d{1,8})(?:,-?\d{1,8})?\)([^()]*)""")
+    private val SUFFIX_WORD = Regex("""([^()]*)\((\d{1,8}),(\d{1,8})(?:,-?\d{1,8})?\)""")
+    private val WORD_TIME = Regex("""\(\d{1,8},\d{1,8}(?:,-?\d{1,8})?\)""")
     private val CONTENT = Regex("""LyricContent\s*=\s*\"([^\"]*)\"""", RegexOption.IGNORE_CASE)
 
     fun looksLike(raw: String): Boolean = lyricContent(raw).lineSequence().any { line ->

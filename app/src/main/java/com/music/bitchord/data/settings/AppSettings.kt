@@ -441,6 +441,8 @@ object AppSettings {
 
     /** Hides the volume slider on the main player, leaving the rest of the layout to reflow. */
     val hideVolumeBar = MutableStateFlow(false)
+    val hideVinylVolumeBar = MutableStateFlow(false)
+    val hidePosterVolumeBar = MutableStateFlow(false)
 
     /** Hides the device status bar (clock, battery, notifications) while the main player is open. */
     val hideStatusBarInPlayer = MutableStateFlow(false)
@@ -597,6 +599,13 @@ object AppSettings {
      * its cost (blobs that drift are a full-screen blur redrawn while they move,
      * where a mesh is drawn once per track and then composited).
      */
+    val nowPlayingLayout = MutableStateFlow(NowPlayingLayout.DEFAULT)
+    val lyricsStyle = MutableStateFlow(LyricsStyle.MOTION)
+    val vinylAppearance = MutableStateFlow(VinylAppearance())
+    private const val VINYL_COLOR_MODE = "vinyl_color_mode"
+    private const val VINYL_FINISH = "vinyl_finish"
+    private const val VINYL_CUSTOM_COLOR = "vinyl_custom_color"
+    private const val VINYL_SECONDARY_COLOR = "vinyl_secondary_color"
     val playerTheme = MutableStateFlow(PlayerTheme.DEFAULT)
 
     /** Restores the expanded player to the surface the listener left open. */
@@ -623,16 +632,6 @@ object AppSettings {
      * independent choices.
      */
     val lyricsSourceOrder = MutableStateFlow<List<LyricsSource>>(LyricsSource.offered)
-
-    /**
-     * Off, the highest-priority source to answer at all is taken as the
-     * lyrics, word-synced or not. On, a merely line-synced answer is held as
-     * a fallback while the rest of [lyricsSourceOrder] is still checked for a
-     * word-synced one — worth the extra network calls to some, not to others,
-     * which is why it defaults off rather than being how [LyricsRepository]
-     * always behaved.
-     */
-    val prioritizeSyllableSync = MutableStateFlow(false)
 
     /** User-issued credential required by api.paxsenix.org. */
     val paxSenixApiKey = MutableStateFlow("")
@@ -1025,6 +1024,8 @@ object AppSettings {
         )
         stopOnTaskRemoved.value = prefs.getBoolean(KEY_STOP_ON_TASK_REMOVED, true)
         hideVolumeBar.value = prefs.getBoolean(KEY_HIDE_VOLUME_BAR, false)
+        hideVinylVolumeBar.value = prefs.getBoolean(KEY_HIDE_VINYL_VOLUME_BAR, false)
+        hidePosterVolumeBar.value = prefs.getBoolean(KEY_HIDE_POSTER_VOLUME_BAR, false)
         hideStatusBarInPlayer.value = prefs.getBoolean(KEY_HIDE_STATUS_BAR_IN_PLAYER, false)
         hideSongStatus.value = prefs.getBoolean(KEY_HIDE_SONG_STATUS, false)
         showQueueHistory.value = prefs.getBoolean(KEY_SHOW_QUEUE_HISTORY, false)
@@ -1087,6 +1088,21 @@ object AppSettings {
         fullBleedArtwork.value = prefs.getBoolean(KEY_FULL_BLEED_ARTWORK, true)
         fullBleedDetailArtwork.value = prefs.getBoolean(KEY_FULL_BLEED_DETAIL_ARTWORK, false)
         // The old legacy mesh switch answers until a theme has been picked.
+        val savedLayout = prefs.getString(KEY_NOW_PLAYING_LAYOUT, null)
+        nowPlayingLayout.value = NowPlayingLayout.entries.firstOrNull { it.name == savedLayout }
+            ?: NowPlayingLayout.DEFAULT
+        val defaultVinyl = VinylAppearance()
+        val vinylColor = prefs.getString(VINYL_COLOR_MODE, null)
+        val vinylFinish = prefs.getString(VINYL_FINISH, null)
+        vinylAppearance.value = VinylAppearance(
+            colorMode = VinylColorMode.entries.firstOrNull { it.name == vinylColor } ?: defaultVinyl.colorMode,
+            finish = VinylFinish.entries.firstOrNull { it.name == vinylFinish } ?: defaultVinyl.finish,
+            customColor = prefs.getInt(VINYL_CUSTOM_COLOR, defaultVinyl.customColor),
+            secondaryColor = if (prefs.contains(VINYL_SECONDARY_COLOR)) prefs.getInt(VINYL_SECONDARY_COLOR, 0) else null,
+        )
+        val savedLyricsStyle = prefs.getString(KEY_LYRICS_STYLE, null)
+        lyricsStyle.value = LyricsStyle.entries.firstOrNull { it.name == savedLyricsStyle && it != LyricsStyle.DEFAULT }
+            ?: LyricsStyle.MOTION
         playerTheme.value = runCatching {
             PlayerTheme.valueOf(prefs.getString(KEY_PLAYER_THEME, null).orEmpty())
         }.getOrElse {
@@ -1100,7 +1116,6 @@ object AppSettings {
         syncedLyrics.value = prefs.getBoolean(KEY_SYNCED_LYRICS, true)
         lyricsSources.value = readLyricsSources()
         lyricsSourceOrder.value = readLyricsSourceOrder()
-        prioritizeSyllableSync.value = prefs.getBoolean(KEY_PRIORITIZE_SYLLABLE_SYNC, false)
         paxSenixApiKey.value = prefs.getString(KEY_PAXSENIX_API_KEY, "").orEmpty()
         com.music.bitchord.data.lyrics.PaxSenix.setApiKey(paxSenixApiKey.value)
         audioCacheLimitBytes.value = clampCacheLimit(prefs.getLong(KEY_CACHE_LIMIT, DEFAULT_CACHE_LIMIT_BYTES))
@@ -1696,11 +1711,6 @@ object AppSettings {
         return LyricsSource.ordered(saved)
     }
 
-    fun setPrioritizeSyllableSync(value: Boolean) {
-        prioritizeSyllableSync.value = value
-        prefs.edit().putBoolean(KEY_PRIORITIZE_SYLLABLE_SYNC, value).apply()
-    }
-
     fun setPaxSenixApiKey(value: String) {
         val normalized = com.music.bitchord.data.lyrics.normalizePaxSenixApiKey(value)
         paxSenixApiKey.value = normalized
@@ -1709,14 +1719,12 @@ object AppSettings {
     }
 
     /**
-     * Puts the source list, its order and [prioritizeSyllableSync] back the
-     * way a fresh install finds them. [syncedLyrics] itself is left alone —
+     * Restores the source list and order from a fresh install. [syncedLyrics] itself is left alone —
      * this is "start over on *which* lyrics", not "turn lyrics off".
      */
     fun resetLyricsSourceSettings() {
         setLyricsSources(LyricsSource.offered.toSet())
         setLyricsSourceOrder(LyricsSource.offered)
-        setPrioritizeSyllableSync(false)
     }
 
     fun setAnimatedCanvas(value: Boolean) {
@@ -1759,6 +1767,60 @@ object AppSettings {
     fun setFullBleedDetailArtwork(value: Boolean) {
         fullBleedDetailArtwork.value = value
         prefs.edit().putBoolean(KEY_FULL_BLEED_DETAIL_ARTWORK, value).apply()
+    }
+
+    fun applyNowPlayingLayoutSettings(
+        layout: NowPlayingLayout,
+        defaultHideVolume: Boolean,
+        vinylHideVolume: Boolean,
+        posterHideVolume: Boolean,
+        fullBleed: Boolean,
+        theme: PlayerTheme,
+        coverOverCellular: Boolean,
+        canvasAutoHide: Boolean,
+    ) {
+        prefs.edit()
+            .putString(KEY_NOW_PLAYING_LAYOUT, layout.name)
+            .putBoolean(KEY_HIDE_VOLUME_BAR, defaultHideVolume)
+            .putBoolean(KEY_HIDE_VINYL_VOLUME_BAR, vinylHideVolume)
+            .putBoolean(KEY_HIDE_POSTER_VOLUME_BAR, posterHideVolume)
+            .putBoolean(KEY_FULL_BLEED_ARTWORK, fullBleed)
+            .putString(KEY_PLAYER_THEME, theme.name)
+            .putBoolean(KEY_CANVAS_OVER_CELLULAR, coverOverCellular)
+            .putBoolean(KEY_SPOTIFY_CANVAS_AUTO_HIDE, canvasAutoHide)
+            .apply()
+        hideVolumeBar.value = defaultHideVolume
+        hideVinylVolumeBar.value = vinylHideVolume
+        hidePosterVolumeBar.value = posterHideVolume
+        fullBleedArtwork.value = fullBleed
+        playerTheme.value = theme
+        canvasOverCellular.value = coverOverCellular
+        spotifyCanvasAutoHide.value = canvasAutoHide
+        nowPlayingLayout.value = layout
+    }
+
+    fun setNowPlayingLayout(value: NowPlayingLayout) {
+        if (nowPlayingLayout.value == value) return
+        nowPlayingLayout.value = value
+        prefs.edit().putString(KEY_NOW_PLAYING_LAYOUT, value.name).apply()
+    }
+
+    fun setVinylAppearance(value: VinylAppearance) {
+        if (vinylAppearance.value == value) return
+        vinylAppearance.value = value
+        val editor = prefs.edit()
+            .putString(VINYL_COLOR_MODE, value.colorMode.name)
+            .putString(VINYL_FINISH, value.finish.name)
+            .putInt(VINYL_CUSTOM_COLOR, value.customColor)
+        val secondary = value.secondaryColor
+        if (secondary == null) editor.remove(VINYL_SECONDARY_COLOR) else editor.putInt(VINYL_SECONDARY_COLOR, secondary)
+        editor.apply()
+    }
+
+    fun setLyricsStyle(value: LyricsStyle) {
+        if (lyricsStyle.value == value) return
+        lyricsStyle.value = value
+        prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
     }
 
     fun setPlayerTheme(value: PlayerTheme) {
@@ -2348,6 +2410,8 @@ object AppSettings {
     private const val KEY_PERFORMANCE_REFRESH_RATE = "performance_refresh_rate"
     private const val KEY_STOP_ON_TASK_REMOVED = "stop_on_task_removed"
     private const val KEY_HIDE_VOLUME_BAR = "hide_volume_bar"
+    private const val KEY_HIDE_VINYL_VOLUME_BAR = "hide_vinyl_volume_bar"
+    private const val KEY_HIDE_POSTER_VOLUME_BAR = "hide_poster_volume_bar"
     private const val KEY_HIDE_STATUS_BAR_IN_PLAYER = "hide_status_bar_in_player"
     private const val KEY_HIDE_SONG_STATUS = "hide_song_status"
     private const val KEY_SHOW_QUEUE_HISTORY = "show_queue_history"
@@ -2376,6 +2440,8 @@ object AppSettings {
     private const val KEY_SIGNATURE_API_URL = "signature_api_url"
     private const val KEY_FULL_BLEED_ARTWORK = "full_bleed_artwork"
     private const val KEY_FULL_BLEED_DETAIL_ARTWORK = "full_bleed_detail_artwork"
+    private const val KEY_NOW_PLAYING_LAYOUT = "now_playing_layout"
+    private const val KEY_LYRICS_STYLE = "lyrics_style"
     private const val KEY_PLAYER_THEME = "player_theme"
     private const val KEY_LEGACY_MESH_GRADIENT = "legacy_mesh_gradient"
     private const val KEY_LAST_PLAYER_SCREEN = "last_player_screen"
@@ -2383,7 +2449,6 @@ object AppSettings {
     private const val KEY_LYRICS_SOURCES = "lyrics_sources"
     private const val KEY_LYRICS_SOURCES_SEEN = "lyrics_sources_seen"
     private const val KEY_LYRICS_SOURCE_ORDER = "lyrics_source_order"
-    private const val KEY_PRIORITIZE_SYLLABLE_SYNC = "prioritize_syllable_sync"
     private const val KEY_PAXSENIX_API_KEY = "paxsenix_api_key"
     private const val KEY_REPLAY_GENRES = "replay_genres"
     private const val KEY_FILTER_NON_MUSIC_AUDIO = "filter_non_music_audio"

@@ -403,7 +403,7 @@
     <string name="listenbrainz_token">Jeton ListenBrainz</string>
     <string name="listenbrainz_token_description">Collez votre jeton utilisateur ListenBrainz pour activer le scrobbling.</string>
     <string name="listening_history">Historique d\'écoute</string>
-    <string name="lyrics_sources_order">Les sources sont testées dans cet ordre. Faites-les glisser pour les réorganiser. La première source où les paroles sont trouvées l\'emporte, sauf si les paroles par syllabe sont prioritaires.</string>
+    <string name="lyrics_sources_order">Faites glisser les sources pour les réorganiser. Leur ordre départage les paroles aussi bien adaptées.</string>
     <string name="max_delay">Délai maximal</string>
     <string name="max_delay_subtitle">Délai maximal de scrobbling, en secondes</string>
     <string name="min_song_duration">Durée minimale de la chanson</string>
@@ -1498,4 +1498,9 @@
     <string name="diagnostic_report_github">Publie un rapport expurgé sur GitHub.</string>
     <string name="export_diagnostic_log">Exporter le journal de diagnostic</string>
     <string name="diagnostic_report_error">Impossible d’ouvrir ou d’exporter le rapport de diagnostic.</string>
+    <string name="now_playing_layout">Disposition du lecteur</string>
+    <string name="lyrics_style">Style des paroles</string>
+    <string name="lyrics_style_scope">S’applique aux paroles en plein écran. Le mode Affiche utilise son propre effet.</string>
+    <string name="video_mode">Mode vidéo</string>
+    <string name="vinyl_appearance">Apparence du vinyle</string>
 </resources>

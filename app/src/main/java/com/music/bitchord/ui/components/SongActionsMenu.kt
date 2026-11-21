@@ -184,6 +184,8 @@ fun SongActionsMenu(
      * as before — present when the id is there, absent when it never was.
      */
     resolvingLinks: Boolean = false,
+    onNowPlayingLayout: (() -> Unit)? = null,
+    onVideoMode: (() -> Unit)? = null,
 ) {
     var showingSongInfo by remember(song.videoId) { mutableStateOf(false) }
     var pickingSleepTimer by remember { mutableStateOf(false) }
@@ -207,6 +209,16 @@ fun SongActionsMenu(
         fun startsGroup(): Boolean = drawnAny.also { drawnAny = true }
         val canRate = isOffline || signedIn
         val shareAction = onShare?.takeIf { !isOffline }
+
+        if (onNowPlayingLayout != null || onVideoMode != null) {
+            if (startsGroup()) IosMenuSeparator()
+            onNowPlayingLayout?.let {
+                ActionRow(SfIcons.Appearance, stringResource(R.string.now_playing_layout), accent = palette.accent, onClick = it)
+            }
+            onVideoMode?.let {
+                ActionRow(SfIcons.Video, stringResource(R.string.video_mode), accent = palette.accent, onClick = it)
+            }
+        }
 
         // Leads with the actions it is opened for most, as tiles: the rating
         // — kept up after a tap, so the new state shows in place — and Share.

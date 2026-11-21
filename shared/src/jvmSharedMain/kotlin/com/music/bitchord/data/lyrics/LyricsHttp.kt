@@ -3,6 +3,8 @@ package com.music.bitchord.data.lyrics
 import com.music.bitchord.data.Http
 import kotlinx.serialization.json.Json
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,13 +42,31 @@ private val authenticatedClient by lazy {
         .build()
 }
 
+private val extendedClient by lazy {
+    client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
+}
+
 /** Body of a successful GET, or null for any failure at all. */
-internal fun lyricsGet(url: String): String? = runCatching {
+internal fun lyricsGet(url: String, extended: Boolean = false): String? =
+    lyricsExchange(url, if (extended) extendedClient else client)
+
+internal fun lyricsPost(url: String, json: String, bearer: String? = null): String? =
+    lyricsExchange(url, client, json, bearer)
+
+private fun lyricsExchange(
+    url: String,
+    transport: okhttp3.OkHttpClient,
+    json: String? = null,
+    bearer: String? = null,
+): String? = runCatching {
     val request = Request.Builder().url(url)
         .header("User-Agent", LYRICS_AGENT)
         .header("Accept", "application/json")
-        .build()
-    client.newCall(request).execute().use { response ->
+        .apply {
+            if (json != null) post(json.toRequestBody("application/json".toMediaTypeOrNull()))
+            if (bearer != null) header("Authorization", "Bearer $bearer")
+        }.build()
+    transport.newCall(request).execute().use { response ->
         if (response.isSuccessful) response.body?.string() else null
     }
 }.getOrNull()

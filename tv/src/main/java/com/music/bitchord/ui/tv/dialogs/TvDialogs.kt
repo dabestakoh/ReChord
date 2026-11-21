@@ -1291,12 +1291,11 @@ fun TvThemeDialog(onDismiss: () -> Unit) {
 fun TvLyricsSourcesDialog(onDismiss: () -> Unit) {
     val selected by AppSettings.lyricsSources.collectAsState()
     val savedOrder by AppSettings.lyricsSourceOrder.collectAsState()
-    val wordFirst by AppSettings.prioritizeSyllableSync.collectAsState()
     val order = remember(savedOrder) { LyricsSource.ordered(savedOrder) }
 
     TvDialog(
         title = "Lyrics Sources",
-        message = "Select to turn a source on or off. Press Left or Right to move it up or down; the first is asked first.",
+        message = "Select to turn a source on or off. Press Left or Right to change its priority for equally suitable lyrics.",
         width = 512.dp,
         onDismissRequest = onDismiss,
     ) {
@@ -1331,14 +1330,6 @@ fun TvLyricsSourcesDialog(onDismiss: () -> Unit) {
                         if (checked && selected.size <= 1) return@TvListRow
                         AppSettings.setLyricsSources(if (checked) selected - source else selected + source)
                     },
-                )
-            }
-            item(key = "wordFirst") {
-                TvListRow(
-                    title = "Prefer Word-Synced",
-                    subtitle = "Hold out for word-by-word lyrics before settling for line-by-line.",
-                    value = if (wordFirst) "On" else "Off",
-                    onClick = { AppSettings.setPrioritizeSyllableSync(!wordFirst) },
                 )
             }
         }

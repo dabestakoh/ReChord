@@ -431,7 +431,7 @@
     <string name="listenbrainz_token">ListenBrainz belirteci</string>
     <string name="listenbrainz_token_description">Scrobbling\'i etkinleştirmek için ListenBrainz kullanıcı belirtecinizi yapıştırın.</string>
     <string name="listening_history">Dinleme geçmişi</string>
-    <string name="lyrics_sources_order">Kaynaklar bu sırayla denenir. Yeniden sıralamak için sürükleyin. Heceli sözler önceliklendirilmedikçe sözleri olan ilk kaynak kazanır.</string>
+    <string name="lyrics_sources_order">Kaynakları yeniden sıralamak için sürükleyin. Eşit derecede uygun şarkı sözlerinde sıra belirleyicidir.</string>
     <string name="max_delay">Maksimum gecikme</string>
     <string name="max_delay_subtitle">Saniye cinsinden maksimum scrobble gecikmesi</string>
     <string name="min_song_duration">Minimum şarkı süresi</string>
@@ -1454,4 +1454,9 @@
     <string name="diagnostic_report_github">Hassas bilgileri çıkarılmış raporu GitHub üzerinde yayımlar.</string>
     <string name="export_diagnostic_log">Tanılama günlüğünü dışa aktar</string>
     <string name="diagnostic_report_error">Tanılama raporu açılamadı veya dışa aktarılamadı.</string>
+    <string name="now_playing_layout">Şimdi çalıyor düzeni</string>
+    <string name="lyrics_style">Şarkı sözü biçimi</string>
+    <string name="lyrics_style_scope">Genişletilmiş şarkı sözlerine uygulanır. Poster kendi efektini kullanır.</string>
+    <string name="video_mode">Video modu</string>
+    <string name="vinyl_appearance">Plak görünümü</string>
 </resources>

@@ -387,7 +387,7 @@
     <string name="listenbrainz_token">ListenBrainz 令牌</string>
     <string name="listenbrainz_token_description">貼上你的 ListenBrainz 使用者令牌以啟用 Scrobbling。</string>
     <string name="listening_history">收聽記錄</string>
-    <string name="lyrics_sources_order">系統會按此順序嘗試各個來源。拖動即可調整順序。除非優先使用逐字歌詞，否則會採用第一個找到歌詞的來源。</string>
+    <string name="lyrics_sources_order">拖曳可調整來源順序。多個歌詞同樣合適時，依此順序選擇。</string>
     <string name="max_delay">最大延遲</string>
     <string name="max_delay_subtitle">Scrobble 的最大延遲（秒）</string>
     <string name="min_song_duration">最短歌曲時長</string>
@@ -1469,4 +1469,9 @@
     <string name="diagnostic_report_github">在 GitHub 發布已移除敏感資訊的報告。</string>
     <string name="export_diagnostic_log">匯出診斷記錄</string>
     <string name="diagnostic_report_error">無法開啟或匯出診斷報告。</string>
+    <string name="now_playing_layout">現正播放版面</string>
+    <string name="lyrics_style">歌詞樣式</string>
+    <string name="lyrics_style_scope">適用於展開的歌詞頁面。海報使用專屬歌詞效果。</string>
+    <string name="video_mode">影片模式</string>
+    <string name="vinyl_appearance">黑膠外觀</string>
 </resources>

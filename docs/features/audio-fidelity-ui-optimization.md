@@ -1,6 +1,6 @@
 # Audio Fidelity + Navigation Glass Freeze (preview)
 
-Branch: `feature/audio-fidelity-ui-optimization`
+This record describes the original `feature/audio-fidelity-ui-optimization` preview. For current UI, playback, and delivery guidance, see the [ReChord engineering standards](../RECHORD-STANDARDS.md).
 
 ## Scope
 - Auris-inspired 0–100 playback-path fidelity score in the existing Audio Pipeline dialog (diagnostic only, **not** an objective sound-quality measure).
@@ -35,5 +35,5 @@ adb shell dumpsys gfxinfo com.rechord.preview framestats
 
 The reported package must match the installed test APK. No claim of measured performance improvement is made until these tests are run.
 
-## Feature branch CI
-The branch-scoped `.github/workflows/fidelity-ui-preview.yml` workflow runs unit tests and builds `:app:assembleDevDebug` on pushes to this branch. Download the `ReChord-Fidelity-UI-Preview-<run>` artifact from that workflow's Actions run. Its package is `com.rechord.preview`; it does not replace production `com.music.rechord`. The build must finish successfully before installing the APK.
+## Current preview builds
+The [Develop Preview workflow](../../.github/workflows/fidelity-ui-preview.yml) normally builds the signed arm64 APK on `develop` pushes. The [Feature Unit Tests workflow](../../.github/workflows/feature-unit-tests.yml) runs unit tests on feature and fix branch pushes and can build a signed arm64 Preview APK when run manually on those branches. Preview uses `com.rechord.preview` and installs alongside `com.music.rechord`.

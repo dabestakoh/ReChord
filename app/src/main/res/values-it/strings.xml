@@ -449,7 +449,7 @@
     <string name="listenbrainz_token">Token ListenBrainz</string>
     <string name="listenbrainz_token_description">Incolla il tuo token utente ListenBrainz per attivare lo scrobbling.</string>
     <string name="listening_history">Cronologia di ascolto</string>
-    <string name="lyrics_sources_order">Le sorgenti vengono provate in quest\'ordine. Trascina per riordinarle. Vince la prima sorgente con testi disponibili, a meno che i testi sillabici non siano prioritari.</string>
+    <string name="lyrics_sources_order">Trascina le sorgenti per riordinarle. L\'ordine decide fra testi ugualmente adatti.</string>
     <string name="max_delay">Ritardo massimo</string>
     <string name="max_delay_subtitle">Ritardo massimo dello scrobble in secondi</string>
     <string name="min_song_duration">Durata minima del brano</string>
@@ -1436,4 +1436,9 @@
     <string name="diagnostic_report_github">Pubblica su GitHub un rapporto senza dati sensibili.</string>
     <string name="export_diagnostic_log">Esporta registro di diagnostica</string>
     <string name="diagnostic_report_error">Impossibile aprire o esportare il rapporto di diagnostica.</string>
+    <string name="now_playing_layout">Layout del lettore</string>
+    <string name="lyrics_style">Stile del testo</string>
+    <string name="lyrics_style_scope">Si applica alla vista dei testi estesa. Poster usa un effetto proprio.</string>
+    <string name="video_mode">Modalità video</string>
+    <string name="vinyl_appearance">Aspetto del vinile</string>
 </resources>

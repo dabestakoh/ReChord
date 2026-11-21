@@ -30,48 +30,62 @@ object LrcLib {
     private val json = Json { ignoreUnknownKeys = true }
 
     /** Synced lyrics for a track, or null when nothing usable is published. */
-    suspend fun lyrics(title: String, artist: String, durationMs: Long): List<LyricLine>? =
+    suspend fun lyrics(title: String, artist: String, durationMs: Long, album: String? = null): List<LyricLine>? =
         withContext(Dispatchers.IO) {
             val cleanTitle = title.clean()
             val cleanArtist = artist.clean()
             val seconds = (durationMs / 1000).toInt()
 
-            val exact = runCatching { exactMatch(cleanTitle, cleanArtist, seconds) }.getOrNull()
-            val synced = exact ?: runCatching { bestSearchHit(cleanTitle, cleanArtist, seconds) }
-                .getOrNull()
-            synced?.let(::parseLrc)?.takeIf { it.isNotEmpty() }
+            val exact = runCatching { exactMatch(cleanTitle, cleanArtist, seconds, album) }.getOrNull()
+            exact?.takeIf { it.isWordOrLineTimed() }
+                ?: runCatching { bestSearchHit(cleanTitle, cleanArtist, seconds, album) }.getOrNull()
+                ?: exact
         }
 
-    private fun exactMatch(title: String, artist: String, seconds: Int): String? {
+    private fun exactMatch(title: String, artist: String, seconds: Int, album: String?): List<LyricLine>? {
         val url = "$BASE/get".toHttpUrl().newBuilder()
             .addQueryParameter("track_name", title)
             .addQueryParameter("artist_name", artist)
             .addQueryParameter("duration", seconds.toString())
+            .apply { album?.takeIf(String::isNotBlank)?.let { addQueryParameter("album_name", it) } }
             .build()
         val body = get(url.toString()) ?: return null
-        return (json.parseToJsonElement(body) as? JsonObject)
-            ?.get("syncedLyrics")?.jsonPrimitive?.contentOrNull
+        return (json.parseToJsonElement(body) as? JsonObject)?.lyricLines()
     }
 
     /**
      * Fuzzy fallback. Prefers whichever hit is closest in length to what we're
      * actually playing — same song, different edit, would drift otherwise.
      */
-    private fun bestSearchHit(title: String, artist: String, seconds: Int): String? {
-        val url = "$BASE/search".toHttpUrl().newBuilder()
-            .addQueryParameter("track_name", title)
-            .addQueryParameter("artist_name", artist)
-            .build()
-        val body = get(url.toString()) ?: return null
-        val hits = json.parseToJsonElement(body) as? JsonArray ?: return null
-        return hits.mapNotNull { it as? JsonObject }
-            .filter { it["syncedLyrics"]?.jsonPrimitive?.contentOrNull?.isNotBlank() == true }
-            .minByOrNull {
-                val d = it["duration"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-                abs(d - seconds)
+    private fun bestSearchHit(title: String, artist: String, seconds: Int, album: String?): List<LyricLine>? {
+        var plain: List<LyricLine>? = null
+        for (query in listOfNotNull(album?.takeIf(String::isNotBlank)?.let {
+            listOf("track_name" to title, "artist_name" to artist, "album_name" to it)
+        }, listOf("track_name" to title, "artist_name" to artist), listOf("q" to "$title $artist"))) {
+            val url = "$BASE/search".toHttpUrl().newBuilder().apply {
+                query.forEach { (key, value) -> addQueryParameter(key, value) }
+            }.build()
+            val body = get(url.toString()) ?: continue
+            val hits = json.parseToJsonElement(body) as? JsonArray ?: continue
+            for (hit in hits.filterIsInstance<JsonObject>().sortedBy {
+                abs((it["duration"]?.jsonPrimitive?.doubleOrNull ?: 0.0) - seconds)
+            }) {
+                val duration = hit["duration"]?.jsonPrimitive?.doubleOrNull
+                if (seconds > 0 && (duration == null || abs(duration - seconds) > 5)) continue
+                val lines = hit.lyricLines() ?: continue
+                if (lines.isWordOrLineTimed()) return lines
+                if (plain == null) plain = lines
             }
-            ?.get("syncedLyrics")?.jsonPrimitive?.contentOrNull
+        }
+        return plain
     }
+
+    private fun JsonObject.lyricLines(): List<LyricLine>? =
+        this["syncedLyrics"]?.jsonPrimitive?.contentOrNull?.let(::parseTimedLyrics)
+            ?: this["plainLyrics"]?.jsonPrimitive?.contentOrNull?.let(::plainLyricLines)
+
+    private fun List<LyricLine>.isWordOrLineTimed(): Boolean =
+        any { it.timeMs > 0 || it.sungUntilMs != null || it.isWordSynced }
 
     private fun get(url: String): String? {
         val request = Request.Builder().url(url).header("User-Agent", AGENT).build()

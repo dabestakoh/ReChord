@@ -641,7 +641,7 @@
     <string name="listenbrainz_token">ListenBrainz token</string>
     <string name="listenbrainz_token_description">Paste your ListenBrainz user token to enable scrobbling.</string>
     <string name="listening_history">Listening history</string>
-    <string name="lyrics_sources_order">Sources are tried in this order. Drag to reorder them. The first source with lyrics wins unless syllable lyrics are prioritized.</string>
+    <string name="lyrics_sources_order">Drag to reorder sources. Order breaks ties between equally suitable lyrics.</string>
     <string name="paxsenix_api_key">PaxSenix API key</string>
     <string name="paxsenix_api_key_configured">PaxSenix API key — configured</string>
     <string name="paxsenix_api_key_missing">PaxSenix API key — optional, not configured</string>
@@ -1367,4 +1367,9 @@
     <string name="diagnostic_report_github">Publishes a redacted report on GitHub.</string>
     <string name="export_diagnostic_log">Export diagnostic log</string>
     <string name="diagnostic_report_error">Could not open or export the diagnostic report.</string>
+    <string name="now_playing_layout">Now Playing layout</string>
+    <string name="lyrics_style">Lyrics style</string>
+    <string name="lyrics_style_scope">Applies to expanded Lyrics. Poster uses its own lyric effect.</string>
+    <string name="video_mode">Video mode</string>
+    <string name="vinyl_appearance">Vinyl appearance</string>
 </resources>

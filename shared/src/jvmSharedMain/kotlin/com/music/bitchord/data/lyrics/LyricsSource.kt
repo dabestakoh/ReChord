@@ -22,24 +22,6 @@ enum class LyricsSource(
      */
     val hidden: Boolean = false,
 ) {
-    // Declaration order is the default priority — [AppSettings.lyricsSourceOrder]
-    // and [AppSettings.lyricsSources] both fall back to [LyricsSource.entries]
-    // verbatim, so this list *is* the out-of-the-box experience. Stored by
-    // name rather than position, so this can be rearranged without disturbing
-    // an order somebody has already chosen for themselves.
-    //
-    // The three Apple hosts lead, because they carry the same catalogue and
-    // that catalogue is the one with the voices in it. [BINI_LYRICS] goes
-    // first of the three: it is the only one that will answer to a recording
-    // rather than to a name, and it is where the ISRC the others use comes
-    // from. [LYRICS_PLUS] has the finest timing of the lot and the least
-    // reliable hosting — behind them rather than in front, so a track does not
-    // wait on a mirror that is down to be told what three other hosts already
-    // had.
-    //
-    // [LRC_RED] is ahead of all of them: it is where [BINI_LYRICS] gets its
-    // documents now, so asking it directly is the same Apple timing without
-    // the middleman, and it is the one a dead mirror can't take down with it.
     LRC_RED(
         label = "lrc.red",
         detail = "Apple timings by recording, syllable by syllable",
@@ -76,15 +58,14 @@ enum class LyricsSource(
         wordSynced = true,
     ),
     LYRICS_PLUS(
-        label = "LyricsPlus",
+        label = "YouLyPlus (LyricsPlus)",
         detail = "Syllable by syllable, on community mirrors",
         wordSynced = true,
     ),
     SIMP_MUSIC(
         label = "SimpMusic",
-        detail = "Matched on the video, so never the wrong edit",
+        detail = "Matched on the exact YouTube video",
         wordSynced = true,
-        hidden = true,
     ),
     UNISON(
         label = "Unison",
@@ -92,8 +73,8 @@ enum class LyricsSource(
         wordSynced = true,
     ),
     YOUTUBE_TRANSCRIPT(
-        label = "YouTube captions",
-        detail = "Timed captions matched to the exact playing video",
+        label = "YouTube Subtitles",
+        detail = "Timed subtitles from the exact playing video",
         wordSynced = false,
     ),
     YOUTUBE_MUSIC(
@@ -122,6 +103,26 @@ enum class LyricsSource(
         detail = "Whole lines, from the biggest lyrics database there is",
         wordSynced = false,
     ),
+    DEEZER(
+        label = "Deezer",
+        detail = "Word, line, or plain lyrics matched by recording",
+        wordSynced = true,
+    ),
+    NETEASE(
+        label = "NetEase",
+        detail = "Word and line timings from NetEase Cloud Music",
+        wordSynced = true,
+    ),
+    QQ_MUSIC(
+        label = "QQ Music",
+        detail = "Line timings from QQ Music",
+        wordSynced = false,
+    ),
+    YOUTUBE_AUTO_CAPTIONS(
+        label = "YouTube Auto Captions",
+        detail = "Speech recognition from the exact video as a last resort",
+        wordSynced = false,
+    ),
     GENIUS(
         label = "Genius",
         detail = "Plain text fallback, massive web catalogue",
@@ -131,7 +132,11 @@ enum class LyricsSource(
 
     companion object {
         /** Every source a listener can see and choose, in default priority. */
-        val offered: List<LyricsSource> = entries.filterNot { it.hidden }
+        internal val standard: List<LyricsSource> = listOf(
+            LYRICS_PLUS, BETTER_LYRICS, PAXSENIX, LRC_RED, SIMP_MUSIC, LRCLIB, DEEZER,
+            YOUTUBE_TRANSCRIPT, YOUTUBE_MUSIC, NETEASE, QQ_MUSIC, KUGOU, YOUTUBE_AUTO_CAPTIONS,
+        )
+        val offered: List<LyricsSource> = standard + entries.filterNot { it.hidden || it in standard }
 
         /**
          * A saved order brought up to date with this build: hidden sources
