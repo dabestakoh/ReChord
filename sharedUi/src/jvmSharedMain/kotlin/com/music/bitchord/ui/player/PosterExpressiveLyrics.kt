@@ -1124,10 +1124,14 @@ private fun PosterInterludeRow(
         }
     }
 
-    LaunchedEffect(gap.startMs, gap.endMs, visible) {
-        if (!visible) return@LaunchedEffect
+    val foreground = com.music.bitchord.ui.rememberIsForeground()
+    LaunchedEffect(gap.startMs, gap.endMs, visible, foreground) {
+        if (!visible || !foreground) return@LaunchedEffect
+        var lastDotMs = 0L
         while (true) {
             withFrameMillis { frameMs ->
+                if (lastDotMs != 0L && frameMs - lastDotMs < 30L) return@withFrameMillis
+                lastDotMs = frameMs
                 frameMsState.longValue = frameMs
                 val progress = ((clock.longValue - gap.startMs).toFloat() / span).coerceIn(0f, 1f)
                 finale.floatValue = smoothstep((progress - DOT_FINALE_FRACTION) / (1f - DOT_FINALE_FRACTION))

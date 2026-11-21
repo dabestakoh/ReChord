@@ -18,6 +18,8 @@ object PosterSpectrumTap {
     const val BAND_COUNT = 24
     private const val FFT_SIZE = 512
     private const val STALE_MS = 400L
+    private const val MIN_FFT_INTERVAL_MS = 33L
+    private val INV_LN_19 = 1f / ln(19f)
 
     @Volatile
     var active: Boolean = false
@@ -39,6 +41,30 @@ object PosterSpectrumTap {
     }
     private val bands = FloatArray(BAND_COUNT)
     private val published = FloatArray(BAND_COUNT)
+    private var cachedSampleRate = 0
+    private val loBins = IntArray(BAND_COUNT)
+    private val hiBins = IntArray(BAND_COUNT)
+    private val bandLifts = FloatArray(BAND_COUNT) { b ->
+        1f + (b.toFloat() / BAND_COUNT) * 0.85f
+    }
+
+    private fun ensureBinTable(sampleRate: Int) {
+        if (sampleRate == cachedSampleRate) return
+        cachedSampleRate = sampleRate
+        val nyquist = sampleRate * 0.5f
+        val minHz = 45f
+        val maxHz = minOf(14_000f, nyquist * 0.92f).coerceAtLeast(minHz * 2f)
+        val ratio = (maxHz / minHz).toDouble()
+        val half = FFT_SIZE / 2
+        for (b in 0 until BAND_COUNT) {
+            val loHz = minHz * ratio.pow(b.toDouble() / BAND_COUNT).toFloat()
+            val hiHz = minHz * ratio.pow((b + 1).toDouble() / BAND_COUNT).toFloat()
+            val loBin = ((loHz / nyquist) * half).toInt().coerceIn(1, half - 1)
+            val hiBin = ((hiHz / nyquist) * half).toInt().coerceIn(loBin, half - 1)
+            loBins[b] = loBin
+            hiBins[b] = hiBin
+        }
+    }
 
     /** Observes [block] read-only on the audio thread. Returns immediately when neither visualizer nor auto-sync is active. */
     fun observe(block: AudioBlock, sampleRate: Int) {
@@ -55,6 +81,10 @@ object PosterSpectrumTap {
             ringPos = (ringPos + 1) and (FFT_SIZE - 1)
         }
 
+        // Throttle FFT to ~30 Hz — visually smooth while cutting audio-thread CPU load by ~65%.
+        val now = SystemClock.uptimeMillis()
+        if (now - lastUpdateMs < MIN_FFT_INTERVAL_MS) return
+
         // Copy windowed samples into FFT workspace.
         var r = ringPos
         for (i in 0 until FFT_SIZE) {
@@ -64,34 +94,26 @@ object PosterSpectrumTap {
         }
 
         fft512(real, imag)
+        ensureBinTable(sampleRate)
 
-        // Map bins 1..(FFT_SIZE/2 - 1) logarithmically from ~45 Hz to ~14 kHz across BAND_COUNT bars.
-        val nyquist = sampleRate * 0.5f
-        val minHz = 45f
-        val maxHz = minOf(14_000f, nyquist * 0.92f).coerceAtLeast(minHz * 2f)
-        val ratio = (maxHz / minHz).toDouble()
-        val half = FFT_SIZE / 2
-
+        val norm = 1f / (FFT_SIZE * 0.25f)
         for (b in 0 until BAND_COUNT) {
-            val loHz = minHz * ratio.pow(b.toDouble() / BAND_COUNT).toFloat()
-            val hiHz = minHz * ratio.pow((b + 1).toDouble() / BAND_COUNT).toFloat()
-            val loBin = ((loHz / nyquist) * half).toInt().coerceIn(1, half - 1)
-            val hiBin = ((hiHz / nyquist) * half).toInt().coerceIn(loBin, half - 1)
+            val loBin = loBins[b]
+            val hiBin = hiBins[b]
             var peak = 0f
             for (k in loBin..hiBin) {
                 val re = real[k]
                 val im = imag[k]
-                val mag = sqrt(re * re + im * im) / (FFT_SIZE * 0.25f)
+                val mag = sqrt(re * re + im * im) * norm
                 if (mag > peak) peak = mag
             }
             // Perceptual dB-like compression into 0..1 with slight treble lift so upper bands stay lively.
-            val lift = 1f + (b.toFloat() / BAND_COUNT) * 0.85f
-            val level = (ln(1f + peak * lift * 18f) / ln(19f)).coerceIn(0f, 1f)
+            val level = (ln(1f + peak * bandLifts[b] * 18f) * INV_LN_19).coerceIn(0f, 1f)
             bands[b] = level
         }
 
         System.arraycopy(bands, 0, published, 0, BAND_COUNT)
-        lastUpdateMs = SystemClock.uptimeMillis()
+        lastUpdateMs = now
     }
 
     /** Copies the latest spectrum into [out], returning false if silent/stale/inactive. */
