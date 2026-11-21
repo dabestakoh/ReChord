@@ -38,6 +38,8 @@ object LyricsRepository {
         onSourceResult: ((LyricsSource, Result?) -> Unit)? = null,
         /** Lets callers turn a cancelled race loser back into "not fetched". */
         onSourceCancelled: ((LyricsSource) -> Unit)? = null,
+        /** Reports a provider that timed out or errored rather than returning a genuine miss. */
+        onSourceError: ((LyricsSource) -> Unit)? = null,
     ): Result? = coroutineScope {
         val sequence = (order + LyricsSource.offered)
             .distinct()
@@ -52,19 +54,27 @@ object LyricsRepository {
         suspend fun attempt(source: LyricsSource): Result? {
             onSourceStarted?.invoke(source)
             return try {
-                val answer = withTimeoutOrNull(35_000L) {
+                var timedOut = true
+                val fetched = withTimeoutOrNull(35_000L) {
                     val hit = if (known == null && source == LyricsSource.BINI_LYRICS) {
                         identify(videoId, searchTitle, searchArtist, durationMs, album, sequence)
                     } else null
-                    fetch(source, videoId, title, artist, durationMs, album, known, hit, documents::get)
-                }?.takeIf { lines -> lines.any { !it.isGap } }?.let { result(source, it) }
+                    val lines = fetch(source, videoId, title, artist, durationMs, album, known, hit, documents::get)
+                    timedOut = false
+                    lines
+                }
+                if (timedOut) {
+                    if (onSourceError != null) onSourceError.invoke(source) else onSourceResult?.invoke(source, null)
+                    return null
+                }
+                val answer = fetched?.takeIf { lines -> lines.any { !it.isGap } }?.let { result(source, it) }
                 onSourceResult?.invoke(source, answer)
                 answer
             } catch (cancelled: CancellationException) {
                 onSourceCancelled?.invoke(source)
                 throw cancelled
             } catch (_: Exception) {
-                onSourceResult?.invoke(source, null)
+                if (onSourceError != null) onSourceError.invoke(source) else onSourceResult?.invoke(source, null)
                 null
             }
         }

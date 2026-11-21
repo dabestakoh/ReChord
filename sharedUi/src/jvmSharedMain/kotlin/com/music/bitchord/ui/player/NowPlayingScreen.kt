@@ -970,12 +970,13 @@ fun NowPlayingScreen(
     val openListenTogetherMembers: () -> Unit = { showListenTogetherMembers = true }
 
     val syncedLyricsEnabled by PlayerSettings.syncedLyrics.collectAsStateWithLifecycle()
-    val lyricsOffsetMs by PlayerSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
+    val perSongOffsets by PlayerSettings.perSongLyricsOffsets.collectAsStateWithLifecycle()
+    val lyricsOffsetMs = perSongOffsets[song.videoId] ?: 0
     val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     // A lambda, not a value: read by the lyric strip and panel in scopes of
     // their own, so a tick recomposes them and not the player around them.
-    val lyricsPlayhead = rememberLyricPlayhead(position)
+    val lyricsPlayhead = rememberLyricPlayhead(position, song.videoId)
     val seekToLyric: (Long) -> Unit = { lineTimeMs ->
         onSeek(adjustedLyricsSeekTarget(lineTimeMs, lyricsOffsetMs))
     }
@@ -1885,6 +1886,10 @@ fun NowPlayingScreen(
         }
         if (lyricsOffsetOpen) {
             LyricsOffsetSheet(
+                songId = song.videoId,
+                lyrics = lyrics.orEmpty(),
+                isPlaying = isPlaying && position.advancing,
+                currentPositionMs = { position.positionMs },
                 hazeState = playerHaze,
                 onDismiss = onDismissLyricsOffset,
             )

@@ -457,7 +457,7 @@ object MusicVideoEngine {
             }
             val captionJob = if (audioLyrics.any { it.timeMs > 0L }) {
                 val duration = controller?.duration?.takeIf { it > 0L } ?: source.durationMillis()
-                val lyricsOffset = AppSettings.lyricsOffsetMs.value
+                val lyricsOffset = AppSettings.perSongLyricsOffsets.value[source.videoId] ?: 0
                 async {
                     withTimeoutOrNull(4_000L) {
                         val captions = YouTubeTranscriptLyrics.lyrics(target.videoId).orEmpty()

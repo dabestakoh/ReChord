@@ -79,6 +79,21 @@ interface PlayerHost {
     /** Reads the latest live audio spectrum bars (0..1) into [out], returning false if inactive or silent. */
     fun readVisualizerSpectrum(out: FloatArray): Boolean = false
 
+    /** Live status of the one-tap Lyrics Auto-Sync engine. */
+    val lyricsAutoSync: StateFlow<LyricsAutoSyncState> get() = DefaultLyricsAutoSync
+
+    /** Starts listening to the playing song's vocals to compute the best per-song lyrics offset. */
+    fun startLyricsAutoSync(
+        songId: String,
+        lines: List<LyricLine>,
+        isPlaying: () -> Boolean,
+        currentPositionMs: () -> Long,
+        previousOffsetMs: Int,
+    ) = Unit
+
+    /** Cancels any in-progress auto-sync listening run. */
+    fun cancelLyricsAutoSync() = Unit
+
     /**
      * Artwork for [song], resolving covers that live inside a remote file
      * (WebDAV, SMB) where the platform can. Returns [Song.thumbnailUrl] otherwise.
@@ -266,6 +281,7 @@ interface PlayerSettingsSource {
     val playerTheme: StateFlow<PlayerTheme>
     val lyricsBlur: StateFlow<Boolean>
     val lyricsOffsetMs: StateFlow<Int>
+    val perSongLyricsOffsets: StateFlow<Map<String, Int>> get() = DefaultPerSongLyricsOffsets
     val lyricsSourceOrder: StateFlow<List<LyricsSource>>
     val meteredConnection: StateFlow<Boolean?>
     /** A temporary cap over both ceilings, null when none applies — the watch's, on the phone. */
@@ -303,13 +319,23 @@ interface PlayerSettingsSource {
 
     fun setLastPlayerScreen(value: LastPlayerScreen)
     fun setLyricsOffsetMs(value: Int)
+    fun setLyricsOffsetFor(songId: String, value: Int) = setLyricsOffsetMs(value)
     /** Whether the mix popup is up, so the host lays out [smartMixPreview] for it. */
     fun setMixViewOpen(open: Boolean)
+}
+
+sealed interface LyricsAutoSyncState {
+    data object Idle : LyricsAutoSyncState
+    data class Listening(val songId: String, val progress: Float) : LyricsAutoSyncState
+    data class Synced(val songId: String, val offsetMs: Int, val previousOffsetMs: Int) : LyricsAutoSyncState
+    data class Failed(val songId: String, val needsPlayback: Boolean = false) : LyricsAutoSyncState
 }
 
 private val DefaultLyricsStyle = MutableStateFlow(LyricsStyle.DEFAULT)
 private val DefaultVinylAppearance = MutableStateFlow(VinylAppearance())
 private val DefaultPosterVisualizer = MutableStateFlow(false)
+private val DefaultPerSongLyricsOffsets = MutableStateFlow<Map<String, Int>>(emptyMap())
+private val DefaultLyricsAutoSync = MutableStateFlow<LyricsAutoSyncState>(LyricsAutoSyncState.Idle)
 
 /** The player's name for the installed host's settings, read where AppSettings used to be. */
 internal val PlayerSettings: PlayerSettingsSource

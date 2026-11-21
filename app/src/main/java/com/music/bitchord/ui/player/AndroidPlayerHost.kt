@@ -65,12 +65,32 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val main = Handler(Looper.getMainLooper())
 
+    private val autoSyncEngine = com.music.bitchord.playback.audio.LyricsAutoSyncEngine(
+        saveOffset = AppSettings::setLyricsOffsetFor,
+    )
+
     override fun setVisualizerActive(active: Boolean) {
         com.music.bitchord.playback.audio.PosterSpectrumTap.active = active
     }
 
     override fun readVisualizerSpectrum(out: FloatArray): Boolean =
         com.music.bitchord.playback.audio.PosterSpectrumTap.read(out)
+
+    override val lyricsAutoSync get() = autoSyncEngine.state
+
+    override fun startLyricsAutoSync(
+        songId: String,
+        lines: List<LyricLine>,
+        isPlaying: () -> Boolean,
+        currentPositionMs: () -> Long,
+        previousOffsetMs: Int,
+    ) {
+        autoSyncEngine.start(songId, lines, isPlaying, currentPositionMs, previousOffsetMs)
+    }
+
+    override fun cancelLyricsAutoSync() {
+        autoSyncEngine.cancel()
+    }
 
     override val settings: PlayerSettingsSource = object : PlayerSettingsSource {
         override val animatedCanvas get() = AppSettings.animatedCanvas
@@ -94,6 +114,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val playerTheme get() = AppSettings.playerTheme
         override val lyricsBlur get() = AppSettings.lyricsBlur
         override val lyricsOffsetMs get() = AppSettings.lyricsOffsetMs
+        override val perSongLyricsOffsets get() = AppSettings.perSongLyricsOffsets
         override val lyricsSourceOrder get() = AppSettings.lyricsSourceOrder
         override val meteredConnection get() = AppSettings.meteredConnection
         override val streamCeilingOverride get() = AppSettings.streamCeilingOverride
@@ -119,6 +140,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
 
         override fun setLastPlayerScreen(value: LastPlayerScreen) = AppSettings.setLastPlayerScreen(value)
         override fun setLyricsOffsetMs(value: Int) = AppSettings.setLyricsOffsetMs(value)
+        override fun setLyricsOffsetFor(songId: String, value: Int) = AppSettings.setLyricsOffsetFor(songId, value)
         override fun setMixViewOpen(open: Boolean) {
             AppSettings.mixViewOpen.value = open
         }

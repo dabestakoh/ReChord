@@ -104,10 +104,12 @@ private fun LyricsProviderRow(
     val haptics = rememberHaptics()
     // A running automatic request can still be selected: it is marked as the
     // requested source and applied when that same in-flight call completes.
-    val enabled = !current
+    val enabled = !current && state != LyricsProviderState.API_KEY_REQUIRED
     val status = when {
         current -> stringResource(Res.string.lyrics_provider_current)
         state == LyricsProviderState.FOUND -> stringResource(Res.string.lyrics_provider_found)
+        state == LyricsProviderState.API_KEY_REQUIRED -> stringResource(Res.string.lyrics_provider_api_key_required)
+        state == LyricsProviderState.UNAVAILABLE -> stringResource(Res.string.lyrics_provider_unavailable)
         state == LyricsProviderState.NOT_FOUND -> stringResource(Res.string.lyrics_provider_not_found)
         state == LyricsProviderState.FETCHING -> stringResource(Res.string.lyrics_provider_fetching)
         else -> stringResource(Res.string.lyrics_provider_not_fetched)
@@ -148,10 +150,10 @@ private fun LyricsProviderRow(
                     tint = Color.White.copy(alpha = if (current) 1f else 0.75f),
                     modifier = Modifier.size(21.dp),
                 )
-                state == LyricsProviderState.NOT_FOUND -> Icon(
+                state == LyricsProviderState.NOT_FOUND || state == LyricsProviderState.UNAVAILABLE || state == LyricsProviderState.API_KEY_REQUIRED -> Icon(
                     imageVector = Icons.Rounded.Close,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.4f),
+                    tint = Color.White.copy(alpha = if (state == LyricsProviderState.API_KEY_REQUIRED) 0.55f else 0.4f),
                     modifier = Modifier.size(20.dp),
                 )
                 else -> Icon(

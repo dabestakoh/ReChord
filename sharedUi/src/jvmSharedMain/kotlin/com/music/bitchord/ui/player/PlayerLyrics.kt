@@ -699,8 +699,11 @@ internal class LyricPlayhead(
 }
 
 @Composable
-internal fun rememberLyricPlayhead(position: PlaybackPosition): LyricPlayhead {
-    val offset = PlayerSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
+internal fun rememberLyricPlayhead(position: PlaybackPosition, songId: String = ""): LyricPlayhead {
+    val perSong by PlayerSettings.perSongLyricsOffsets.collectAsStateWithLifecycle()
+    val offset = remember(songId) {
+        androidx.compose.runtime.derivedStateOf { perSong[songId] ?: 0 }
+    }
     return remember(position, offset) { LyricPlayhead(position, offset) }
 }
 

@@ -453,6 +453,16 @@ internal fun AlternateNowPlaying(
                             onNext()
                         }
                     }
+                    val rotatePill: (@Composable () -> Unit)? = if (!preview && onToggleRotate != null) {
+                        {
+                            PlaybackPill(
+                                icon = Icons.Rounded.ScreenRotation,
+                                description = stringResource(Res.string.rotate_player),
+                                reduced = reduceAnimation,
+                                onClick = { haptics.play(Haptic.Tap); onToggleRotate() },
+                            )
+                        }
+                    } else null
                     var stageCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
                     var creditsTitleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
                     var vinylMaxDiscBottom by remember { mutableStateOf<Float?>(null) }
@@ -468,14 +478,20 @@ internal fun AlternateNowPlaying(
                             Row(
                                 Modifier
                                     .fillMaxSize()
-                                    .then(if (preview) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
-                                    .padding(top = 12.dp, bottom = 10.dp),
+                                    .then(
+                                        if (vinyl && !preview) {
+                                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 10.dp, bottom = 10.dp)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
                             ) {
-                                val leftWidth = if (vinyl) stageMaxWidth * 0.48f else minOf(stageMaxHeight * 0.96f, stageMaxWidth * 0.46f)
+                                val leftWidth = if (vinyl) stageMaxWidth * 0.48f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
                                 Box(
                                     Modifier
                                         .width(leftWidth)
                                         .fillMaxHeight()
+                                        .clipToBounds()
                                         .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -492,36 +508,41 @@ internal fun AlternateNowPlaying(
                                         }
                                     } else if (vinyl) {
                                         val drag = onScrub.takeIf { canSeek && pane == PlayerPane.Main }
+                                        val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
                                         Box(Modifier.fillMaxSize().then(gesture).then(artHold)) {
-                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                            for ((slot, track) in tracks) {
                                                 val current = slot == 0
-                                                val request = when (slot) {
-                                                    -1 -> prevArt
-                                                    1 -> nextArt
-                                                    else -> artworkUrl ?: artwork
+                                                if (!current && !swipingNow) continue
+                                                key(track.swipeIdentity) {
+                                                    val request = when (slot) {
+                                                        -1 -> prevArt
+                                                        1 -> nextArt
+                                                        else -> artworkUrl ?: artwork
+                                                    }
+                                                    val color = when (slot) {
+                                                        -1 -> prevColor
+                                                        1 -> nextColor
+                                                        else -> recordPalette
+                                                    }
+                                                    VinylDisc(
+                                                        request, track.swipeIdentity, vinylStyle, color,
+                                                        pane == PlayerPane.Main && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                        if (current) shown else ({ 0f }),
+                                                        { current && seekingArm },
+                                                        Modifier.fillMaxSize().graphicsLayer {
+                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                        },
+                                                        albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                        labelPlacement = if (pane == PlayerPane.Main && current) ({ coordinates, angle ->
+                                                            artworkAngle = angle
+                                                            reportArtwork(coordinates)
+                                                        }) else null,
+                                                        coastOnPause = pane == PlayerPane.Main && current && !reduceAnimation,
+                                                        coverAlpha = { if (pane == PlayerPane.Main && current) liveCoverAlpha() else 1f },
+                                                        mountTopInset = 0,
+                                                        landscape = true,
+                                                    )
                                                 }
-                                                val color = when (slot) {
-                                                    -1 -> prevColor
-                                                    1 -> nextColor
-                                                    else -> recordPalette
-                                                }
-                                                VinylDisc(
-                                                    request, track.swipeIdentity, vinylStyle, color,
-                                                    pane == PlayerPane.Main && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
-                                                    if (current) shown else ({ 0f }),
-                                                    { current && seekingArm },
-                                                    Modifier.fillMaxSize().graphicsLayer {
-                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
-                                                    },
-                                                    albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                    labelPlacement = if (pane == PlayerPane.Main && current) ({ coordinates, angle ->
-                                                        artworkAngle = angle
-                                                        reportArtwork(coordinates)
-                                                    }) else null,
-                                                    coastOnPause = pane == PlayerPane.Main && current && !reduceAnimation,
-                                                    coverAlpha = { if (pane == PlayerPane.Main && current) liveCoverAlpha() else 1f },
-                                                    mountTopInset = 0,
-                                                )
                                             }
                                             VinylTonearm(
                                                 shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
@@ -530,6 +551,7 @@ internal fun AlternateNowPlaying(
                                                 trackKey = song.swipeIdentity,
                                                 mountTopInset = 0,
                                                 isPlaying = isPlaying,
+                                                landscape = true,
                                             )
                                         }
                                     } else {
@@ -570,7 +592,17 @@ internal fun AlternateNowPlaying(
 
                                 AnimatedContent(
                                     targetState = pane,
-                                    modifier = Modifier.weight(1f).fillMaxHeight().padding(start = 16.dp, end = 18.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .then(
+                                            if (!vinyl && !preview) {
+                                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 10.dp, bottom = 10.dp)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .padding(start = 16.dp, end = 18.dp),
                                     transitionSpec = {
                                         if (reduceAnimation) {
                                             fadeIn(snap()) togetherWith fadeOut(snap())
@@ -583,7 +615,7 @@ internal fun AlternateNowPlaying(
                                     val active = shownPane == pane
                                     when (shownPane) {
                                         PlayerPane.Main -> Column(
-                                            Modifier.fillMaxSize().padding(top = 8.dp),
+                                            Modifier.fillMaxSize().padding(top = 4.dp),
                                             verticalArrangement = Arrangement.SpaceBetween,
                                         ) {
                                             if (!vinyl) {
@@ -592,17 +624,18 @@ internal fun AlternateNowPlaying(
                                                     horizontalArrangement = Arrangement.End,
                                                     verticalAlignment = Alignment.CenterVertically,
                                                 ) {
-                                                    menu(); favorite(); previous(); play(); next()
+                                                    rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
                                                 }
                                                 Box(
                                                     Modifier
                                                         .fillMaxWidth()
                                                         .weight(1f)
-                                                        .padding(vertical = 6.dp)
+                                                        .padding(vertical = 8.dp)
                                                         .graphicsLayer {
                                                             alpha = textOpacity
                                                             translationX = posterSidewaysSeekExpand * 14.dp.toPx()
                                                         },
+                                                    contentAlignment = Alignment.CenterStart,
                                                 ) {
                                                     if (active) key(song.swipeIdentity) { lyrics() }
                                                 }
@@ -640,7 +673,7 @@ internal fun AlternateNowPlaying(
                                                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                                                         verticalAlignment = Alignment.CenterVertically,
                                                     ) {
-                                                        previous(); play(); next(); favorite(); menu()
+                                                        previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
                                                     }
                                                 }
                                                 if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
@@ -909,9 +942,9 @@ internal fun AlternateNowPlaying(
                                     SlidingPlayerDeck(visible = deckVisible, reveal = reveal, reduced = reduceAnimation,
                                         modifier = Modifier.clipToBounds(),
                                     ) {
-                                        val posterInlineControls = posterTransport && pane != PlayerPane.Main
+                                        val inlinePaneControls = !compact && pane != PlayerPane.Main
                                         Column(Modifier.fillMaxWidth().onSizeChanged { fullDeckHeight = it.height }) {
-                                            if (posterInlineControls) {
+                                            if (inlinePaneControls) {
                                                 Column(
                                                     Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
                                                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1009,7 +1042,20 @@ internal fun AlternateNowPlaying(
                                             alpha = reveal.value
                                             translationY = (1f - reveal.value) * footerHeight
                                         }) {
-                                        menu(); favorite(); previous(); play(); next()
+                                        rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
+                                    }
+                                } else if (vinyl && !compact && rotatePill != null && pane == PlayerPane.Main && queuePreview == null && (deckVisible || reveal.value > 0f)) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(end = 14.dp)
+                                            .offset { IntOffset(0, -(footerHeight + controlsHeight.roundToPx())) }
+                                            .graphicsLayer {
+                                                alpha = reveal.value
+                                                translationY = (1f - reveal.value) * footerHeight
+                                            },
+                                    ) {
+                                        rotatePill()
                                     }
                                 }
                             }
@@ -1037,29 +1083,6 @@ internal fun AlternateNowPlaying(
                     LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
                         .clickable(onClick = onDismissPane).graphicsLayer { alpha = liveCoverAlpha() })
-                }
-                if (!preview && onToggleRotate != null && pane == PlayerPane.Main) {
-                    IconButton(
-                        onClick = { haptics.play(Haptic.Tap); onToggleRotate() },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = if (landscape) 20.dp else 14.dp)
-                            .size(36.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(32.dp)
-                                .background(accent.copy(alpha = 0.14f), CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.ScreenRotation,
-                                contentDescription = stringResource(Res.string.rotate_player),
-                                tint = accent.copy(alpha = 0.88f),
-                                modifier = Modifier.size(17.dp),
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -1514,7 +1537,7 @@ private fun Path.addPosterSidewaysMask(bounds: Size, gutter: Float) {
 
 private class PosterSidewaysArc(size: Size, outward: Float, verticalInset: Float) {
     private val points = Array(49) { index ->
-        val y = verticalInset + (size.height - verticalInset * 2f) * index / 48f
+        val y = (size.height - verticalInset) - (size.height - verticalInset * 2f) * index / 48f
         posterSidewaysRimPoint(size, y / size.height.coerceAtLeast(1f)) + Offset(outward, 0f)
     }
     private val distance = FloatArray(points.size).apply {
@@ -1563,19 +1586,19 @@ private fun PosterArtworkSideways(
 ) {
     val accent = LocalPlayerAccent.current
     val ink = if (accent.luminance() < 0.33f) lerp(accent, Color.White, 0.48f) else lerp(accent, Color.White, 0.25f)
-    val timeColor = accent.copy(alpha = 0.68f)
+    val timeColor = accent.copy(alpha = 0.72f)
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
     val endpointLabel = if (durationMs > 0L) measurer.measure(formatTime(durationMs), timeStyle) else null
     var seeking by remember { mutableStateOf(false) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { 9.dp.toPx() }
-    val gutter = with(density) { 30.dp.toPx() }
+    val gutter = with(density) { 42.dp.toPx() }
     fun coverSize(size: Size) = Size((size.width - gutter).coerceAtLeast(1f), size.height)
     fun seekArc(size: Size): PosterSidewaysArc {
         val cover = coverSize(size)
-        val inset = (if (endpointLabel != null) endpointLabel.size.height + gap * 1.4f else cover.height * 0.08f)
-            .coerceIn(14f, cover.height * 0.22f)
+        val inset = (if (endpointLabel != null) endpointLabel.size.height + gap * 2.2f else cover.height * 0.08f)
+            .coerceIn(18f, cover.height * 0.22f)
         return PosterSidewaysArc(cover, gap, inset)
     }
     val expanded = rememberPosterRimExpand(
@@ -1620,7 +1643,7 @@ private fun PosterArtworkSideways(
                                 levels = visualizerLevels(),
                                 color = ink,
                                 expandAmount = amount,
-                                outwardSign = -1f,
+                                outwardSign = 1f,
                                 maxBarPx = 15.dp.toPx(),
                                 baseOffsetPx = 5.dp.toPx(),
                                 barStrokePx = 2.8.dp.toPx(),
@@ -1633,14 +1656,14 @@ private fun PosterArtworkSideways(
                         }
                         if (endpointLabel != null && measure.length > 0f) {
                             val elapsed = measurer.measure(formatTime((durationMs * progress).toLong()), timeStyle)
-                            val topPt = measure.getPosition(0f)
-                            val botPt = measure.getPosition(measure.length)
-                            val topX = (topPt.x - elapsed.size.width * 0.5f).coerceIn(2f, (size.width - elapsed.size.width - 2f).coerceAtLeast(2f))
-                            val topY = (topPt.y - elapsed.size.height - gap * 0.55f).coerceAtLeast(2f)
-                            drawText(elapsed, color = timeColor, topLeft = Offset(topX, topY))
-                            val botX = (botPt.x - endpointLabel.size.width * 0.5f).coerceIn(2f, (size.width - endpointLabel.size.width - 2f).coerceAtLeast(2f))
-                            val botY = (botPt.y + gap * 0.45f).coerceAtMost((size.height - endpointLabel.size.height - 2f).coerceAtLeast(2f))
-                            drawText(endpointLabel, color = timeColor, topLeft = Offset(botX, botY))
+                            val botPt = measure.getPosition(0f)
+                            val topPt = measure.getPosition(measure.length)
+                            val botX = (botPt.x + gap * 0.35f).coerceIn(2f, (size.width - elapsed.size.width - 4f).coerceAtLeast(2f))
+                            val botY = (botPt.y + gap * 0.45f).coerceAtMost((size.height - elapsed.size.height - 6f).coerceAtLeast(2f))
+                            drawText(elapsed, color = timeColor, topLeft = Offset(botX, botY))
+                            val topX = (topPt.x + gap * 0.35f).coerceIn(2f, (size.width - endpointLabel.size.width - 4f).coerceAtLeast(2f))
+                            val topY = (topPt.y - endpointLabel.size.height - gap * 0.55f).coerceAtLeast(6f)
+                            drawText(endpointLabel, color = timeColor, topLeft = Offset(topX, topY))
                         }
                     }
                 },

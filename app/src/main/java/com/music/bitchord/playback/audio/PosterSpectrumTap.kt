@@ -23,6 +23,11 @@ object PosterSpectrumTap {
     var active: Boolean = false
 
     @Volatile
+    var autoSyncActive: Boolean = false
+
+    private val observing: Boolean get() = active || autoSyncActive
+
+    @Volatile
     private var lastUpdateMs: Long = 0L
 
     private val ring = FloatArray(FFT_SIZE)
@@ -35,9 +40,9 @@ object PosterSpectrumTap {
     private val bands = FloatArray(BAND_COUNT)
     private val published = FloatArray(BAND_COUNT)
 
-    /** Observes [block] read-only on the audio thread. Returns immediately when [active] is false. */
+    /** Observes [block] read-only on the audio thread. Returns immediately when neither visualizer nor auto-sync is active. */
     fun observe(block: AudioBlock, sampleRate: Int) {
-        if (!active || block.frameCount <= 0 || sampleRate <= 0) return
+        if (!observing || block.frameCount <= 0 || sampleRate <= 0) return
         val samples = block.samples
         val ch = block.channelCount.coerceAtLeast(1)
         val frames = block.frameCount
@@ -91,11 +96,24 @@ object PosterSpectrumTap {
 
     /** Copies the latest spectrum into [out], returning false if silent/stale/inactive. */
     fun read(out: FloatArray): Boolean {
-        if (!active) return false
+        if (!observing) return false
         if (SystemClock.uptimeMillis() - lastUpdateMs > STALE_MS) return false
         val count = minOf(out.size, BAND_COUNT)
         System.arraycopy(published, 0, out, 0, count)
         return true
+    }
+
+    /** Returns live vocal-band energy (~300 Hz – 3.4 kHz, bands 5..16) in 0..1, or -1f if stale/inactive. */
+    fun readVocalEnergy(): Float {
+        if (!observing) return -1f
+        if (SystemClock.uptimeMillis() - lastUpdateMs > STALE_MS) return -1f
+        var sum = 0f
+        var count = 0
+        for (b in 5..16) {
+            sum += published[b]
+            count++
+        }
+        return if (count > 0) (sum / count).coerceIn(0f, 1f) else -1f
     }
 
     private fun fft512(re: FloatArray, im: FloatArray) {

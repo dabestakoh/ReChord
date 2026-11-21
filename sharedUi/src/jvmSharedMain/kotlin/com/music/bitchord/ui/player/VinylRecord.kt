@@ -83,23 +83,44 @@ private val lastRecordPhases = object : LinkedHashMap<String, Float>(8, 0.75f, t
 private const val RECORD_WIDTH_FRACTION = 0.703f
 private const val RECORD_HEIGHT_FRACTION = 0.446f
 
-internal class RecordGeometry(size: Size, mountTopInset: Int = 0, maxDiscBottom: Float? = null) {
-    val radius = run {
+internal class RecordGeometry(
+    size: Size,
+    mountTopInset: Int = 0,
+    maxDiscBottom: Float? = null,
+    landscape: Boolean = false,
+) {
+    val radius = if (landscape) {
+        minOf(size.height * 0.43f, size.width * 0.36f)
+    } else {
         val base = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
         if (maxDiscBottom != null && maxDiscBottom > 0f) minOf(base, maxDiscBottom / 2f) else base
     }
     val unit = radius / RECORD_WIDTH_FRACTION
-    val reach = (radius * 1.39f).coerceAtLeast(1f)
+    val reach = (radius * if (landscape) 1.24f else 1.39f).coerceAtLeast(1f)
     val outer = radius * 0.952f
     val inner = radius * 0.565f
-    val pivot = Offset(
-        size.width * 0.895f,
-        maxOf(size.width * 0.125f, mountTopInset + unit * 0.088f).coerceAtMost(radius * 1.6f),
-    )
-    private val vertical = radius - pivot.y
-    private val maxDistance = (reach + inner - radius * 0.02f).coerceAtLeast(0f)
-    private val maxHorizontal = sqrt((maxDistance * maxDistance - vertical * vertical).coerceAtLeast(0f))
-    val center = Offset(maxOf(size.width * 0.163f, pivot.x - maxHorizontal), radius)
+    val center: Offset
+    val pivot: Offset
+
+    init {
+        if (landscape) {
+            center = Offset(radius + size.width * 0.045f, size.height * 0.50f)
+            pivot = Offset(
+                (center.x + radius * 1.12f).coerceAtMost(size.width - unit * 0.10f),
+                (center.y - radius * 0.62f).coerceAtLeast(unit * 0.14f),
+            )
+        } else {
+            pivot = Offset(
+                size.width * 0.895f,
+                maxOf(size.width * 0.125f, mountTopInset + unit * 0.088f).coerceAtMost(radius * 1.6f),
+            )
+            val vertical = radius - pivot.y
+            val maxDistance = (reach + inner - radius * 0.02f).coerceAtLeast(0f)
+            val maxHorizontal = sqrt((maxDistance * maxDistance - vertical * vertical).coerceAtLeast(0f))
+            center = Offset(maxOf(size.width * 0.163f, pivot.x - maxHorizontal), radius)
+        }
+    }
+
     private val distance = (center - pivot).getDistance()
     private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
 
@@ -170,6 +191,7 @@ internal fun VinylDisc(
     coverAlpha: () -> Float = { 1f },
     mountTopInset: Int = 0,
     maxDiscBottom: Float? = null,
+    landscape: Boolean = false,
 ) {
     var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
     val foreground = com.music.bitchord.ui.rememberIsForeground()
@@ -204,15 +226,16 @@ internal fun VinylDisc(
 
     BoxWithConstraints(modifier) {
         val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
-            RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset, maxDiscBottom)
+            RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset, maxDiscBottom, landscape)
         }
         val radius = with(androidx.compose.ui.platform.LocalDensity.current) { geometry.radius.toDp() }
         val left = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.x - geometry.radius).toDp() }
-        val at = Modifier.offset(x = left)
+        val top = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.y - geometry.radius).toDp() }
+        val at = Modifier.offset(x = left, y = top)
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
+            val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
             val shadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
             val outer = (g.radius * 1.16f).coerceAtLeast(1f)
             val shadow = Brush.radialGradient(
@@ -247,7 +270,7 @@ internal fun VinylDisc(
             })
         }
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
+            val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
             val grooveCache = buildGrooveOverlayCache(c, r, 1.2.dp.toPx(), 2.2.dp.toPx())
@@ -704,6 +727,7 @@ internal fun VinylTonearm(
     mountTopInset: Int = 0,
     maxDiscBottom: Float? = null,
     isPlaying: Boolean = true,
+    landscape: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -768,7 +792,7 @@ internal fun VinylTonearm(
     val gesture = Modifier.seekArtwork(
         armPosition, onScrub, onFinish, onCancel, claimDown = true,
         accepts = { bounds, down, tolerance, fraction ->
-            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom)
+            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom, landscape)
             val arm = g.tip(fraction) - g.pivot
             val delta = down - g.pivot
             val projection = ((arm.x * delta.x + arm.y * delta.y) / (arm.x * arm.x + arm.y * arm.y)).coerceIn(0f, 1f)
@@ -776,7 +800,7 @@ internal fun VinylTonearm(
         },
         along = { _, _, _ -> true },
         fraction = { bounds, down, current, initial ->
-            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom)
+            val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom, landscape)
             val before = down - g.pivot
             val after = current - g.pivot
             val change = atan2(after.y, after.x) - atan2(before.y, before.x)
@@ -785,7 +809,7 @@ internal fun VinylTonearm(
         onDragging = { seeking = it; onSeeking(it) },
     )
     Canvas(modifier.then(gesture).artworkSeekControls(shown, durationMs, onScrub, onFinish)) {
-        val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
+        val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
         val mountSize = Size(u * 0.148f, u * 0.248f)
@@ -794,7 +818,7 @@ internal fun VinylTonearm(
         for (i in 1..5) {
             val spread = i * u * 0.003f
             drawRoundRect(
-                Color.Black.copy(alpha = 0.088f),
+                Color.Black.copy(alpha = 0.068f),
                 mount + Offset(u * 0.011f - spread, u * 0.017f - spread),
                 Size(mountSize.width + spread * 2f, mountSize.height + spread * 2f),
                 round,
@@ -842,30 +866,30 @@ internal fun VinylTonearm(
         lastDrawn.progress = arm
         lastDrawn.lift = raised
         val swing = degrees(g.angle(arm))
-        val dim = if (blurReduced) 0.34f else 0.52f
-        val shift = u * (0.010f + 0.016f * raised)
+        val dim = if (blurReduced) 0.20f else 0.28f
+        val shift = u * (0.014f + 0.018f * raised)
         if (shadowLayer != null && size.width > 1f && size.height > 1f) {
             val res = 0.5f
-            val blurRadius = (u * (0.012f + 0.022f * raised) * res).coerceAtLeast(1f)
+            val blurRadius = (u * (0.020f + 0.026f * raised) * res).coerceAtLeast(1.5f)
             shadowLayer.renderEffect = BlurEffect(blurRadius, blurRadius, TileMode.Decal)
             val box = IntSize(
                 (size.width * res).roundToInt().coerceAtLeast(1),
                 (size.height * res).roundToInt().coerceAtLeast(1),
             )
-            val p = g.pivot + Offset(shift, shift * 1.5f)
+            val p = g.pivot + Offset(shift, shift * 1.45f)
             shadowLayer.record(box) {
                 scale(res, res, pivot = Offset.Zero) {
                     rotate(swing, p) {
-                        drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.1f).coerceIn(0.15f, 0.6f)))
+                        drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.06f).coerceIn(0.10f, 0.32f)))
                     }
                 }
             }
             scale(1f / res, 1f / res, pivot = Offset.Zero) { drawLayer(shadowLayer) }
         } else {
             for (i in 0..if (blurReduced) 0 else 4) {
-                val p = g.pivot + Offset(shift + u * i * 0.002f, shift * 1.5f)
+                val p = g.pivot + Offset(shift + u * i * 0.0025f, shift * 1.45f)
                 rotate(swing, p) {
-                    drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.1f) / if (blurReduced) 1f else 5f))
+                    drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.06f) / if (blurReduced) 1f else 5f))
                 }
             }
         }
@@ -911,7 +935,7 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     // Rear counterweight stub & brushed cylindrical counterweight behind the pivot.
     val stubEnd = pivot.x - unit * 0.125f
     drawLine(
-        shadow ?: Color(0xFF474D57),
+        shadow ?: Color(0xFF6B737E),
         Offset(stubEnd, shaftAt),
         Offset(pivot.x, shaftAt),
         shaftWidth * 0.85f,
@@ -919,10 +943,10 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     )
     if (shadow == null) {
         drawLine(
-            Color(0xFFC4CCD6),
+            Color(0xFFD5DCE5),
             Offset(stubEnd + unit * 0.004f, shaftAt - shaftWidth * 0.18f),
             Offset(pivot.x, shaftAt - shaftWidth * 0.18f),
-            shaftWidth * 0.24f,
+            shaftWidth * 0.28f,
             StrokeCap.Round,
         )
     }
@@ -932,7 +956,7 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     val cwCorner = CornerRadius(unit * 0.011f)
     drawRoundRect(
         shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
-            listOf(Color(0xFFBFC6D0), Color(0xFF777E89), Color(0xFF393E47), Color(0xFF20242B)),
+            listOf(Color(0xFFC5CCD6), Color(0xFF838B96), Color(0xFF474D57), Color(0xFF2B3038)),
             cwPos.y,
             cwPos.y + cwHeight,
         ),
@@ -944,7 +968,7 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
         // Tracking-force calibration ring on front edge of counterweight.
         val dialX = cwPos.x + cwWidth * 0.72f
         drawRect(
-            Color(0xFF181B21),
+            Color(0xFF1F232B),
             Offset(dialX, cwPos.y + cwHeight * 0.05f),
             Size(cwWidth * 0.18f, cwHeight * 0.90f),
         )
@@ -964,7 +988,7 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
         )
     }
 
-    // 3D brushed-aluminum arm tube with cylindrical metallic shading.
+    // 3D brushed-aluminum arm tube with clean silver edges (no harsh dark border on bright vinyls).
     val tube = Path().apply {
         moveTo(pivot.x, shaftAt)
         lineTo(tangent.x - unit * 0.02f, shaftAt)
@@ -974,13 +998,15 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     if (shadow != null) {
         drawPath(tube, shadow, style = tubeStroke)
     } else {
-        drawPath(tube, Color(0xFF262A32), style = tubeStroke)
-        drawPath(tube, Color(0xFF7B838E), style = Stroke(shaftWidth * 0.80f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        translate(top = -shaftWidth * 0.14f) {
-            drawPath(tube, Color(0xFFC2CAD4), style = Stroke(shaftWidth * 0.44f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(tube, Color(0xFF68707B), style = tubeStroke)
+        translate(top = -shaftWidth * 0.06f) {
+            drawPath(tube, Color(0xFFA2AAB5), style = Stroke(shaftWidth * 0.80f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
-        translate(top = -shaftWidth * 0.24f) {
-            drawPath(tube, Color(0xFFF3F7FB), style = Stroke(shaftWidth * 0.18f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        translate(top = -shaftWidth * 0.14f) {
+            drawPath(tube, Color(0xFFDCE3EC), style = Stroke(shaftWidth * 0.46f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+        translate(top = -shaftWidth * 0.22f) {
+            drawPath(tube, Color(0xFFF5F8FC), style = Stroke(shaftWidth * 0.18f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }
 
