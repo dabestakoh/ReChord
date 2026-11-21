@@ -1,6 +1,8 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -35,6 +37,8 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
         private set
     private var job: Job? = null
     private var awaitingId: String? = null
+    private var requestedTrack: String? = null
+    private var requestedDirection = 0f
 
     // The promoted cover may already be composed before the swipe's SideEffect settles the offset.
     fun artworkOffset(currentTrack: Song): Float =
@@ -43,6 +47,12 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
     fun start() {
         job?.cancel()
         awaitingId = null
+        requestedTrack = null
+    }
+
+    fun expectTrack(target: Song?, direction: Float) {
+        requestedTrack = target?.swipeIdentity
+        requestedDirection = direction
     }
 
     fun drag(delta: Float, canPrevious: Boolean, canNext: Boolean) {
@@ -69,16 +79,24 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
         }
     }
 
-    fun update(song: Song, direction: Float, animate: Boolean) {
+    fun update(song: Song, direction: Float, animate: Boolean, record: Boolean) {
         job?.cancel()
         val committed = awaitingId == song.swipeIdentity
+        val motionDirection = if (requestedTrack == song.swipeIdentity) requestedDirection else direction
         awaitingId = null
-        if (!animate || direction == 0f || committed) {
+        requestedTrack = null
+        if (!animate || motionDirection == 0f || committed) {
             offset = 0f
             return
         }
-        offset = -direction
-        job = scope.launch { settle(0f, 0f) }
+        offset = -motionDirection
+        job = scope.launch {
+            if (record) {
+                Animatable(offset).animateTo(0f, tween(520, easing = FastOutSlowInEasing)) { offset = value }
+            } else {
+                settle(0f, 0f)
+            }
+        }
     }
 
     private suspend fun settle(target: Float, velocity: Float) {
@@ -94,7 +112,13 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
 internal val Song.swipeIdentity: String get() = queueEntryId ?: videoId
 
 @Composable
-internal fun rememberAlternateTrackSwipe(song: Song, previous: Song?, next: Song?, animate: Boolean): AlternateTrackSwipe {
+internal fun rememberAlternateTrackSwipe(
+    song: Song,
+    previous: Song?,
+    next: Song?,
+    animate: Boolean,
+    record: Boolean,
+): AlternateTrackSwipe {
     val scope = rememberCoroutineScope()
     val swipe = remember { AlternateTrackSwipe(scope) }
     var last by remember { mutableStateOf(song) }
@@ -105,9 +129,13 @@ internal fun rememberAlternateTrackSwipe(song: Song, previous: Song?, next: Song
             val direction = when (song.swipeIdentity) {
                 oldNext?.swipeIdentity -> -1f
                 oldPrevious?.swipeIdentity -> 1f
-                else -> 0f
+                else -> when (song.videoId) {
+                    oldNext?.videoId -> -1f
+                    oldPrevious?.videoId -> 1f
+                    else -> 0f
+                }
             }
-            swipe.update(song, direction, animate)
+            swipe.update(song, direction, animate, record)
         }
         last = song
         oldNext = next

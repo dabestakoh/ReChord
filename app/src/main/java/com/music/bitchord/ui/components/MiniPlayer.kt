@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
@@ -435,6 +436,9 @@ fun MiniPlayer(
                     model = rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        if (state is AsyncImagePainter.State.Success) dock?.reportMiniImage(song.videoId, state.painter)
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
                 // A music video keeps playing in the cover's place, cropped to

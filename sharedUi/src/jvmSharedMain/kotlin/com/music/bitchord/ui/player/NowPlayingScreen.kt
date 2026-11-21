@@ -1,7 +1,6 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.runtime.CompositionLocalProvider
-import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.offset
@@ -274,7 +273,10 @@ private const val QUEUE_FLICK_VELOCITY = 450f
  * theirs on as well, which is what makes the whole top of the player closable
  * rather than just its topmost 32dp. See the dismiss band in `NowPlayingScreen`.
  */
-private val DISMISS_STRIP_HEIGHT = 32.dp
+internal val DISMISS_STRIP_HEIGHT = 32.dp
+
+internal fun playerHandleTop(panelFraction: Float) =
+    lerp(6.dp, (DISMISS_STRIP_HEIGHT - 5.dp) / 2, panelFraction)
 /** The breathing room above the sleeve, needed twice: once to apply, once to measure past. */
 private val ART_BOX_TOP_PAD = 8.dp
 /**
@@ -902,12 +904,16 @@ fun NowPlayingScreen(
     // Remote tracks whose art lives inside the file resolve it here, once —
     // every surface below reads the same value rather than each triggering
     // its own extraction.
-    val remoteArt = rememberRemoteArtworkUrl(song)
+    val presentation = rememberPlayerArtworkPresentation(
+        song.swipeIdentity, rememberRemoteArtworkUrl(song), artPx, layoutPreview,
+    )
+    val remoteArt = presentation.url
+    val art = presentation.art
     // A new sleeve may still be decoding when the queue advances. Never
     // animate toward theme.primary or white during that gap: keep the last
     // RESOLVED artwork ink, then interpolate directly old -> new once ready.
     // The shared cache is reused, and reopening the player retains its ink.
-    val artworkAnalysis = rememberArtworkPlayerAnalysis(remoteArt, artPx = artPx)
+    val artworkAnalysis = presentation.analysis
     val resolvedAccent = artworkAnalysis.accent
     val accentTarget = when {
         resolvedAccent != null -> resolvedAccent
@@ -1478,7 +1484,6 @@ fun NowPlayingScreen(
     // had and never re-emits, so the `onState` that is the sole writer here
     // never fires again. Keyed on the cover there is nothing to reset: the
     // bitmap really is still loaded, so the state stays true.
-    val art = rememberPlayerArtwork(remoteArt, artPx)
     // Sticky, unlike [PlayerArtwork.loaded]: the banner is the shape of the player rather
     // than a property of the track in it. Waiting on each new cover would
     // collapse the banner into a card and blow it back out on every skip —
@@ -2323,10 +2328,10 @@ fun NowPlayingScreen(
                                     trackKey = song.videoId,
                                     playhead = lyricsPlayhead,
                                     isPlaying = isPlaying && position.advancing,
-                                    durationMs = durationMs,
                                     lyricsUnavailable = lyricsUnavailable,
                                     loadingText = lyricsLoadingText,
                                     onClick = openLyrics,
+                                    verticalNudge = 0.dp,
                                 )
                             }
                         }
@@ -2536,7 +2541,6 @@ fun NowPlayingScreen(
                                         trackKey = song.videoId,
                                         playhead = lyricsPlayhead,
                                         isPlaying = isPlaying && position.advancing,
-                                        durationMs = durationMs,
                                         lyricsUnavailable = lyricsUnavailable,
                                         loadingText = lyricsLoadingText,
                                         onClick = openLyrics,
@@ -2965,11 +2969,7 @@ fun NowPlayingScreen(
                                 .offset {
                                     IntOffset(
                                         x = 0,
-                                        y = lerp(
-                                            6.dp,
-                                            (topStrip - 5.dp).coerceAtLeast(0.dp) / 2,
-                                            p(),
-                                        ).roundToPx(),
+                                        y = playerHandleTop(p()).roundToPx(),
                                     )
                                 }
                                 .width(38.dp)
@@ -3598,6 +3598,9 @@ fun NowPlayingScreen(
                                 // Video thumbnails are 16:9; letterboxing them inside
                                 // the square sleeve looks like a broken frame.
                                 contentScale = ContentScale.Crop,
+                                transform = { state ->
+                                    art.keepLoadedPainter(state, dock?.miniPainterFor(song.videoId))
+                                },
                                 onState = art::onState,
                                 // TextureView-backed canvas frames can arrive
                                 // before Coil has decoded the sleeve. Alpha alone
@@ -4259,7 +4262,6 @@ fun NowPlayingScreen(
                             trackKey = song.videoId,
                             playhead = lyricsPlayhead,
                             isPlaying = isPlaying && position.advancing,
-                            durationMs = durationMs,
                             lyricsUnavailable = lyricsUnavailable,
                             loadingText = lyricsLoadingText,
                             // Still visible over the queue, so still a valid way in:

@@ -192,7 +192,9 @@ class PlayerSheetMotion(
         settle = scope.launch {
             // The sheet's window takes a frame or two to exist. Started before
             // then, the first stretch of the slide would happen to nothing.
-            withTimeoutOrNull(LAYOUT_WAIT_MS) { snapshotFlow { laidOut }.first { it } }
+            withTimeoutOrNull(LAYOUT_WAIT_MS) {
+                snapshotFlow { laidOut && (!dock.hasMiniArt() || dock.attached) }.first { it }
+            }
             slide(from = travel, to = 0f)
             held = Float.NaN
         }

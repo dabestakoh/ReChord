@@ -8,6 +8,15 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil3.SingletonImageLoader
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
@@ -25,6 +34,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
 import com.music.bitchord.data.canvas.CanvasArtwork
+import com.music.bitchord.ui.rememberIsForeground
+import com.music.bitchord.ui.theme.ArtworkPlayerAnalysis
+import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.artworkAt
 import kotlin.math.abs
@@ -32,6 +44,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The looping clip some releases publish alongside their cover, for [song], or
@@ -99,7 +112,9 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
      * track, because that is what it actually describes and because only Coil
      * can set it back to true.
      */
-    var loaded by mutableStateOf(false)
+    val loaded: Boolean get() = lastPainter != null
+
+    var lastPainter by mutableStateOf<Painter?>(null)
         private set
 
     /**
@@ -151,9 +166,18 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
             .build()
     }
 
+    fun keepLoadedPainter(state: AsyncImagePainter.State, fallback: Painter? = null): AsyncImagePainter.State {
+        val painter = lastPainter ?: fallback ?: return state
+        return when (state) {
+            is AsyncImagePainter.State.Loading -> state.copy(painter = painter)
+            is AsyncImagePainter.State.Error -> state.copy(painter = painter)
+            else -> state
+        }
+    }
+
     /** Fed from each painter drawing [request]. */
     fun onState(state: AsyncImagePainter.State) {
-        loaded = state is AsyncImagePainter.State.Success
+        if (state is AsyncImagePainter.State.Success) lastPainter = state.painter
         // Only the failure is latched, and only upwards: the retry that clears
         // it is [failed]'s own effect, and clearing it from a Loading state here
         // would cancel that effect's wait every time the painter passed back
@@ -182,6 +206,57 @@ internal fun rememberPlayerArtwork(remoteArt: String?, artPx: Int = ART_PX): Pla
         art.retry()
     }
     return art
+}
+
+internal data class PlayerArtworkPresentation(
+    val trackKey: String,
+    val url: String?,
+    val art: PlayerArtwork,
+    val analysis: ArtworkPlayerAnalysis,
+)
+
+@Composable
+internal fun rememberPlayerArtworkPresentation(
+    trackKey: String,
+    url: String?,
+    artPx: Int,
+    preview: Boolean,
+): PlayerArtworkPresentation {
+    val candidate = PlayerArtworkPresentation(
+        trackKey, url, rememberPlayerArtwork(url, artPx), rememberArtworkPlayerAnalysis(url, artPx),
+    )
+    if (preview) return candidate
+
+    val context = LocalPlatformContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val foreground = rememberIsForeground()
+    val currentAnalysis by rememberUpdatedState(candidate.analysis)
+    var lastVisible by remember { mutableStateOf(candidate) }
+    var awaitingResume by remember { mutableStateOf(false) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) awaitingResume = true
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    val changed = candidate.trackKey != lastVisible.trackKey || candidate.url != lastVisible.url
+    val hold = awaitingResume && changed
+    // Ordinary skips keep the player's existing carousel. On resume, publish the cover and palette together.
+    SideEffect { if (!awaitingResume) lastVisible = candidate }
+    LaunchedEffect(foreground, awaitingResume, candidate.trackKey, candidate.art) {
+        if (!foreground || !awaitingResume) return@LaunchedEffect
+        withFrameNanos {}
+        if (hold) {
+            withTimeoutOrNull(1_500L) {
+                if (url != null) SingletonImageLoader.get(context).execute(candidate.art.request)
+                snapshotFlow { currentAnalysis }.first { it.accent != null || it.unavailable }
+            }
+        }
+        awaitingResume = false
+    }
+    return if (hold) lastVisible else candidate
 }
 
 /**

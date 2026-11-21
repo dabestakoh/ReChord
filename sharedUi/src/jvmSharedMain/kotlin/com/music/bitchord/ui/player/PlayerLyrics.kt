@@ -1,6 +1,9 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.runtime.key
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -130,6 +133,7 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.LineBreak
@@ -591,10 +595,10 @@ internal fun CurrentLyricStrip(
     trackKey: String,
     playhead: LyricPlayhead,
     isPlaying: Boolean,
-    durationMs: Long,
     lyricsUnavailable: Boolean,
     loadingText: String,
     onClick: () -> Unit,
+    verticalNudge: Dp = 6.dp,
 ) {
     // Compute the active lyric text so we can determine RTL direction at the
     // strip level.  This lets us override the parent Column's forced
@@ -604,7 +608,7 @@ internal fun CurrentLyricStrip(
     var activeText by remember { mutableStateOf("") }
     if (isSynced) {
         val clock = rememberLyricClock(trackKey, playhead, isPlaying)
-        val index by remember(lines) {
+        val index by remember(lines, clock) {
             derivedStateOf { lines.indexOfLast { it.timeMs <= clock.longValue } }
         }
         val current = lines.getOrNull(index)
@@ -631,7 +635,7 @@ internal fun CurrentLyricStrip(
                 // the strip reads as further off it than it is. Nudged down into
                 // that dead space, the same way the timestamps below are pulled
                 // back up into it.
-                .offset(y = 6.dp),
+                .offset(y = verticalNudge),
         ) {
             if (lines.isNotEmpty()) {
                 CurrentLyricLine(
@@ -639,7 +643,6 @@ internal fun CurrentLyricStrip(
                     trackKey = trackKey,
                     playhead = playhead,
                     isPlaying = isPlaying,
-                    durationMs = durationMs,
                     onClick = onClick,
                     modifier = Modifier
                         .align(align),
@@ -718,10 +721,11 @@ private fun rememberLyricClock(
     playhead: LyricPlayhead,
     isPlaying: Boolean,
 ): MutableLongState {
-    val clock = remember(trackKey) {
+    val foreground = rememberIsForeground()
+    val clock = remember(trackKey, playhead.discontinuity, foreground) {
         mutableLongStateOf(Snapshot.withoutReadObservation { playhead.positionMs })
     }
-    val engine = remember(trackKey) { LyricClock(clock.longValue) }
+    val engine = remember(clock) { LyricClock(clock.longValue) }
 
     // Not moving: each reading is the truth, including a seek made while paused.
     // Followed off the snapshot rather than read here, so a reading recomposes
@@ -747,7 +751,6 @@ private fun rememberLyricClock(
     // One loop for the whole run, reading the playhead itself. Keyed on the
     // reading instead, every reading restarted it, and each restart spent a
     // frame waiting for its first frame time — a hitch twice a second.
-    val foreground = rememberIsForeground()
     LaunchedEffect(engine, playhead, isPlaying, foreground) {
         if (!isPlaying || !foreground) return@LaunchedEffect
         engine.restart()
@@ -1613,6 +1616,17 @@ internal fun RomanizationToggleButton(
  * second scroll, a blank frame, or a new lyrics timeline. The app's Reduce
  * animation preference collapses the whole response to an immediate swap.
  */
+private fun AnimatedContentTransitionScope<*>.lyricHandoff(reduced: Boolean, travel: Float): ContentTransform {
+    if (reduced) return (fadeIn(snap()) togetherWith fadeOut(snap()))
+        .using(SizeTransform(clip = false) { _, _ -> snap() })
+    val motion = tween<IntOffset>(durationMillis = 310, easing = LYRIC_EASING)
+    val enter = slideInVertically(motion) { (it * travel).roundToInt() } +
+        fadeIn(tween(260, easing = LYRIC_EASING))
+    val exit = slideOutVertically(motion) { -(it * travel).roundToInt() } +
+        fadeOut(tween(260, easing = LYRIC_EASING))
+    return (enter togetherWith exit).using(SizeTransform(clip = false) { _, _ -> snap() })
+}
+
 @Composable
 internal fun PosterLyricSpotlight(
     lines: List<LyricLine>,
@@ -1647,49 +1661,43 @@ internal fun PosterLyricSpotlight(
             val heightSize = (height / 2.36f).toSp().value.coerceAtLeast(12f)
             minOf(widthSize, heightSize)
         }
-        AnimatedContent(
-            targetState = line,
-            modifier = Modifier.fillMaxWidth().clipToBounds(),
-            transitionSpec = {
-                if (reduceAnimation || !style.rises) {
-                    fadeIn(snap()) togetherWith fadeOut(snap())
-                } else {
-                    (slideInVertically(tween(220, easing = LYRIC_EASING)) { it / 8 } +
-                        fadeIn(tween(durationMillis = 140, delayMillis = 75)))
-                        .togetherWith(slideOutVertically(tween(130)) { -it / 10 } + fadeOut(tween(75)))
-                        .using(SizeTransform(clip = false) { _, _ -> snap() })
-                }
-            },
-            label = "posterLyric",
-        ) { active ->
-            if (active != null && width > 0 && height > 0) {
-                val type = remember(active, width, height, maxSize, base, measurer) {
-                    var size = maxSize
-                    var candidate: TextStyle
-                    do {
-                        candidate = base.copy(
-                            fontSize = size.sp, lineHeight = (size * 1.26f).sp,
-                            fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
+        key(clock) {
+            AnimatedContent(
+                targetState = line,
+                contentAlignment = Alignment.CenterStart,
+                modifier = Modifier.fillMaxWidth(),
+                transitionSpec = { lyricHandoff(reduceAnimation, travel = 0.22f) },
+                label = "posterLyric",
+            ) { active ->
+                if (active != null && width > 0 && height > 0) {
+                    val type = remember(active, width, height, maxSize, base, measurer) {
+                        var size = maxSize
+                        var candidate: TextStyle
+                        do {
+                            candidate = base.copy(
+                                fontSize = size.sp, lineHeight = (size * 1.26f).sp,
+                                fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
+                            )
+                            val measured = measurer.measure(
+                                active.text, voiceStyle(candidate, active.text, false, false),
+                                maxLines = 4, constraints = Constraints(maxWidth = width),
+                            )
+                            if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 12f) break
+                            size = (size - 1.25f).coerceAtLeast(12f)
+                        } while (true)
+                        candidate
+                    }
+                    if (active.isWordSynced) {
+                        PresetLyricLine(
+                            active, clock, style, type, 4, styled = null,
+                            color = ink, effects = !reduceAnimation, blur = !reduceBlur,
                         )
-                        val measured = measurer.measure(
-                            active.text, voiceStyle(candidate, active.text, false, false),
-                            maxLines = 4, constraints = Constraints(maxWidth = width),
+                    } else {
+                        Text(
+                            text = active.text, style = voiceStyle(type, active.text, false, false),
+                            maxLines = 4, color = ink, overflow = TextOverflow.Ellipsis,
                         )
-                        if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 12f) break
-                        size = (size - 1.25f).coerceAtLeast(12f)
-                    } while (true)
-                    candidate
-                }
-                if (active.isWordSynced) {
-                    PresetLyricLine(
-                        active, clock, style, type, 4, styled = null,
-                        color = ink, effects = !reduceAnimation, blur = !reduceBlur,
-                    )
-                } else {
-                    Text(
-                        text = active.text, style = voiceStyle(type, active.text, false, false),
-                        maxLines = 4, color = ink, overflow = TextOverflow.Ellipsis,
-                    )
+                    }
                 }
             }
         }
@@ -2004,7 +2012,7 @@ internal fun LyricsPanel(
     // panel into lanes for it would just be a narrower panel.
     val duet = remember(lines) { lines.any { it.alignment == LyricAlignment.End } }
 
-    val activeRows by remember(lines, isSynced) {
+    val activeRows by remember(lines, isSynced, clock) {
         derivedStateOf {
             if (!isSynced) emptyList() else activeLyricRows(lines, clock.longValue)
         }
@@ -2019,7 +2027,7 @@ internal fun LyricsPanel(
     //
     // Kept apart from [scrollLine] on purpose: this leads, and the sweep must
     // not. Everything lit by the clock still goes through the real one.
-    val leadLine by remember(lines, isSynced) {
+    val leadLine by remember(lines, isSynced, clock) {
         derivedStateOf {
             if (!isSynced) {
                 -1
@@ -2134,7 +2142,7 @@ internal fun LyricsPanel(
     // Keyed to the track, not to [lines]: toggling the translation replaces
     // every line while the reader's place in the song is unchanged, and a reset
     // here would snap the panel back to the top mid-read.
-    var placed by remember(trackKey) { mutableStateOf(false) }
+    var placed by remember(trackKey, clock) { mutableStateOf(false) }
     // Unsynced text has no line to hold anywhere, and centred it would only
     // open with half a screen of nothing above the first verse.
     val centered = centerFocus && isSynced
@@ -2157,7 +2165,7 @@ internal fun LyricsPanel(
     // browse on their own terms.
     // A newer line replaces an unfinished automatic scroll. Only a user's
     // browsing gesture should suspend following, not our own animation.
-    LaunchedEffect(focusLine, browsing, controlsOpen, active) {
+    LaunchedEffect(focusLine, browsing, controlsOpen, active, clock, reduceAnimation) {
         if (active && isSynced && !browsing &&
             focusLine >= 0 && focusLine in lines.indices
         ) {
@@ -2170,7 +2178,7 @@ internal fun LyricsPanel(
             // Keep the same anchor whether the playback controls are visible or hidden.
             val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusLine }
             when {
-                !placed -> {
+                !placed || reduceAnimation -> {
                     listState.scrollToItem(focusLine, scrollOffset = -focusOffset(0))
                     // The row's height is only known once it is laid out, and
                     // centring needs half of it.
@@ -2995,25 +3003,13 @@ private fun String.stripParens(): String = replace("(", "").replace(")", "").tri
 /** The strip's fixed line box — about what Latin type at 16sp makes of itself. */
 private val STRIP_LINE_HEIGHT = 20.sp
 
-/** How much of a line's own length it spends fading out at the end, clamped to this range. */
-private const val LYRIC_FADE_FRACTION = 0.28f
-private const val LYRIC_FADE_MIN_MS = 160f
-private const val LYRIC_FADE_MAX_MS = 700f
-
-/**
- * The single lyric line above the scrubber.
- *
- * The line fades out as it nears its end, and the next one slides up in its
- * place — [AnimatedContent] carries the slide, respecting
- * [PlayerSettings.reduceAnimation].
- */
+/** The single lyric line above the player controls. */
 @Composable
 private fun CurrentLyricLine(
     lines: List<LyricLine>,
     trackKey: Any,
     playhead: LyricPlayhead,
     isPlaying: Boolean,
-    durationMs: Long,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -3067,7 +3063,7 @@ private fun CurrentLyricLine(
 
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
 
-    val index by remember(lines) {
+    val index by remember(lines, clock) {
         derivedStateOf { lines.indexOfLast { it.timeMs <= clock.longValue } }
     }
     val current = lines.getOrNull(index)
@@ -3120,79 +3116,45 @@ private fun CurrentLyricLine(
             )
             Spacer(Modifier.width(6.dp))
         }
-        AnimatedContent(
-            targetState = Triple(index, current, text),
-            transitionSpec = {
-                val duration = if (reduceAnimation) 0 else 340
-                if (reduceAnimation) {
-                    (fadeIn(snap()) togetherWith fadeOut(snap())).using(
-                        SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> snap() })
+        key(clock) {
+            AnimatedContent(
+                targetState = Triple(index, current, text),
+                transitionSpec = { lyricHandoff(reduceAnimation, travel = 0.55f) },
+                label = "currentLyricTransition",
+                modifier = Modifier.weight(1f, fill = false),
+            ) { (_, lineItem, lineText) ->
+                val itemInstrumental = lineItem == null || lineItem.isGap
+                val swept = lineItem?.takeIf { !itemInstrumental && it.isWordSynced }
+                if (swept != null) {
+                    SweptLyricLine(
+                        line = swept,
+                        clock = clock,
+                        style = voiceStyle(stripStyle, lineText, alignEnd = false, laneLocked = false),
+                        dimAlpha = UNSUNG_ALPHA_STRIP,
+                        color = LocalPlayerAccent.current,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        rise = lyricsStyle.rises && !reduceAnimation,
+                        feather = lyricsStyle == LyricsStyle.WAVE,
+                        shimmer = lyricsStyle.shimmers && !reduceAnimation && !lessBlur,
+                        glowAlpha = if (lyricsStyle == LyricsStyle.MOTION && !reduceAnimation && !lessBlur) 0.90f else 0f,
+                        glowRadius = 4.dp,
                     )
                 } else {
-                    // The arriving line is not faded in: each line's own dynamic
-                    // fade (see the content below) has already taken the old line
-                    // out, so the new one slides straight up at full strength.
-                    slideInVertically(animationSpec = tween(duration, easing = FastOutSlowInEasing)) { height -> (height * 0.35f).toInt() }
-                        .togetherWith(
-                            fadeOut(animationSpec = tween(duration, easing = FastOutSlowInEasing)) +
-                                slideOutVertically(animationSpec = tween(duration, easing = FastOutSlowInEasing)) { height -> -(height * 0.35f).toInt() }
-                        ).using(
-                            SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(duration, easing = FastOutSlowInEasing) })
-                        )
-                }
-            },
-            label = "currentLyricTransition",
-            modifier = Modifier.weight(1f, fill = false),
-        ) { (itemIndex, lineItem, lineText) ->
-            val itemInstrumental = lineItem == null || lineItem.isGap
-            val swept = lineItem?.takeIf { !itemInstrumental && it.isWordSynced }
-            // Each line carries its own fade, read against its own end: the line
-            // leaving the strip is already faded out and stays that way while it
-            // slides off, and the one arriving is at full strength from its
-            // first frame. A single fade on the row would hand the old line the
-            // new line's alpha the instant the index changed.
-            val fading = Modifier.graphicsLayer {
-                if (itemInstrumental) return@graphicsLayer
-                val start = lines.getOrNull(itemIndex)?.timeMs ?: 0L
-                val end = lines.getOrNull(itemIndex + 1)?.timeMs
-                    ?: durationMs.takeIf { it > start }
-                    ?: (start + 4_000L)
-                val fade = ((end - start) * LYRIC_FADE_FRACTION)
-                    .coerceIn(LYRIC_FADE_MIN_MS, LYRIC_FADE_MAX_MS)
-                val remaining = (end - clock.longValue).toFloat()
-                alpha = 0.78f * (remaining / fade).coerceIn(0f, 1f)
-            }
-            if (swept != null) {
-                SweptLyricLine(
-                    line = swept,
-                    clock = clock,
-                    style = voiceStyle(stripStyle, text, alignEnd = false, laneLocked = false),
-                    dimAlpha = UNSUNG_ALPHA_STRIP,
-                    color = LocalPlayerAccent.current,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    rise = false,
-                    feather = lyricsStyle == LyricsStyle.WAVE,
-                    shimmer = lyricsStyle.shimmers && !reduceAnimation && !lessBlur,
-                    glowAlpha = if (lyricsStyle == LyricsStyle.MOTION && !reduceAnimation && !lessBlur) 0.90f else 0f,
-                    glowRadius = 4.dp,
-                    modifier = fading,
-                )
-            } else {
-                Text(
-                    modifier = fading,
-                    text = lineText,
-                    style = voiceStyle(
-                        stripStyle.copy(
-                            color = LocalPlayerAccent.current.copy(alpha = if (itemInstrumental) 0.5f else 1f)
+                    Text(
+                        text = lineText,
+                        style = voiceStyle(
+                            stripStyle.copy(
+                                color = LocalPlayerAccent.current.copy(alpha = if (itemInstrumental) 0.5f else 1f)
+                            ),
+                            lineText,
+                            alignEnd = false,
+                            laneLocked = false,
                         ),
-                        lineText,
-                        alignEnd = false,
-                        laneLocked = false,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 

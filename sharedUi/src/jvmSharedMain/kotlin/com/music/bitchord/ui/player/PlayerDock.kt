@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -38,6 +39,15 @@ class PlayerDock {
      */
     private var miniArt: LayoutCoordinates? = null
     private var miniArtCorner: Dp = 8.dp
+    private var miniImage by mutableStateOf<Pair<String, Painter>?>(null)
+
+    /** The decoded cover the mini player can hand to the opening sheet. */
+    fun reportMiniImage(trackId: String, painter: Painter) {
+        miniImage = trackId to painter
+    }
+
+    internal fun miniPainterFor(trackId: String): Painter? =
+        miniImage?.takeIf { it.first == trackId }?.second
 
     /**
      * How far the player sheet sits below fully open, in pixels. Set by the
@@ -65,10 +75,13 @@ class PlayerDock {
 
     /** From the cover leaving composition, so a stale rect is never flown to. */
     fun releaseMiniArt(coordinates: LayoutCoordinates) {
-        if (miniArt === coordinates) miniArt = null
+        if (miniArt === coordinates) {
+            miniArt = null
+            miniImage = null
+        }
     }
 
-    internal fun hasMiniArt(): Boolean = miniArt?.isAttached == true
+    fun hasMiniArt(): Boolean = miniArt?.isAttached == true
 
     /**
      * Both corners mapped through every transform above the cover, not its

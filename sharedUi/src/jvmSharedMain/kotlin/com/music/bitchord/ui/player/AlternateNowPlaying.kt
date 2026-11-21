@@ -66,6 +66,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -78,11 +79,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
+import kotlin.math.atan2
+import kotlin.math.PI
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.drawText
@@ -195,7 +203,9 @@ internal fun AlternateNowPlaying(
     val artHold = Modifier.openLayoutOnHold(onOpenPicker)
     val accent = LocalPlayerAccent.current
     val base = Color(0xFF141417)
-    val swipe = rememberAlternateTrackSwipe(song, previousSong, nextSong, pane == PlayerPane.Main && !reduceAnimation)
+    val swipe = rememberAlternateTrackSwipe(
+        song, previousSong, nextSong, pane == PlayerPane.Main && !reduceAnimation, record = vinyl,
+    )
     val prevArt = rememberRemoteArtworkUrl(previousSong)
     val nextArt = rememberRemoteArtworkUrl(nextSong)
     val prevAnalysis = rememberArtworkPlayerAnalysis(prevArt)
@@ -219,14 +229,30 @@ internal fun AlternateNowPlaying(
         listOfNotNull(previousSong?.let { -1 to it }, 0 to song, nextSong?.let { 1 to it })
     }
     var dockRoot by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var dockRestOrigin by remember { mutableStateOf<Offset?>(null) }
     var artworkSource by remember(pane) { mutableStateOf<LayoutCoordinates?>(null) }
+    var artworkAngle by remember(pane) { mutableStateOf<(() -> Float)?>(null) }
     val reportArtwork: (LayoutCoordinates) -> Unit = {
-        if (dock != null) {
+        if (dock != null && it.isAttached && it.size.width > 0 && it.size.height > 0) {
             artworkSource = it
-            if (!dock.attached) dock.attached = true
         }
     }
-    Box(modifier.fillMaxSize().onGloballyPositioned { if (dock != null) dockRoot = it }) {
+    if (dock != null && dockRestOrigin != null && artworkSource?.isAttached == true) {
+        SideEffect { if (!dock.attached) dock.attached = true }
+    }
+    // Share the last few frames with the actual cover, which has the same crop and clip.
+    fun liveCoverAlpha(): Float {
+        if (dock == null || !dock.hasMiniArt() || artworkSource?.isAttached != true) return 1f
+        return ((dock.openFraction() - 0.94f) / 0.06f).coerceIn(0f, 1f)
+    }
+    Box(modifier.fillMaxSize().onGloballyPositioned { coordinates ->
+        val offset = dock?.offset()?.toInt()?.toFloat() ?: return@onGloballyPositioned
+        val origin = coordinates.localToScreen(Offset.Zero)
+        if (origin.isSpecified) {
+            dockRoot = coordinates
+            dockRestOrigin = origin - Offset(0f, offset)
+        }
+    }) {
         Box(Modifier.fillMaxSize().graphicsLayer {
             val fraction = dock?.openFraction() ?: 1f
             alpha = ((fraction - 0.18f) / 0.82f).coerceIn(0f, 1f)
@@ -271,12 +297,15 @@ internal fun AlternateNowPlaying(
             Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.navigationBarsPadding())) {
                 BoxWithConstraints(Modifier.fillMaxSize().then(panelGestures)) {
                     val compact = maxHeight < 465.dp
-                    val transportHeight = if (compact) 100.dp else 192.dp
+                    val transportHeight = if (compact) 144.dp else 240.dp
                     val posterTransport = !vinyl && pane == PlayerPane.Main && !compact
                     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
                     val controlsHeight = if (posterTransport) maxOf(86.dp, 75.dp * fontScale) else transportHeight
                     var footerHeight by remember { mutableStateOf(0) }
                     val reveal = deckReveal ?: remember { Animatable(1f) }
+                    val menu: @Composable () -> Unit = {
+                        PlaybackPill(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), Modifier.menuAnchor(), onMenu)
+                    }
                     val favorite: @Composable () -> Unit = {
                         PlaybackPill(
                             icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -287,7 +316,11 @@ internal fun AlternateNowPlaying(
                     val previous: @Composable () -> Unit = {
                         PlaybackPill(
                             Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
-                        ) { haptics.play(Haptic.SkipPrevious); onPrevious() }
+                        ) {
+                            if (vinyl) swipe.expectTrack(previousSong, 1f)
+                            haptics.play(Haptic.SkipPrevious)
+                            onPrevious()
+                        }
                     }
                     val play: @Composable () -> Unit = {
                         if (isLoading) {
@@ -305,7 +338,11 @@ internal fun AlternateNowPlaying(
                     val next: @Composable () -> Unit = {
                         PlaybackPill(
                             Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
-                        ) { haptics.play(Haptic.SkipNext); onNext() }
+                        ) {
+                            if (vinyl) swipe.expectTrack(nextSong, -1f)
+                            haptics.play(Haptic.SkipNext)
+                            onNext()
+                        }
                     }
                     Column(Modifier.fillMaxSize()) {
                         AnimatedContent(
@@ -366,13 +403,19 @@ internal fun AlternateNowPlaying(
                                                             translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
                                                         },
                                                         albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                        labelPlacement = if (active && current) reportArtwork else null,
+                                                        labelPlacement = if (active && current) ({ coordinates, angle ->
+                                                            artworkAngle = angle
+                                                            reportArtwork(coordinates)
+                                                        }) else null,
+                                                        coastOnPause = active && current && !reduceAnimation,
+                                                        coverAlpha = { if (active && current) liveCoverAlpha() else 1f },
                                                     )
                                                 }
                                                 VinylTonearm(
                                                     shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
                                                     reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
                                                     durationMs = durationMs,
+                                                    trackKey = song.swipeIdentity,
                                                 )
                                             } else {
                                                 BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -390,6 +433,7 @@ internal fun AlternateNowPlaying(
                                                                 }
                                                                 LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
                                                                     translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                                    if (slot == 0 && active) alpha = liveCoverAlpha()
                                                                 })
                                                             }
                                                         }
@@ -473,19 +517,19 @@ internal fun AlternateNowPlaying(
                                         Spacer(Modifier.width(52.dp))
                                     } else if (compact) {
                                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Column { favorite(); previous() }
-                                            Column { play(); next() }
+                                            Column { menu(); favorite(); previous() }
+                                            Column(Modifier.align(Alignment.Bottom)) { play(); next() }
                                         }
                                     } else {
-                                        Column { favorite(); previous(); play(); next() }
+                                        Column { menu(); favorite(); previous(); play(); next() }
                                     }
                                 }
                                 Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }.padding(horizontal = 20.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth())
-                                    quality()
                                     volume?.invoke()
+                                    quality()
                                     actions()
                                     Spacer(Modifier.height(6.dp))
                                 }
@@ -495,73 +539,100 @@ internal fun AlternateNowPlaying(
                     if (posterTransport) {
                         Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp)
                             .offset { IntOffset(0, -footerHeight) }) {
-                            favorite(); previous(); play(); next()
+                            menu(); favorite(); previous(); play(); next()
                         }
                     }
                 }
             }
+            val handlePanel by animateFloatAsState(
+                if (pane == PlayerPane.Main) 0f else 1f,
+                animationSpec = if (reduceAnimation) snap() else tween(280),
+                label = "alternateHandlePosition",
+            )
             Box(
                 Modifier.fillMaxWidth()
                     .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
                     .height(44.dp).then(topHold),
-                contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
+                val handleShape = RoundedCornerShape(3.dp)
+                Box(Modifier.align(Alignment.TopCenter)
+                    .offset { IntOffset(0, playerHandleTop(handlePanel).roundToPx()) }
+                    .size(38.dp, 5.dp)
+                    .shadow(2.dp, handleShape, clip = false)
+                    .background(accent.copy(alpha = 0.75f), handleShape))
                 if (pane != PlayerPane.Main) {
                     LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
-                        .clickable(onClick = onDismissPane))
+                        .clickable(onClick = onDismissPane).graphicsLayer { alpha = liveCoverAlpha() })
                 }
-                IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
-                    Box(
-                        Modifier.size(34.dp).clip(CircleShape).then(
-                            if (vinyl) Modifier.background(Color.Black.copy(alpha = 0.52f)) else Modifier,
-                        ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Rounded.MoreHoriz, stringResource(Res.string.more),
-                            tint = if (vinyl) lerp(accent, Color.White, 0.30f) else accent,
-                        )
-                    }
-                }
+
             }
         }
     }
-        if (dock != null && artworkSource != null && dockRoot != null) {
+        if (dock != null && artworkSource != null && dockRoot != null && dockRestOrigin != null) {
             val circular = vinyl && pane == PlayerPane.Main
+            val curved = !vinyl && pane == PlayerPane.Main
+            val roll = remember(pane) { DockCoverRotation() }
             LayoutArtwork(artworkUrl ?: artwork, Modifier
                 .clearAndSetSemantics {}
-                .layout { measurable, _ ->
+                .layout { measurable, constraints ->
                     val root = dockRoot
                     val source = artworkSource
+                    val atRest = dockRestOrigin
                     val offset = dock.offset()?.toInt()?.toFloat()
                     val fraction = dock.openFraction()
                     val frame = if (root != null && source != null && root.isAttached && source.isAttached &&
-                        offset != null && fraction < 1f
+                        atRest != null && offset != null && fraction < 1f
                     ) {
-                        val origin = source.localToScreen(Offset.Zero)
-                        val end = source.localToScreen(Offset(source.size.width.toFloat(), source.size.height.toFloat()))
-                        dock.artworkInFlight(Rect(origin, end).translate(0f, -offset))
+                        val sourceInRoot = root.localPositionOf(source, Offset.Zero)
+                        val origin = atRest + sourceInRoot
+                        val size = Size(source.size.width.toFloat(), source.size.height.toFloat())
+                        dock.artworkInFlight(Rect(origin, size))
                     } else null
-                    if (frame == null || root == null) {
+                    if (frame == null || atRest == null || offset == null) {
                         val invisible = measurable.measure(Constraints.fixed(0, 0))
                         layout(0, 0) { invisible.place(0, 0) }
                     } else {
-                        val at = root.screenToLocal(frame.topLeft)
+                        // The layout's coordinates may still describe the preceding placement.
+                        val at = frame.topLeft - atRest - Offset(0f, offset)
                         val work = measurable.measure(Constraints.fixed(
                             frame.width.roundToInt().coerceAtLeast(1), frame.height.roundToInt().coerceAtLeast(1),
                         ))
-                        // Report no size: this layer is painted over the fading deck.
-                        layout(0, 0) { work.place(at.x.roundToInt(), at.y.roundToInt()) }
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            work.place(at.x.roundToInt(), at.y.roundToInt())
+                        }
                     }
                 }
                 .graphicsLayer {
-                    val round = if (circular) size.minDimension.toDp() / 2 else 7.dp
+                    val fraction = dock.openFraction()
+                    if (circular) rotationZ = roll.angle(artworkAngle?.invoke() ?: 0f, fraction)
+                    val round = when {
+                        circular -> size.minDimension.toDp() / 2
+                        curved -> 0.dp
+                        else -> 7.dp
+                    }
                     shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(dock.miniArtCorner(), round, dock.openFraction()))
                     clip = true
-                })
+                    alpha = 1f - liveCoverAlpha()
+                }.then(if (!curved) Modifier else Modifier.drawWithCache {
+                    val fraction = dock.openFraction()
+                    val mask = Path().apply { addPosterMask(size, POSTER_SEEK_FOOTER.toPx(), fraction) }
+                    onDrawWithContent { clipPath(mask) { this@onDrawWithContent.drawContent() } }
+                }), placeholder = dock.miniPainterFor(song.videoId))
         }
+}
+
+// Keep the turn continuous if the record crosses zero degrees while docking.
+private class DockCoverRotation {
+    private var previous = Float.NaN
+    private var unwrapped = 0f
+
+    fun angle(current: Float, fraction: Float): Float {
+        fun shortest(delta: Float) = (delta + 180f).mod(360f) - 180f
+        unwrapped = if (previous.isNaN()) shortest(current) else unwrapped + shortest(current - previous)
+        previous = if (fraction in 0.001f..0.999f) current else Float.NaN
+        return unwrapped * fraction
+    }
 }
 
 @Composable
@@ -592,8 +663,13 @@ private fun PlayerLayoutCredits(
 }
 
 @Composable
-private fun PlaybackPill(icon: ImageVector, description: String, onClick: () -> Unit) {
-    PlaybackPillFrame(onClick, true) {
+private fun PlaybackPill(
+    icon: ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    PlaybackPillFrame(onClick, true, modifier) {
         Icon(icon, description, tint = LocalPlayerAccent.current, modifier = Modifier.size(23.dp))
     }
 }
@@ -609,8 +685,13 @@ private fun PlaybackPill(icon: DrawableResource, description: String, enabled: B
 }
 
 @Composable
-private fun PlaybackPillFrame(onClick: () -> Unit, enabled: Boolean, icon: @Composable () -> Unit) {
-    IconButton(onClick, enabled = enabled, modifier = Modifier.size(52.dp, 48.dp)) {
+private fun PlaybackPillFrame(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit,
+) {
+    IconButton(onClick, enabled = enabled, modifier = modifier.size(52.dp, 48.dp)) {
         Box(
             Modifier.size(46.dp, 39.dp).background(LocalPlayerAccent.current.copy(alpha = 0.13f), CircleShape),
             contentAlignment = Alignment.Center,
@@ -619,15 +700,31 @@ private fun PlaybackPillFrame(onClick: () -> Unit, enabled: Boolean, icon: @Comp
 }
 
 @Composable
-internal fun LayoutArtwork(artwork: Any?, modifier: Modifier) {
+internal fun LayoutArtwork(artwork: Any?, modifier: Modifier, placeholder: Painter? = null) {
     val accent = LocalPlayerAccent.current
     Box(modifier.background(Brush.linearGradient(listOf(lerp(Color(0xFF242332), accent, 0.46f), Color(0xFF292023))))) {
-        if (artwork != null) AsyncImage(artwork, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (artwork != null) {
+            AsyncImage(artwork, null, Modifier.fillMaxSize(), placeholder = placeholder, contentScale = ContentScale.Crop)
+        }
     }
 }
 
+private val POSTER_SEEK_FOOTER = 38.dp
+
 private fun posterRimPoint(size: Size, fraction: Float) =
     Offset(size.width * fraction, size.height * (0.95f - 0.33f * fraction * fraction))
+
+private fun Path.addPosterMask(bounds: Size, footer: Float, fraction: Float) {
+    val size = Size(bounds.width, (bounds.height - footer).coerceAtLeast(1f))
+    fun y(target: Float) = bounds.height + (target - bounds.height) * fraction
+    val left = y(posterRimPoint(size, 0f).y)
+    moveTo(0f, left)
+    cubicTo(size.width / 3f, left, size.width * 2f / 3f, y(size.height * 0.84f),
+        size.width, y(posterRimPoint(size, 1f).y))
+    lineTo(size.width, 0f)
+    lineTo(0f, 0f)
+    close()
+}
 
 private class PosterArc(size: Size, inward: Float, horizontalInset: Float) {
     private val points = Array(49) { index ->
@@ -675,28 +772,26 @@ internal fun PosterArtwork(
 ) {
     val accent = LocalPlayerAccent.current
     val ink = if (accent.luminance() < 0.33f) lerp(accent, Color.White, 0.48f) else lerp(accent, Color.White, 0.25f)
+    val timeColor = accent.copy(alpha = 0.65f)
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+    val endpointLabel = if (durationMs > 0L) measurer.measure(formatTime(durationMs), timeStyle) else null
     var seeking by remember { mutableStateOf(false) }
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { 9.dp.toPx() }
-    val footer = with(density) { 38.dp.toPx() }
+    val footer = with(density) { POSTER_SEEK_FOOTER.toPx() }
     fun coverSize(size: Size) = Size(size.width, (size.height - footer).coerceAtLeast(1f))
-    fun seekArc(size: Size) = PosterArc(coverSize(size), -gap, size.width * 0.047f)
+    fun seekArc(size: Size): PosterArc {
+        val inset = if (endpointLabel == null) size.width * 0.047f else {
+            (endpointLabel.size.width + gap * 1.7f).coerceAtMost(size.width * 0.25f)
+        }
+        return PosterArc(coverSize(size), -gap, inset)
+    }
     val expanded by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "posterArc",
     )
     val mask = remember(footer) {
-        androidx.compose.foundation.shape.GenericShape { bounds, _ ->
-            val size = coverSize(bounds)
-            val start = posterRimPoint(size, 0f)
-            val end = posterRimPoint(size, 1f)
-            moveTo(start.x, start.y)
-            cubicTo(size.width / 3f, start.y, size.width * 2f / 3f, size.height * 0.84f, end.x, end.y)
-            lineTo(size.width, 0f)
-            lineTo(0f, 0f)
-            close()
-        }
+        androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterMask(bounds, footer, 1f) }
     }
     Box(modifier.clipToBounds()) {
         Box(Modifier.fillMaxSize().clip(mask)) {
@@ -725,28 +820,22 @@ internal fun PosterArtwork(
                 val amount = expanded.coerceIn(0f, 1f)
                 val progress = shown().coerceIn(0f, 1f)
                 val width = (2.1f + 2.6f * amount).dp.toPx()
-                // The darker underlay separates the rim from both bright and similarly tinted covers.
-                drawPath(arc.path, Color.Black.copy(alpha = 0.57f), style = Stroke(width + 2.dp.toPx(), cap = StrokeCap.Round))
                 drawPath(arc.path, ink.copy(alpha = 0.59f), style = Stroke(width, cap = StrokeCap.Round))
                 played.reset()
                 if (measure.getSegment(0f, measure.length * progress, played, true)) {
                     drawPath(played, ink, style = Stroke(width, cap = StrokeCap.Round))
                 }
-                if (amount > 0.04f && durationMs > 0L && measure.length > 0f) {
-                    val start = measure.getPosition(0f)
-                    val end = measure.getPosition(measure.length)
-                    for ((point, ms) in arrayOf(start to (durationMs * progress).toLong(), end to durationMs)) {
-                        val measureLabel = measurer.measure(formatTime(ms), timeStyle)
-                        val x = if (point == start) point.x else point.x - measureLabel.size.width
-                        val y = (point.y + 5.dp.toPx()).coerceAtMost(size.height - measureLabel.size.height - 2.dp.toPx())
-                        val at = Offset(x.coerceAtLeast(0f), y)
-                        drawRoundRect(
-                            Color.Black.copy(alpha = 0.72f * amount),
-                            at - Offset(3.dp.toPx(), 1.dp.toPx()),
-                            Size(measureLabel.size.width + 6.dp.toPx(), measureLabel.size.height + 2.dp.toPx()),
-                            androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
-                        )
-                        drawText(measureLabel, color = Color.White, topLeft = at, alpha = amount)
+                if (endpointLabel != null && measure.length > 0f) {
+                    val elapsed = measurer.measure(formatTime((durationMs * progress).toLong()), timeStyle)
+                    for ((at, label) in listOf(0f to elapsed, measure.length to endpointLabel)) {
+                        val point = measure.getPosition(at)
+                        val tangent = measure.getTangent(at)
+                        val angle = (atan2(tangent.y, tangent.x) * 180f / PI).toFloat()
+                        val x = if (at == 0f) point.x - label.size.width - gap else point.x + gap
+                        val topLeft = Offset(x, point.y - label.size.height / 2f)
+                        rotate(angle, pivot = point) {
+                            drawText(label, color = timeColor, topLeft = topLeft)
+                        }
                     }
                 }
             }

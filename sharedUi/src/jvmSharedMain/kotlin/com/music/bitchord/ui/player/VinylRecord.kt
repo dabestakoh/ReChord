@@ -1,6 +1,10 @@
 package com.music.bitchord.ui.player
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -24,6 +28,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -52,6 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.VinylAppearance
 import com.music.bitchord.data.settings.VinylColorMode
 import com.music.bitchord.data.settings.VinylFinish
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.acos
@@ -141,20 +149,32 @@ internal fun VinylDisc(
     seeking: () -> Boolean,
     modifier: Modifier,
     albumKey: String = trackKey,
-    labelPlacement: ((LayoutCoordinates) -> Unit)? = null,
+    labelPlacement: ((LayoutCoordinates, () -> Float) -> Unit)? = null,
+    coastOnPause: Boolean = false,
+    coverAlpha: () -> Float = { 1f },
 ) {
     var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
     val foreground = com.music.bitchord.ui.rememberIsForeground()
-    DisposableEffect(trackKey, spin) {
-        onDispose { if (spin) lastRecordPhases[trackKey] = rotation }
+    val coverAngle: () -> Float = remember(trackKey) { { rotation } }
+    val spinRate = remember(trackKey) { Animatable(if (spin) 55f else 0f) }
+    DisposableEffect(trackKey) {
+        onDispose { lastRecordPhases[trackKey] = rotation }
     }
-    LaunchedEffect(spin, trackKey, foreground) {
-        if (!spin || !foreground) return@LaunchedEffect
-        val initialAngle = rotation
-        val start = withFrameNanos { it }
-        while (true) {
+    LaunchedEffect(spin, coastOnPause, foreground, trackKey) {
+        when {
+            spin -> spinRate.snapTo(55f)
+            foreground && coastOnPause -> spinRate.animateTo(0f, tween(230))
+            else -> spinRate.snapTo(0f)
+        }
+    }
+    LaunchedEffect(spin, coastOnPause, foreground, trackKey) {
+        if (!foreground || (!spin && !coastOnPause)) return@LaunchedEffect
+        var previousFrame = withFrameNanos { it }
+        while (spin || spinRate.value > 0f) {
             val frame = withFrameNanos { it }
-            rotation = (initialAngle + (frame - start) * 0.000000055).rem(360.0).toFloat()
+            val seconds = (frame - previousFrame) / 1_000_000_000f
+            previousFrame = frame
+            rotation = (rotation + spinRate.value * seconds) % 360f
         }
     }
     val picture = style.finish == VinylFinish.PICTURE_DISC
@@ -188,10 +208,20 @@ internal fun VinylDisc(
             )
             onDrawBehind { if (g.radius > 0f) drawCircle(shadow, outer, shadowAt) }
         })
-        Box(at.graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true }) {
-            if (picture && artwork != null) {
-                LayoutArtwork(artwork, Modifier.fillMaxSize())
+        val pictureCover = picture && artwork != null
+        if (pictureCover) {
+            Box(at.then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                labelPlacement(it, coverAngle)
+            })) {
+                LayoutArtwork(artwork, Modifier.fillMaxSize().graphicsLayer {
+                    rotationZ = rotation
+                    shape = CircleShape
+                    clip = true
+                    alpha = coverAlpha()
+                })
             }
+        }
+        Box(at.graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true }) {
             Box(Modifier.fillMaxSize().drawWithCache {
                 val random = Random(albumKey.hashCode() xor style.finish.ordinal * 73)
                 val r = size.minDimension / 2f
@@ -370,16 +400,23 @@ internal fun VinylDisc(
         })
         val labelModifier = Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
             .size(label * 2)
-            .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned(labelPlacement))
-        if (!picture || artwork == null) {
-            LayoutArtwork(artwork, labelModifier.graphicsLayer {
-                rotationZ = rotation; shape = CircleShape; clip = true
+            .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                labelPlacement(it, coverAngle)
             })
-        } else if (labelPlacement != null) {
-            Box(labelModifier)
+        if (!pictureCover) {
+            Box(labelModifier) {
+                LayoutArtwork(artwork, Modifier.fillMaxSize().graphicsLayer {
+                    rotationZ = rotation
+                    shape = CircleShape
+                    clip = true
+                    alpha = coverAlpha()
+                })
+            }
         }
     }
 }
+
+private class TonearmPose(var progress: Float, var lift: Float = 0f)
 
 @Composable
 internal fun VinylTonearm(
@@ -393,6 +430,7 @@ internal fun VinylTonearm(
     moving: () -> Float,
     modifier: Modifier,
     durationMs: Long = 0L,
+    trackKey: String? = null,
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -400,8 +438,42 @@ internal fun VinylTonearm(
     val lift by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "tonearmLift",
     )
+    val lastDrawn = remember { TonearmPose(shown()) }
+    val start = remember { TonearmPose(shown()) }
+    val trip = remember { Animatable(1f) }
+    val duration by rememberUpdatedState(durationMs)
+    var landedTrack by remember { mutableStateOf(trackKey) }
+    var traveling by remember { mutableStateOf(false) }
+    LaunchedEffect(trackKey, seeking, reduced) {
+        if (reduced || seeking) {
+            landedTrack = trackKey
+            traveling = false
+        } else if (landedTrack != trackKey || traveling) {
+            start.progress = lastDrawn.progress
+            start.lift = lastDrawn.lift
+            trip.snapTo(0f)
+            traveling = true
+            trip.animateTo(0.2f, tween(100, easing = LinearEasing))
+            withTimeoutOrNull(600) { snapshotFlow { duration }.first { it > 0L } }
+            trip.animateTo(0.8f, tween(285, easing = LinearEasing))
+            trip.animateTo(1f, tween(135, easing = LinearEasing))
+            landedTrack = trackKey
+            traveling = false
+        }
+    }
+    val armPosition: () -> Float = {
+        when {
+            seeking || reduced -> shown()
+            traveling -> {
+                val sweep = FastOutSlowInEasing.transform(((trip.value - 0.2f) / 0.6f).coerceIn(0f, 1f))
+                start.progress + (shown() - start.progress) * sweep
+            }
+            landedTrack != trackKey -> lastDrawn.progress
+            else -> shown()
+        }
+    }
     val gesture = Modifier.seekArtwork(
-        shown, onScrub, onFinish, onCancel, claimDown = true,
+        armPosition, onScrub, onFinish, onCancel, claimDown = true,
         accepts = { bounds, down, tolerance, fraction ->
             val g = RecordGeometry(bounds)
             val arm = g.tip(fraction) - g.pivot
@@ -437,8 +509,19 @@ internal fun VinylTonearm(
         )
         drawCircle(Color(0xFF101217), u * 0.050f, g.pivot)
         drawCircle(Color(0xFF454953), u * 0.043f, g.pivot, style = Stroke(u * 0.002f))
-        val raised = if (reduced) 0f else maxOf(lift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
-        val swing = degrees(g.angle(shown()))
+        val phase = trip.value
+        val travelLift = when {
+            seeking || reduced -> 0f
+            traveling && phase < 0.2f -> start.lift + (1f - start.lift) * (phase / 0.2f)
+            traveling -> ((1f - phase) / 0.2f).coerceIn(0f, 1f)
+            landedTrack != trackKey -> lastDrawn.lift
+            else -> 0f
+        }
+        val raised = if (reduced) 0f else maxOf(lift, travelLift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
+        val arm = armPosition()
+        lastDrawn.progress = arm
+        lastDrawn.lift = raised
+        val swing = degrees(g.angle(arm))
         val dim = if (blurReduced) 0.34f else 0.52f
         val shift = u * (0.010f + 0.014f * raised)
         for (i in 0..if (blurReduced) 0 else 4) {
