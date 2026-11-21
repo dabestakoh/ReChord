@@ -1470,6 +1470,10 @@
     <string name="export_diagnostic_log">Exportar registro de diagnóstico</string>
     <string name="diagnostic_report_error">No se pudo abrir ni exportar el informe de diagnóstico.</string>
     <string name="now_playing_layout">Diseño del reproductor</string>
+    <string name="settings_app_appearance">Apariencia de la app</string>
+    <string name="settings_now_playing_skin">Tema de reproducción</string>
+    <string name="settings_lyrics_all_skins">Letras (Todos los temas)</string>
+    <string name="poster_live_lyrics_subtitle">Mostrar letras sincronizadas en la pantalla Póster</string>
     <string name="lyrics_style">Estilo de letras</string>
     <string name="lyrics_style_scope">Se aplica a la vista de letras ampliada. Póster usa su propio efecto.</string>
     <string name="video_mode">Modo de vídeo</string>

@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">Metalik</string>
     <string name="vinyl_glitter">Gliter</string>
     <string name="vinyl_picture_disc">Piringan bergambar</string>
+    <string name="vinyl_pinwheel">Kincir</string>
+    <string name="vinyl_tri_color">Tiga Warna</string>
+    <string name="vinyl_gold_record">Piringan Emas</string>
+    <string name="vinyl_accent_color">Warna aksen</string>
+    <string name="vinyl_hex_codes">Hex kustom</string>
     <string name="vinyl_custom_hex">Warna kustom (heks)</string>
     <string name="vinyl_secondary_hex">Warna sekunder (heks)</string>
     <string name="vinyl_automatic">Otomatis</string>

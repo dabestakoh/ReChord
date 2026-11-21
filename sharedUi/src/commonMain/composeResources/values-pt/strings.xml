@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">Metálico</string>
     <string name="vinyl_glitter">Glitter</string>
     <string name="vinyl_picture_disc">Disco ilustrado</string>
+    <string name="vinyl_pinwheel">Catavento</string>
+    <string name="vinyl_tri_color">Tricolor</string>
+    <string name="vinyl_gold_record">Disco de ouro</string>
+    <string name="vinyl_accent_color">Cor de destaque</string>
+    <string name="vinyl_hex_codes">Hex personalizado</string>
     <string name="vinyl_custom_hex">Cor personalizada (hex)</string>
     <string name="vinyl_secondary_hex">Cor secundária (hex)</string>
     <string name="vinyl_automatic">Automática</string>

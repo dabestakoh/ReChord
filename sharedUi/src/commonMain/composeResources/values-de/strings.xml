@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">Metallisch</string>
     <string name="vinyl_glitter">Glitzer</string>
     <string name="vinyl_picture_disc">Bildplatte</string>
+    <string name="vinyl_pinwheel">Windrad</string>
+    <string name="vinyl_tri_color">Dreifarbig</string>
+    <string name="vinyl_gold_record">Goldene Schallplatte</string>
+    <string name="vinyl_accent_color">Akzentfarbe</string>
+    <string name="vinyl_hex_codes">Benutzerdefinierter Hex</string>
     <string name="vinyl_custom_hex">Eigene Farbe (Hex)</string>
     <string name="vinyl_secondary_hex">Zweitfarbe (Hex)</string>
     <string name="vinyl_automatic">Automatisch</string>

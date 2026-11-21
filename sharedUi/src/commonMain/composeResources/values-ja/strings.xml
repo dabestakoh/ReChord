@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">メタリック</string>
     <string name="vinyl_glitter">グリッター</string>
     <string name="vinyl_picture_disc">ピクチャーディスク</string>
+    <string name="vinyl_pinwheel">ピンホイール</string>
+    <string name="vinyl_tri_color">トライカラー</string>
+    <string name="vinyl_gold_record">ゴールドレコード</string>
+    <string name="vinyl_accent_color">アクセントカラー</string>
+    <string name="vinyl_hex_codes">カスタムHex</string>
     <string name="vinyl_custom_hex">カスタム色 (HEX)</string>
     <string name="vinyl_secondary_hex">セカンダリ色 (HEX)</string>
     <string name="vinyl_automatic">自動</string>

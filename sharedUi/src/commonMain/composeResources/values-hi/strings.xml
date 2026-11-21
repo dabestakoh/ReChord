@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">धातुई</string>
     <string name="vinyl_glitter">चमकीले कण</string>
     <string name="vinyl_picture_disc">चित्र वाला रिकॉर्ड</string>
+    <string name="vinyl_pinwheel">पिनव्हील</string>
+    <string name="vinyl_tri_color">तीन-रंग</string>
+    <string name="vinyl_gold_record">गोल्ड रिकॉर्ड</string>
+    <string name="vinyl_accent_color">एक्सेंट रंग</string>
+    <string name="vinyl_hex_codes">कस्टम हेक्स</string>
     <string name="vinyl_custom_hex">कस्टम रंग (हेक्स)</string>
     <string name="vinyl_secondary_hex">दूसरा रंग (हेक्स)</string>
     <string name="vinyl_automatic">स्वचालित</string>

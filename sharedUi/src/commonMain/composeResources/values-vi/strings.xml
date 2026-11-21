@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">Ánh kim</string>
     <string name="vinyl_glitter">Kim tuyến</string>
     <string name="vinyl_picture_disc">Đĩa in hình</string>
+    <string name="vinyl_pinwheel">Chong chóng</string>
+    <string name="vinyl_tri_color">Ba màu</string>
+    <string name="vinyl_gold_record">Đĩa vàng</string>
+    <string name="vinyl_accent_color">Màu nhấn</string>
+    <string name="vinyl_hex_codes">Mã Hex tùy chỉnh</string>
     <string name="vinyl_custom_hex">Màu tùy chỉnh (hex)</string>
     <string name="vinyl_secondary_hex">Màu phụ (hex)</string>
     <string name="vinyl_automatic">Tự động</string>

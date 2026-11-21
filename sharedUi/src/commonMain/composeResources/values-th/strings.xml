@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">เมทัลลิก</string>
     <string name="vinyl_glitter">กลิตเตอร์</string>
     <string name="vinyl_picture_disc">แผ่นลายภาพ</string>
+    <string name="vinyl_pinwheel">กังหัน</string>
+    <string name="vinyl_tri_color">สามสี</string>
+    <string name="vinyl_gold_record">แผ่นเสียงทองคำ</string>
+    <string name="vinyl_accent_color">สีเน้น</string>
+    <string name="vinyl_hex_codes">รหัสสี Hex</string>
     <string name="vinyl_custom_hex">สีที่กำหนดเอง (hex)</string>
     <string name="vinyl_secondary_hex">สีรอง (hex)</string>
     <string name="vinyl_automatic">อัตโนมัติ</string>

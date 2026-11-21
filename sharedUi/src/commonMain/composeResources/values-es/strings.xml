@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">Metálico</string>
     <string name="vinyl_glitter">Purpurina</string>
     <string name="vinyl_picture_disc">Disco ilustrado</string>
+    <string name="vinyl_pinwheel">Molinete</string>
+    <string name="vinyl_tri_color">Tricolor</string>
+    <string name="vinyl_gold_record">Disco de oro</string>
+    <string name="vinyl_accent_color">Color de acento</string>
+    <string name="vinyl_hex_codes">Hex personalizado</string>
     <string name="vinyl_custom_hex">Color personalizado (hex)</string>
     <string name="vinyl_secondary_hex">Color secundario (hex)</string>
     <string name="vinyl_automatic">Automático</string>

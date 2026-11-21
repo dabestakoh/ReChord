@@ -235,6 +235,11 @@
     <string name="vinyl_metallic">金屬光澤</string>
     <string name="vinyl_glitter">亮粉</string>
     <string name="vinyl_picture_disc">圖片唱片</string>
+    <string name="vinyl_pinwheel">風車</string>
+    <string name="vinyl_tri_color">三色</string>
+    <string name="vinyl_gold_record">黃金唱片</string>
+    <string name="vinyl_accent_color">強調色</string>
+    <string name="vinyl_hex_codes">自訂 Hex</string>
     <string name="vinyl_custom_hex">自訂顏色（十六進位）</string>
     <string name="vinyl_secondary_hex">次要顏色（十六進位）</string>
     <string name="vinyl_automatic">自動</string>

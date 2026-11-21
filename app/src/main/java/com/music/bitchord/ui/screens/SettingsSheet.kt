@@ -261,7 +261,6 @@ fun SettingsScreen(
     val progressiveBlur by AppSettings.progressiveBlur.collectAsStateWithLifecycle()
     val liquidGlassSupported = isGlassSupported()
     val lyricsBlur by AppSettings.lyricsBlur.collectAsStateWithLifecycle()
-    val animatedCanvas by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
     val signatureApiEnabled by AppSettings.signatureApiEnabled.collectAsStateWithLifecycle()
     val signatureApiUrl by AppSettings.signatureApiUrl.collectAsStateWithLifecycle()
     val fullBleedDetailArtwork by AppSettings.fullBleedDetailArtwork.collectAsStateWithLifecycle()
@@ -1018,348 +1017,325 @@ fun SettingsScreen(
             }
         }
 
-        if (shows(SettingsCategory.APPEARANCE)) SearchableSettingsGroup(search, header = stringResource(R.string.appearance)) {
-            val homeTitle = stringResource(R.string.home)
-            row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
-                SettingsRow(
-                    icon = SfIcons.AutoAwesome,
-                    title = homeTitle,
-                    onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
-                )
-            }
-            val themeTitle = stringResource(R.string.theme)
-            row(themeTitle, "dark mode", "light mode") {
-                SettingsRow(icon = Icons.Rounded.Brightness4, title = themeTitle)
-                SegmentedControl(
-                    options = ThemeMode.entries.map { it.localizedLabel() },
-                    selectedIndex = ThemeMode.entries.indexOf(theme),
-                    onSelect = { AppSettings.setThemeMode(ThemeMode.entries[it]) },
-                    modifier = Modifier.padding(start = ROW_INSET, end = ROW_INSET, bottom = 14.dp),
-                )
-            }
-            val fontTitle = stringResource(R.string.font)
-            row(fontTitle, "typeface", "sf pro", "legacy") {
-                SettingsRow(
-                    icon = SfIcons.Font,
-                    title = fontTitle,
-                    subtitle = appFont.description(),
-                    value = appFont.localizedLabel(),
-                    onClick = { onOpenChoice(SettingsChoiceKind.FONT) },
-                )
-            }
-            val reduceAnimationTitle = stringResource(R.string.reduce_animation)
-            row(reduceAnimationTitle, "motion") {
-                SettingsRow(
-                    icon = SfIcons.MotionPhotosOff,
-                    title = reduceAnimationTitle,
-                    subtitle = stringResource(R.string.reduce_animation_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = reduceAnimation,
-                            onCheckedChange = AppSettings::setReduceAnimation,
-                        )
-                    },
-                    onClick = { AppSettings.setReduceAnimation(!reduceAnimation) },
-                )
-            }
-            val reduceDynamicBlurTitle = stringResource(R.string.reduce_dynamic_blur)
-            row(reduceDynamicBlurTitle, "blur", "performance") {
-                SettingsRow(
-                    icon = SfIcons.BlurOff,
-                    title = reduceDynamicBlurTitle,
-                    subtitle = stringResource(R.string.reduce_dynamic_blur_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = reduceDynamicBlur,
-                            onCheckedChange = AppSettings::setReduceDynamicBlur,
-                        )
-                    },
-                    onClick = { AppSettings.setReduceDynamicBlur(!reduceDynamicBlur) },
-                )
-            }
-            val disableBlendEffectsTitle = stringResource(R.string.disable_blend_effects)
-            row(disableBlendEffectsTitle, "blend", "blending", "colour", "color", "tint", "player", "menu") {
-                SettingsRow(
-                    icon = SfIcons.Gradient,
-                    title = disableBlendEffectsTitle,
-                    subtitle = stringResource(R.string.disable_blend_effects_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = disableBlendEffects,
-                            onCheckedChange = AppSettings::setDisableBlendEffects,
-                        )
-                    },
-                    onClick = { AppSettings.setDisableBlendEffects(!disableBlendEffects) },
-                )
-            }
-            val liquidGlassTitle = stringResource(R.string.liquid_glass)
-            row(liquidGlassTitle, "glass", "blur") {
-                SettingsRow(
-                    icon = SfIcons.AutoAwesome,
-                    title = liquidGlassTitle,
-                    subtitle = stringResource(
-                        if (liquidGlassSupported) {
-                            R.string.liquid_glass_subtitle
-                        } else {
-                            R.string.liquid_glass_unavailable
-                        },
-                    ),
-                    enabled = liquidGlassSupported,
-                    trailing = {
-                        IosSwitch(
-                            checked = liquidGlass,
-                            onCheckedChange = AppSettings::setLiquidGlass,
-                            enabled = liquidGlassSupported,
-                        )
-                    },
-                    onClick = { AppSettings.setLiquidGlass(!liquidGlass) },
-                )
-            }
-            // One line each, like Direct Source Stream under Sources, and only
-            // while Liquid Glass is on: they qualify the glass rather than standing
-            // on their own. Progressive Blur has its own switch because it costs
-            // frames of its own. Reduce dynamic blur turns it off.
-            if (liquidGlass && liquidGlassSupported) {
-                val glassPerformanceTitle = stringResource(R.string.glass_performance)
-                row(glassPerformanceTitle, "glass", "performance", "refraction", "frosted", "lag", divided = false) {
-                    SettingsSubRow(
-                        title = glassPerformanceTitle,
-                        checked = glassPerformance,
-                        onCheckedChange = AppSettings::setGlassPerformance,
-                    )
-                }
-                val progressiveBlurTitle = stringResource(R.string.progressive_blur)
-                row(progressiveBlurTitle, "blur", "status bar", "top", divided = false) {
-                    SettingsSubRow(
-                        title = progressiveBlurTitle,
-                        checked = progressiveBlur,
-                        onCheckedChange = AppSettings::setProgressiveBlur,
-                    )
-                }
-            }
-            // Listed at every width: the page itself keeps the framed sleeve
-            // wherever a square the window's width wouldn't fit — see
-            // [ReleaseHeader].
-            val fullScreenDetailCoverTitle = stringResource(R.string.full_screen_detail_cover)
-            row(fullScreenDetailCoverTitle, "artwork", "album", "playlist", "cover") {
-                SettingsRow(
-                    icon = SfIcons.Fullscreen,
-                    title = fullScreenDetailCoverTitle,
-                    subtitle = stringResource(R.string.full_screen_detail_cover_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = fullBleedDetailArtwork,
-                            onCheckedChange = AppSettings::setFullBleedDetailArtwork,
-                        )
-                    },
-                    onClick = { AppSettings.setFullBleedDetailArtwork(!fullBleedDetailArtwork) },
-                )
-            }
-            val layoutTitle = stringResource(R.string.now_playing_layout)
-            row(layoutTitle, "player", "vinyl", "poster") {
-                SettingsRow(
-                    icon = SfIcons.Appearance,
-                    title = layoutTitle,
-                    subtitle = nowPlayingLayoutLabel(nowPlayingLayout),
-                    onClick = { onOpenChoice(SettingsChoiceKind.NOW_PLAYING_LAYOUT) },
-                )
-            }
-            if (searching) {
-                val defaultOptions = listOf(
-                    R.string.full_screen_cover_art, R.string.player_theme,
-                    R.string.animated_cover_cellular, R.string.spotify_canvas_auto_hide,
-                )
-                for (option in defaultOptions) {
-                    val label = stringResource(option)
-                    row(label, "player", "default") {
-                        SettingsRow(
-                            icon = SfIcons.Appearance, title = label,
-                            subtitle = nowPlayingLayoutLabel(NowPlayingLayout.DEFAULT),
-                            onClick = { onOpenChoice(SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS) },
-                        )
-                    }
-                }
-                for ((layout, page) in listOf(
-                    NowPlayingLayout.DEFAULT to SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS,
-                    NowPlayingLayout.VINYL to SettingsChoiceKind.VINYL_LAYOUT_SETTINGS,
-                    NowPlayingLayout.POSTER to SettingsChoiceKind.POSTER_LAYOUT_SETTINGS,
-                )) {
-                    val label = stringResource(R.string.hide_volume_bar)
-                    val skin = nowPlayingLayoutLabel(layout)
-                    row(label, skin, "$label $skin", "$skin $label", "volume") {
-                        SettingsRow(
-                            icon = SfIcons.VolumeOff, title = label, subtitle = skin,
-                            onClick = { onOpenChoice(page) },
-                        )
-                    }
-                }
-            }
-            val vinylTitle = stringResource(R.string.vinyl_appearance)
-            row(vinylTitle, "vinyl", "record", "color", "finish") {
-                SettingsRow(
-                    icon = SfIcons.Appearance,
-                    title = vinylTitle,
-                    onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
-                )
-            }
-            val lyricsStyleTitle = stringResource(R.string.lyrics_style)
-            row(lyricsStyleTitle, "lyrics", "motion", "karaoke") {
-                SettingsRow(
-                    icon = SfIcons.MusicNote,
-                    title = lyricsStyleTitle,
-                    subtitle = lyricsStyleLabel(lyricsStyle),
-                    onClick = { onOpenChoice(SettingsChoiceKind.LYRICS_STYLE) },
-                )
-            }
-            val animatedCoverArtTitle = stringResource(R.string.animated_cover_art)
-            // Carries the keywords of the rows that only appear once it is on,
-            // so searching "spotify" with animated covers switched off turns up
-            // the switch that brings the Spotify row back rather than nothing.
-            row(animatedCoverArtTitle, "canvas", "video", "spotify") {
-                SettingsRow(
-                    icon = SfIcons.Animation,
-                    title = animatedCoverArtTitle,
-                    subtitle = stringResource(R.string.animated_cover_art_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = animatedCanvas,
-                            onCheckedChange = AppSettings::setAnimatedCanvas,
-                        )
-                    },
-                    onClick = { AppSettings.setAnimatedCanvas(!animatedCanvas) },
-                )
-            }
-            // Reads as part of the Animated cover art option above it, not
-            // as a separate setting. Nothing to narrow while the clip itself
-            // is off. Defaults to off: a clip loops for as long as its track
-            // plays, so on cellular this is not a one-time video cost but
-            // that cost repeated on every loop — see AppSettings.canvasOverCellular.
-            if (animatedCanvas) {
-                val spotifyCanvasTitle = stringResource(R.string.integrate_spotify_canvas)
-                row(spotifyCanvasTitle, "spotify", "canvas", divided = false) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onSpotifyCanvasAuth)
-                            .padding(start = ROW_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = spotifyCanvasTitle,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Chevron()
-                    }
-                }
-            }
-            val artistSignaturesTitle = stringResource(R.string.artist_signatures)
-            row(artistSignaturesTitle, "signature", "artist", "logo") {
-                SettingsRow(
-                    icon = SfIcons.Draw,
-                    title = artistSignaturesTitle,
-                    subtitle = stringResource(R.string.artist_signatures_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = signatureApiEnabled,
-                            onCheckedChange = AppSettings::setSignatureApiEnabled,
-                        )
-                    },
-                    onClick = { AppSettings.setSignatureApiEnabled(!signatureApiEnabled) },
-                )
-            }
-            if (signatureApiEnabled) {
-                val signatureUrlTitle = stringResource(R.string.artist_signatures_url)
-                row(signatureUrlTitle, "signature", "api", "url", divided = false) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onEditSignatureApi)
-                            .padding(start = ROW_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = signatureApiUrl.ifBlank {
-                                stringResource(R.string.artist_signatures_unconfigured)
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Chevron()
-                    }
-                }
-            }
-            val syncedLyricsTitle = stringResource(R.string.synced_lyrics)
-            // Same reasoning as Animated cover art above: the lyrics source and
-            // translation rows are only here while this is on.
-            row(syncedLyricsTitle, "lyrics", "translation", "lrclib", "musixmatch") {
-                SettingsRow(
-                    icon = SfIcons.Notes,
-                    title = syncedLyricsTitle,
-                    subtitle = stringResource(R.string.synced_lyrics_subtitle),
-                    trailing = {
-                        IosSwitch(
-                            checked = syncedLyrics,
-                            onCheckedChange = AppSettings::setSyncedLyrics,
-                        )
-                    },
-                    onClick = { AppSettings.setSyncedLyrics(!syncedLyrics) },
-                )
-            }
-            // Nothing to choose between while the feature is off, and the
-            // sources are third-party services being reached on the user's
-            // connection — which is the part worth being able to narrow.
-            if (syncedLyrics) {
-                val lyricsBlurTitle = stringResource(R.string.blur_unfocused_lyrics)
-                row(lyricsBlurTitle, "lyrics", "blur") {
+        if (shows(SettingsCategory.APPEARANCE)) {
+            SearchableSettingsGroup(search, header = stringResource(R.string.settings_app_appearance)) {
+                val homeTitle = stringResource(R.string.home)
+                row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
                     SettingsRow(
-                        icon = SfIcons.BlurOn,
-                        title = lyricsBlurTitle,
-                        subtitle = stringResource(R.string.blur_unfocused_lyrics_subtitle),
+                        icon = SfIcons.AutoAwesome,
+                        title = homeTitle,
+                        onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
+                    )
+                }
+                val themeTitle = stringResource(R.string.theme)
+                row(themeTitle, "dark mode", "light mode") {
+                    SettingsRow(icon = Icons.Rounded.Brightness4, title = themeTitle)
+                    SegmentedControl(
+                        options = ThemeMode.entries.map { it.localizedLabel() },
+                        selectedIndex = ThemeMode.entries.indexOf(theme),
+                        onSelect = { AppSettings.setThemeMode(ThemeMode.entries[it]) },
+                        modifier = Modifier.padding(start = ROW_INSET, end = ROW_INSET, bottom = 14.dp),
+                    )
+                }
+                val fontTitle = stringResource(R.string.font)
+                row(fontTitle, "typeface", "sf pro", "legacy") {
+                    SettingsRow(
+                        icon = SfIcons.Font,
+                        title = fontTitle,
+                        subtitle = appFont.description(),
+                        value = appFont.localizedLabel(),
+                        onClick = { onOpenChoice(SettingsChoiceKind.FONT) },
+                    )
+                }
+                val reduceAnimationTitle = stringResource(R.string.reduce_animation)
+                row(reduceAnimationTitle, "motion") {
+                    SettingsRow(
+                        icon = SfIcons.MotionPhotosOff,
+                        title = reduceAnimationTitle,
+                        subtitle = stringResource(R.string.reduce_animation_subtitle),
                         trailing = {
                             IosSwitch(
-                                checked = lyricsBlur,
-                                onCheckedChange = AppSettings::setLyricsBlur,
+                                checked = reduceAnimation,
+                                onCheckedChange = AppSettings::setReduceAnimation,
                             )
                         },
-                        onClick = { AppSettings.setLyricsBlur(!lyricsBlur) },
+                        onClick = { AppSettings.setReduceAnimation(!reduceAnimation) },
                     )
                 }
-                val lyricsSourcesTitle = stringResource(R.string.lyrics_sources)
-                row(lyricsSourcesTitle, "lyrics", "lrclib", "musixmatch") {
+                val reduceDynamicBlurTitle = stringResource(R.string.reduce_dynamic_blur)
+                row(reduceDynamicBlurTitle, "blur", "performance") {
                     SettingsRow(
-                        icon = SfIcons.Language,
-                        title = lyricsSourcesTitle,
-                        subtitle = lyricsSources
-                            .sortedBy { it.ordinal }
-                            .joinToString(", ") { it.label }
-                            .ifEmpty { stringResource(R.string.no_lyrics_sources_enabled) },
-                        trailing = { Chevron() },
-                        onClick = onLyricsSources,
-                    )
-                }
-                val translationLanguageTitle = stringResource(R.string.translation_language)
-                row(translationLanguageTitle, "lyrics", "translate") {
-                    SettingsRow(
-                        icon = SfIcons.Translate,
-                        title = translationLanguageTitle,
-                        subtitle = if (translationLanguage.isBlank()) {
-                            stringResource(R.string.translation_language_subtitle)
-                        } else {
-                            translationLanguageName(
-                                translationLanguage,
-                                AppCompatDelegate.getApplicationLocales().get(0) ?: Locale.getDefault(),
+                        icon = SfIcons.BlurOff,
+                        title = reduceDynamicBlurTitle,
+                        subtitle = stringResource(R.string.reduce_dynamic_blur_subtitle),
+                        trailing = {
+                            IosSwitch(
+                                checked = reduceDynamicBlur,
+                                onCheckedChange = AppSettings::setReduceDynamicBlur,
                             )
                         },
-                        trailing = { Chevron() },
-                        onClick = onTranslationLanguage,
+                        onClick = { AppSettings.setReduceDynamicBlur(!reduceDynamicBlur) },
                     )
+                }
+                val disableBlendEffectsTitle = stringResource(R.string.disable_blend_effects)
+                row(disableBlendEffectsTitle, "blend", "blending", "colour", "color", "tint", "player", "menu") {
+                    SettingsRow(
+                        icon = SfIcons.Gradient,
+                        title = disableBlendEffectsTitle,
+                        subtitle = stringResource(R.string.disable_blend_effects_subtitle),
+                        trailing = {
+                            IosSwitch(
+                                checked = disableBlendEffects,
+                                onCheckedChange = AppSettings::setDisableBlendEffects,
+                            )
+                        },
+                        onClick = { AppSettings.setDisableBlendEffects(!disableBlendEffects) },
+                    )
+                }
+                val liquidGlassTitle = stringResource(R.string.liquid_glass)
+                row(liquidGlassTitle, "glass", "blur") {
+                    SettingsRow(
+                        icon = SfIcons.AutoAwesome,
+                        title = liquidGlassTitle,
+                        subtitle = stringResource(
+                            if (liquidGlassSupported) {
+                                R.string.liquid_glass_subtitle
+                            } else {
+                                R.string.liquid_glass_unavailable
+                            },
+                        ),
+                        enabled = liquidGlassSupported,
+                        trailing = {
+                            IosSwitch(
+                                checked = liquidGlass,
+                                onCheckedChange = AppSettings::setLiquidGlass,
+                                enabled = liquidGlassSupported,
+                            )
+                        },
+                        onClick = { AppSettings.setLiquidGlass(!liquidGlass) },
+                    )
+                }
+                // One line each, like Direct Source Stream under Sources, and only
+                // while Liquid Glass is on: they qualify the glass rather than standing
+                // on their own. Progressive Blur has its own switch because it costs
+                // frames of its own. Reduce dynamic blur turns it off.
+                if (liquidGlass && liquidGlassSupported) {
+                    val glassPerformanceTitle = stringResource(R.string.glass_performance)
+                    row(glassPerformanceTitle, "glass", "performance", "refraction", "frosted", "lag", divided = false) {
+                        SettingsSubRow(
+                            title = glassPerformanceTitle,
+                            checked = glassPerformance,
+                            onCheckedChange = AppSettings::setGlassPerformance,
+                        )
+                    }
+                    val progressiveBlurTitle = stringResource(R.string.progressive_blur)
+                    row(progressiveBlurTitle, "blur", "status bar", "top", divided = false) {
+                        SettingsSubRow(
+                            title = progressiveBlurTitle,
+                            checked = progressiveBlur,
+                            onCheckedChange = AppSettings::setProgressiveBlur,
+                        )
+                    }
+                }
+                // Listed at every width: the page itself keeps the framed sleeve
+                // wherever a square the window's width wouldn't fit — see
+                // [ReleaseHeader].
+                val fullScreenDetailCoverTitle = stringResource(R.string.full_screen_detail_cover)
+                row(fullScreenDetailCoverTitle, "artwork", "album", "playlist", "cover") {
+                    SettingsRow(
+                        icon = SfIcons.Fullscreen,
+                        title = fullScreenDetailCoverTitle,
+                        subtitle = stringResource(R.string.full_screen_detail_cover_subtitle),
+                        trailing = {
+                            IosSwitch(
+                                checked = fullBleedDetailArtwork,
+                                onCheckedChange = AppSettings::setFullBleedDetailArtwork,
+                            )
+                        },
+                        onClick = { AppSettings.setFullBleedDetailArtwork(!fullBleedDetailArtwork) },
+                    )
+                }
+                val artistSignaturesTitle = stringResource(R.string.artist_signatures)
+                row(artistSignaturesTitle, "signature", "artist", "logo") {
+                    SettingsRow(
+                        icon = SfIcons.Draw,
+                        title = artistSignaturesTitle,
+                        subtitle = stringResource(R.string.artist_signatures_subtitle),
+                        trailing = {
+                            IosSwitch(
+                                checked = signatureApiEnabled,
+                                onCheckedChange = AppSettings::setSignatureApiEnabled,
+                            )
+                        },
+                        onClick = { AppSettings.setSignatureApiEnabled(!signatureApiEnabled) },
+                    )
+                }
+                if (signatureApiEnabled) {
+                    val signatureUrlTitle = stringResource(R.string.artist_signatures_url)
+                    row(signatureUrlTitle, "signature", "api", "url", divided = false) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = onEditSignatureApi)
+                                .padding(start = ROW_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = signatureApiUrl.ifBlank {
+                                    stringResource(R.string.artist_signatures_unconfigured)
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Chevron()
+                        }
+                    }
+                }
+            }
+
+            SearchableSettingsGroup(search, header = stringResource(R.string.settings_now_playing_skin)) {
+                val layoutTitle = stringResource(R.string.now_playing_layout)
+                row(layoutTitle, "player", "skin", "vinyl", "poster", "default") {
+                    SettingsRow(
+                        icon = SfIcons.Appearance,
+                        title = layoutTitle,
+                        subtitle = nowPlayingLayoutLabel(nowPlayingLayout),
+                        onClick = { onOpenChoice(SettingsChoiceKind.NOW_PLAYING_LAYOUT) },
+                    )
+                }
+                if (searching) {
+                    val defaultOptions = listOf(
+                        R.string.full_screen_cover_art to listOf("artwork", "cover", "player", "default"),
+                        R.string.player_theme to listOf("theme", "player", "default"),
+                        R.string.animated_cover_art to listOf("canvas", "video", "spotify", "default"),
+                        R.string.integrate_spotify_canvas to listOf("spotify", "canvas", "default"),
+                        R.string.animated_cover_cellular to listOf("canvas", "cellular", "mobile data", "default"),
+                        R.string.spotify_canvas_auto_hide to listOf("spotify", "canvas", "auto hide", "default"),
+                    )
+                    for ((option, keywords) in defaultOptions) {
+                        val label = stringResource(option)
+                        row(label, *keywords.toTypedArray()) {
+                            SettingsRow(
+                                icon = SfIcons.Appearance,
+                                title = label,
+                                subtitle = nowPlayingLayoutLabel(NowPlayingLayout.DEFAULT),
+                                onClick = {
+                                    if (option == R.string.integrate_spotify_canvas) {
+                                        onSpotifyCanvasAuth()
+                                    } else {
+                                        onOpenChoice(SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    val vinylTitle = stringResource(R.string.vinyl_appearance)
+                    row(vinylTitle, "vinyl", "record", "color", "finish", "disc", "pinwheel", "gold") {
+                        SettingsRow(
+                            icon = SfIcons.Appearance,
+                            title = vinylTitle,
+                            subtitle = nowPlayingLayoutLabel(NowPlayingLayout.VINYL),
+                            onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
+                        )
+                    }
+                    for ((layout, page) in listOf(
+                        NowPlayingLayout.DEFAULT to SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS,
+                        NowPlayingLayout.VINYL to SettingsChoiceKind.VINYL_LAYOUT_SETTINGS,
+                        NowPlayingLayout.POSTER to SettingsChoiceKind.POSTER_LAYOUT_SETTINGS,
+                    )) {
+                        val label = stringResource(R.string.hide_volume_bar)
+                        val skin = nowPlayingLayoutLabel(layout)
+                        row(label, skin, "$label $skin", "$skin $label", "volume") {
+                            SettingsRow(
+                                icon = SfIcons.VolumeOff,
+                                title = label,
+                                subtitle = skin,
+                                onClick = { onOpenChoice(page) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            SearchableSettingsGroup(search, header = stringResource(R.string.settings_lyrics_all_skins)) {
+                val syncedLyricsTitle = stringResource(R.string.synced_lyrics)
+                // Carries the keywords of the rows that only appear once it is on,
+                // so searching "lrclib" or "translation" while off still finds the toggle.
+                row(syncedLyricsTitle, "lyrics", "translation", "lrclib", "musixmatch", "poster") {
+                    SettingsRow(
+                        icon = SfIcons.Notes,
+                        title = syncedLyricsTitle,
+                        subtitle = stringResource(R.string.synced_lyrics_subtitle),
+                        trailing = {
+                            IosSwitch(
+                                checked = syncedLyrics,
+                                onCheckedChange = AppSettings::setSyncedLyrics,
+                            )
+                        },
+                        onClick = { AppSettings.setSyncedLyrics(!syncedLyrics) },
+                    )
+                }
+                val lyricsStyleTitle = stringResource(R.string.lyrics_style)
+                row(lyricsStyleTitle, "lyrics", "motion", "karaoke") {
+                    SettingsRow(
+                        icon = SfIcons.MusicNote,
+                        title = lyricsStyleTitle,
+                        subtitle = lyricsStyleLabel(lyricsStyle),
+                        onClick = { onOpenChoice(SettingsChoiceKind.LYRICS_STYLE) },
+                    )
+                }
+                // Nothing to choose between while the feature is off, and the
+                // sources are third-party services being reached on the user's
+                // connection — which is the part worth being able to narrow.
+                if (syncedLyrics) {
+                    val lyricsBlurTitle = stringResource(R.string.blur_unfocused_lyrics)
+                    row(lyricsBlurTitle, "lyrics", "blur") {
+                        SettingsRow(
+                            icon = SfIcons.BlurOn,
+                            title = lyricsBlurTitle,
+                            subtitle = stringResource(R.string.blur_unfocused_lyrics_subtitle),
+                            trailing = {
+                                IosSwitch(
+                                    checked = lyricsBlur,
+                                    onCheckedChange = AppSettings::setLyricsBlur,
+                                )
+                            },
+                            onClick = { AppSettings.setLyricsBlur(!lyricsBlur) },
+                        )
+                    }
+                    val lyricsSourcesTitle = stringResource(R.string.lyrics_sources)
+                    row(lyricsSourcesTitle, "lyrics", "lrclib", "musixmatch") {
+                        SettingsRow(
+                            icon = SfIcons.Language,
+                            title = lyricsSourcesTitle,
+                            subtitle = lyricsSources
+                                .sortedBy { it.ordinal }
+                                .joinToString(", ") { it.label }
+                                .ifEmpty { stringResource(R.string.no_lyrics_sources_enabled) },
+                            trailing = { Chevron() },
+                            onClick = onLyricsSources,
+                        )
+                    }
+                    val translationLanguageTitle = stringResource(R.string.translation_language)
+                    row(translationLanguageTitle, "lyrics", "translate") {
+                        SettingsRow(
+                            icon = SfIcons.Translate,
+                            title = translationLanguageTitle,
+                            subtitle = if (translationLanguage.isBlank()) {
+                                stringResource(R.string.translation_language_subtitle)
+                            } else {
+                                translationLanguageName(
+                                    translationLanguage,
+                                    AppCompatDelegate.getApplicationLocales().get(0) ?: Locale.getDefault(),
+                                )
+                            },
+                            trailing = { Chevron() },
+                            onClick = onTranslationLanguage,
+                        )
+                    }
                 }
             }
         }
@@ -2946,6 +2922,8 @@ fun SettingsChoicePage(
     modifier: Modifier = Modifier,
     currentArtwork: String? = null,
     windowWidth: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp,
+    onOpenChoice: (SettingsChoiceKind) -> Unit = {},
+    onSpotifyCanvasAuth: () -> Unit = {},
 ) {
     Column(
         modifier
@@ -3048,6 +3026,7 @@ fun SettingsChoicePage(
                 var cellular by rememberSaveable { mutableStateOf(AppSettings.canvasOverCellular.value) }
                 var autoHide by rememberSaveable { mutableStateOf(AppSettings.spotifyCanvasAutoHide.value) }
                 val coversEnabled by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
+                val syncedLyrics by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
                 val hideVolume: (NowPlayingLayout) -> Boolean = { skin ->
                     when (skin) {
                         NowPlayingLayout.DEFAULT -> defaultHide
@@ -3078,7 +3057,17 @@ fun SettingsChoicePage(
                     defaultPlayerTheme = theme,
                     options = { skin ->
                         Column(Modifier.fillMaxWidth().padding(horizontal = ROW_INSET)) {
-                            SettingsSubRow(stringResource(R.string.hide_volume_bar), checked = hideVolume(skin),
+                            if (skin == NowPlayingLayout.VINYL) {
+                                SettingsRow(
+                                    icon = SfIcons.Appearance,
+                                    title = stringResource(R.string.vinyl_appearance),
+                                    trailing = { Chevron() },
+                                    onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
+                                )
+                            }
+                            SettingsSubRow(
+                                stringResource(R.string.hide_volume_bar),
+                                checked = hideVolume(skin),
                                 onCheckedChange = { hidden ->
                                     when (skin) {
                                         NowPlayingLayout.DEFAULT -> defaultHide = hidden
@@ -3087,14 +3076,26 @@ fun SettingsChoicePage(
                                     }
                                 },
                             )
+                            if (skin == NowPlayingLayout.POSTER) {
+                                SettingsSubRow(
+                                    stringResource(R.string.synced_lyrics),
+                                    checked = syncedLyrics,
+                                    onCheckedChange = AppSettings::setSyncedLyrics,
+                                    subtitle = stringResource(R.string.poster_live_lyrics_subtitle),
+                                )
+                            }
                             if (skin == NowPlayingLayout.DEFAULT) {
                                 if (fullBleedArtworkAvailable(windowWidth)) {
-                                    SettingsSubRow(stringResource(R.string.full_screen_cover_art),
-                                        checked = fullBleed, onCheckedChange = { fullBleed = it },
-                                        subtitle = stringResource(R.string.full_screen_cover_art_subtitle))
+                                    SettingsSubRow(
+                                        stringResource(R.string.full_screen_cover_art),
+                                        checked = fullBleed,
+                                        onCheckedChange = { fullBleed = it },
+                                        subtitle = stringResource(R.string.full_screen_cover_art_subtitle),
+                                    )
                                 }
                                 SettingsRow(
-                                    icon = SfIcons.Gradient, title = stringResource(R.string.player_theme),
+                                    icon = SfIcons.Gradient,
+                                    title = stringResource(R.string.player_theme),
                                     subtitle = theme.description(),
                                 )
                                 SegmentedControl(
@@ -3103,12 +3104,41 @@ fun SettingsChoicePage(
                                     onSelect = { theme = PlayerTheme.entries[it] },
                                     modifier = Modifier.padding(horizontal = ROW_INSET, vertical = 8.dp),
                                 )
+                                SettingsSubRow(
+                                    stringResource(R.string.animated_cover_art),
+                                    checked = coversEnabled,
+                                    onCheckedChange = AppSettings::setAnimatedCanvas,
+                                    subtitle = stringResource(R.string.animated_cover_art_subtitle),
+                                )
                                 if (coversEnabled) {
-                                    SettingsSubRow(stringResource(R.string.animated_cover_cellular),
-                                        checked = cellular, onCheckedChange = { cellular = it })
-                                    SettingsSubRow(stringResource(R.string.spotify_canvas_auto_hide),
-                                        checked = autoHide, onCheckedChange = { autoHide = it },
-                                        subtitle = stringResource(R.string.spotify_canvas_auto_hide_subtitle))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(onClick = onSpotifyCanvasAuth)
+                                            .padding(start = ROW_INSET, end = ROW_INSET, top = 8.dp, bottom = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.integrate_spotify_canvas),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Chevron()
+                                    }
+                                    SettingsSubRow(
+                                        stringResource(R.string.animated_cover_cellular),
+                                        checked = cellular,
+                                        onCheckedChange = { cellular = it },
+                                    )
+                                    SettingsSubRow(
+                                        stringResource(R.string.spotify_canvas_auto_hide),
+                                        checked = autoHide,
+                                        onCheckedChange = { autoHide = it },
+                                        subtitle = stringResource(R.string.spotify_canvas_auto_hide_subtitle),
+                                    )
                                 }
                             }
                         }

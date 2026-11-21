@@ -1415,6 +1415,10 @@
     <string name="export_diagnostic_log">Xuất nhật ký chẩn đoán</string>
     <string name="diagnostic_report_error">Không thể mở hoặc xuất báo cáo chẩn đoán.</string>
     <string name="now_playing_layout">Bố cục trình phát</string>
+    <string name="settings_app_appearance">Giao diện ứng dụng</string>
+    <string name="settings_now_playing_skin">Giao diện trình phát</string>
+    <string name="settings_lyrics_all_skins">Lời bài hát (Mọi giao diện)</string>
+    <string name="poster_live_lyrics_subtitle">Hiển thị lời đồng bộ trực tiếp trên màn hình Áp phích</string>
     <string name="lyrics_style">Kiểu lời bài hát</string>
     <string name="lyrics_style_scope">Áp dụng cho màn hình lời bài hát mở rộng. Áp phích dùng hiệu ứng riêng.</string>
     <string name="video_mode">Chế độ video</string>

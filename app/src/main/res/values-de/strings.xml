@@ -1498,6 +1498,10 @@
     <string name="export_diagnostic_log">Diagnoseprotokoll exportieren</string>
     <string name="diagnostic_report_error">Der Diagnosebericht konnte nicht geöffnet oder exportiert werden.</string>
     <string name="now_playing_layout">Wiedergabelayout</string>
+    <string name="settings_app_appearance">App-Darstellung</string>
+    <string name="settings_now_playing_skin">Now-Playing-Design</string>
+    <string name="settings_lyrics_all_skins">Songtexte (Alle Designs)</string>
+    <string name="poster_live_lyrics_subtitle">Live-Songtexte auf dem Poster-Bildschirm anzeigen</string>
     <string name="lyrics_style">Liedtextstil</string>
     <string name="lyrics_style_scope">Gilt für die erweiterte Liedtextansicht. Poster verwendet einen eigenen Effekt.</string>
     <string name="video_mode">Videomodus</string>

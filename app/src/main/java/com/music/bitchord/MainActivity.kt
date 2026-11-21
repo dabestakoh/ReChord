@@ -3190,6 +3190,8 @@ private fun BitChordApp(
                                 onConfirmBitPerfect = { confirmBitPerfect = it },
                                 contentPadding = listPadding,
                                 currentArtwork = com.music.bitchord.ui.components.rememberRemoteArtworkUrl(player.song),
+                                onOpenChoice = { navigator.push(AppRoute.SettingsChoice(it)) },
+                                onSpotifyCanvasAuth = { showSpotifyCanvasAuth = true },
                             )
                         } else if (pageRoute == AppRoute.Settings || pageRoute is AppRoute.SettingsSection) {
                             // The main page and every category's page are the
@@ -4703,10 +4705,7 @@ private fun BitChordApp(
                     null
                 },
                 upgradeQualityInProgress = fromPlayer && song.videoId in qualityUpgradesInFlight,
-                onToggleAudioVersion = onToggleVersion.takeUnless {
-                    fromPlayer && nowPlayingLayout != NowPlayingLayout.DEFAULT &&
-                        versionMenuAction != VersionDisplayAction.PLAY_AUDIO_VERSION
-                },
+                onToggleAudioVersion = onToggleVersion,
                 onNowPlayingLayout = if (fromPlayer) {
                     { songActions = null; showPlayerLayouts = true }
                 } else null,

@@ -196,19 +196,11 @@ internal fun VinylDisc(
         }
     }
     val picture = style.finish == VinylFinish.PICTURE_DISC
-    val colorMode = if (picture) VinylColorMode.BLACK else style.colorMode
-    val raw = when (colorMode) {
-        VinylColorMode.BLACK -> Color(0xFF17181A)
-        VinylColorMode.ALBUM -> palette
-        VinylColorMode.CUSTOM -> Color(style.customColor)
-    }
-    val neutral = colorMode == VinylColorMode.BLACK || raw == Color.Unspecified || raw == Color.White
-    val base = if (neutral) Color(0xFF17181A) else {
-        lerp(raw.copy(alpha = 1f), Color(0xFF141416), if (raw.luminance() > 0.55f) 0.39f else 0.19f)
-    }
-    val customTint = style.secondaryColor.takeIf { colorMode == VinylColorMode.CUSTOM }
-    val tint = customTint?.let { Color(it) } ?: lerp(base, Color.White, if (neutral) 0.41f else 0.60f)
-    val darkTint = lerp(base, Color.Black, 0.74f)
+    val colors = resolveVinylColors(style, palette)
+    val base = colors.base
+    val tint = colors.tint
+    val darkTint = colors.darkTint
+    val accentColor = colors.accent
 
     BoxWithConstraints(modifier) {
         val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -245,166 +237,23 @@ internal fun VinylDisc(
         }
         Box(at.graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true }) {
             Box(Modifier.fillMaxSize().drawWithCache {
-                val random = Random(albumKey.hashCode() xor style.finish.ordinal * 73)
                 val r = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val baseFill = when (style.finish) {
-                    VinylFinish.TRANSLUCENT -> base.copy(alpha = 0.45f)
-                    VinylFinish.SMOKED -> base.copy(alpha = 0.67f)
-                    VinylFinish.PICTURE_DISC -> if (artwork != null) Color.Transparent else base
-                    else -> base
-                }
-                val swirlPaths = if (style.finish == VinylFinish.MARBLED || style.finish == VinylFinish.SWIRL) {
-                    List(if (style.finish == VinylFinish.SWIRL) 11 else 19) { i ->
-                        val marble = style.finish == VinylFinish.MARBLED
-                        val phase = random.nextFloat() * 6.283f
-                        val offset = (i - 8) * r * (0.092f + random.nextFloat() * 0.038f)
-                        val amplitude = r * (0.07f + random.nextFloat() * 0.17f)
-                        val start = phase * 0.36f + offset / r.coerceAtLeast(1f)
-                        val points = List(65) { step ->
-                            val t = step / 64f
-                            if (marble) {
-                                val x = (t * 2.55f - 1.275f) * r
-                                val y = offset + sin(t * 8f + phase) * amplitude +
-                                    sin(t * 19f + phase * 1.6f) * amplitude * 0.27f
-                                val angle = 0.55f
-                                center + Offset(x * cos(angle) - y * sin(angle), x * sin(angle) + y * cos(angle))
-                            } else {
-                                val distance = r * (0.24f + t * 0.90f) +
-                                    sin(t * 9f + phase) * amplitude * 0.28f
-                                polar(center, distance, start + t * (3.2f + sin(phase) * 1.1f))
-                            }
-                        }
-                        Path().apply {
-                            moveTo(points.first().x, points.first().y)
-                            for (step in 1 until points.lastIndex) {
-                                val point = points[step]
-                                val middle = (point + points[step + 1]) * 0.5f
-                                quadraticTo(point.x, point.y, middle.x, middle.y)
-                            }
-                            lineTo(points.last().x, points.last().y)
-                        }
-                    }
-                } else emptyList()
-                val spots = List(120) {
-                    val radial = r * (0.50f + 0.53f * random.nextFloat())
-                    polar(center, radial, random.nextFloat() * 6.283f) to (0.12f + random.nextFloat())
-                }
-                val haze = List(9) { i ->
-                    val pt = polar(center, r * (0.62f + random.nextFloat() * 0.30f), random.nextFloat() * 6.283f)
-                    val ink = when {
-                        style.finish == VinylFinish.SMOKED -> darkTint
-                        i % 2 == 0 -> tint
-                        else -> lerp(tint, Color(0xFF8D57BD), 0.62f)
-                    }
-                    Brush.radialGradient(listOf(ink.copy(alpha = 0.83f), ink.copy(alpha = 0f)), pt, (r * 0.41f).coerceAtLeast(1f))
-                }
+                val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
                 onDrawBehind {
                     if (r <= 0f) return@onDrawBehind
-                    drawCircle(baseFill, r)
-                    when (style.finish) {
-                        VinylFinish.TRANSLUCENT, VinylFinish.SMOKED -> {
-                            drawCircle(
-                                Brush.radialGradient(
-                                    0.46f to base, 0.58f to tint.copy(alpha = 0.50f),
-                                    0.86f to Color.Transparent, 1f to tint.copy(alpha = 0.44f),
-                                    center = center, radius = r,
-                                ),
-                                r,
-                            )
-                            if (style.finish == VinylFinish.SMOKED) {
-                                for (cloud in haze) drawRect(cloud)
-                            }
-                        }
-                        VinylFinish.MARBLED, VinylFinish.SWIRL -> {
-                            for ((i, path) in swirlPaths.withIndex()) {
-                                val ink = if (i % 3 == 0) darkTint else tint
-                                val width = if (style.finish == VinylFinish.MARBLED) 0.009f else 0.037f
-                                val band = r * width * (1 + i % 4)
-                                drawPath(path, ink.copy(alpha = 0.13f), style = Stroke(band * 2.3f, cap = StrokeCap.Round))
-                                drawPath(path, ink.copy(alpha = 0.30f + (i % 3) * 0.10f),
-                                    style = Stroke(band, cap = StrokeCap.Round))
-                            }
-                        }
-                        VinylFinish.GALAXY -> {
-                            drawCircle(darkTint, r)
-                            for (cloud in haze) drawRect(cloud)
-                            for ((point, amount) in spots) {
-                                drawCircle(Color.White.copy(alpha = 0.52f * amount), r * 0.003f * amount, point)
-                            }
-                        }
-                        VinylFinish.SPLATTER, VinylFinish.GLITTER -> {
-                            val glitter = style.finish == VinylFinish.GLITTER
-                            for ((point, amount) in spots) {
-                                if (glitter) {
-                                    val sparkle = lerp(tint, Color.White, 0.68f).copy(alpha = amount * 0.77f)
-                                    val fleck = r * 0.006f * amount
-                                    drawCircle(sparkle, fleck, point)
-                                } else {
-                                    val ink = if (amount > 0.69f) tint else darkTint
-                                    val angle = atan2(point.y - center.y, point.x - center.x)
-                                    val end = polar(point, r * 0.082f * amount * amount, angle + (amount - 0.7f) * 0.85f)
-                                    drawLine(ink.copy(alpha = 0.17f), point, end, r * 0.032f * amount, StrokeCap.Round)
-                                    drawLine(ink.copy(alpha = 0.77f), point, end, r * 0.014f * amount, StrokeCap.Round)
-                                    drawCircle(ink.copy(alpha = 0.63f), r * 0.013f * amount, point)
-                                }
-                            }
-                        }
-                        VinylFinish.SPLIT -> drawArc(lerp(base, tint, 0.92f), 21f, 180f, true,
-                            size = Size(r * 2f, r * 2f))
-                        VinylFinish.COLOR_IN_COLOR -> drawCircle(
-                            Brush.radialGradient(
-                                0.62f to tint.copy(alpha = 0.88f), 0.68f to tint.copy(alpha = 0.75f),
-                                0.75f to Color.Transparent, center = center, radius = r,
-                            ), r,
-                        )
-                        VinylFinish.SHIMMER, VinylFinish.METALLIC -> {
-                            val strong = style.finish == VinylFinish.METALLIC
-                            drawCircle(
-                                if (strong) Brush.sweepGradient(
-                                    0f to darkTint, 0.14f to tint, 0.24f to base, 0.39f to darkTint,
-                                    0.61f to tint, 0.71f to base, 1f to darkTint, center = center,
-                                ) else Brush.linearGradient(
-                                    listOf(darkTint, tint.copy(alpha = 0.14f), tint.copy(alpha = 0.73f),
-                                        base.copy(alpha = 0.5f), tint.copy(alpha = 0.44f)),
-                                    start = Offset(0f, r * 2f), end = Offset(r * 2f, 0f),
-                                ), r,
-                            )
-                            if (!strong) for ((point, amount) in spots) {
-                                drawCircle(tint.copy(alpha = 0.28f), r * 0.005f * amount, point)
-                            }
-                        }
-                        VinylFinish.PLAIN, VinylFinish.PICTURE_DISC -> Unit
-                    }
+                    drawVinylWax(style.finish, r, center, base, tint, darkTint, accentColor, artwork != null, cache)
                 }
             })
         }
         Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size, mountTopInset)
+            val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
-            val sheen = Brush.sweepGradient(
-                listOf(Color.Transparent, Color.Black.copy(alpha = 0.26f),
-                    Color.Transparent, Color.White.copy(alpha = 0.18f),
-                    Color.Transparent, Color.White.copy(alpha = 0.12f), Color.Transparent), c,
-            )
-            val fine = Brush.radialGradient(
-                0f to Color.Transparent, 0.53f to Color.Black.copy(alpha = 0.18f), 1f to Color.Transparent,
-                center = c, radius = 2.35.dp.toPx(), tileMode = TileMode.Repeated,
-            )
-            val band = Stroke(r * 0.415f)
+            val grooveCache = buildGrooveOverlayCache(c, r, 1.2.dp.toPx(), 2.2.dp.toPx())
             onDrawBehind {
                 if (g.radius <= 0f) return@onDrawBehind
-                drawCircle(sheen, r * 0.75f, c, style = band)
-                drawCircle(fine, r * 0.75f, c, style = band)
-                for (i in 0..5) {
-                    val gap = 0.571f + i * 0.066f
-                    drawCircle(Color.Black.copy(alpha = 0.28f), r * gap, c, style = Stroke(1.dp.toPx()))
-                    drawCircle(sheen, r * (gap + 0.004f), c, style = Stroke(1.4.dp.toPx()))
-                }
-                drawCircle(Color.Black.copy(alpha = 0.40f), r * 0.527f, c, style = Stroke(r * 0.045f))
-                drawCircle(Color.Black.copy(alpha = 0.73f), r * 0.992f, c, style = Stroke(r * 0.014f))
-                drawCircle(sheen, r * 0.978f, c, style = Stroke(r * 0.020f))
+                drawGrooveOverlay(c, r, pictureCover, grooveCache)
                 val p = shown().coerceIn(0f, 1f)
                 val tip = g.tip(p)
                 val activeRadius = (tip - c).getDistance()
@@ -433,7 +282,420 @@ internal fun VinylDisc(
                     clip = true
                     alpha = coverAlpha()
                 })
+                Canvas(Modifier.fillMaxSize()) {
+                    val lr = size.minDimension / 2f
+                    val lc = Offset(size.width / 2f, size.height / 2f)
+                    drawCircle(Color.Black.copy(alpha = 0.28f), lr - 0.8f, lc, style = Stroke(1.6f))
+                    drawCircle(Color.White.copy(alpha = 0.14f), lr * 0.94f, lc, style = Stroke(1f))
+                    drawSpindleHole(lc, lr * 0.115f)
+                }
             }
+        } else {
+            Canvas(labelModifier) {
+                val lr = size.minDimension / 2f
+                val lc = Offset(size.width / 2f, size.height / 2f)
+                drawSpindleHole(lc, lr * 0.115f)
+            }
+        }
+    }
+}
+
+private data class VinylColors(val base: Color, val tint: Color, val darkTint: Color, val accent: Color)
+
+private fun resolveVinylColors(style: VinylAppearance, palette: Color): VinylColors {
+    if (style.finish == VinylFinish.GOLD_RECORD) {
+        val goldBase = Color(0xFFC8A042)
+        val goldTint = Color(0xFFF7E29C)
+        val goldDark = Color(0xFF6B4E12)
+        val goldAccent = Color(0xFFE6C367)
+        return VinylColors(goldBase, goldTint, goldDark, goldAccent)
+    }
+    val picture = style.finish == VinylFinish.PICTURE_DISC
+    val colorMode = if (picture) VinylColorMode.BLACK else style.colorMode
+    val raw = when (colorMode) {
+        VinylColorMode.BLACK -> Color(0xFF17181A)
+        VinylColorMode.ALBUM -> palette
+        VinylColorMode.CUSTOM -> Color(style.customColor)
+    }
+    val neutral = colorMode == VinylColorMode.BLACK || raw == Color.Unspecified || raw == Color.White
+    val base = if (neutral) Color(0xFF17181A) else {
+        lerp(raw.copy(alpha = 1f), Color(0xFF141416), if (raw.luminance() > 0.55f) 0.34f else 0.16f)
+    }
+    val customTint = style.secondaryColor.takeIf { colorMode == VinylColorMode.CUSTOM }
+    val tint = customTint?.let { Color(it) } ?: lerp(base, Color.White, if (neutral) 0.44f else 0.60f)
+    val darkTint = lerp(base, Color.Black, 0.72f)
+    val accent = customTint?.let { Color(it) } ?: lerp(tint, Color(0xFFE7D3A3), if (neutral) 0.25f else 0.15f)
+    return VinylColors(base, tint, darkTint, accent)
+}
+
+private class VinylWaxCache(
+    val swirlPaths: List<Path>,
+    val spots: List<Pair<Offset, Float>>,
+    val haze: List<Brush>,
+)
+
+private fun buildVinylWaxCache(
+    finish: VinylFinish,
+    seedKey: String,
+    r: Float,
+    center: Offset,
+    base: Color,
+    tint: Color,
+    darkTint: Color,
+    accent: Color,
+): VinylWaxCache {
+    val random = Random(seedKey.hashCode() xor finish.ordinal * 73)
+    val swirlPaths = if (finish == VinylFinish.MARBLED || finish == VinylFinish.SWIRL) {
+        List(if (finish == VinylFinish.SWIRL) 14 else 22) { i ->
+            val marble = finish == VinylFinish.MARBLED
+            val phase = random.nextFloat() * 6.283f
+            val offset = (i - 10) * r * (0.082f + random.nextFloat() * 0.036f)
+            val amplitude = r * (0.06f + random.nextFloat() * 0.16f)
+            val start = phase * 0.36f + offset / r.coerceAtLeast(1f)
+            val points = List(65) { step ->
+                val t = step / 64f
+                if (marble) {
+                    val x = (t * 2.55f - 1.275f) * r
+                    val y = offset + sin(t * 7.5f + phase) * amplitude +
+                        sin(t * 18f + phase * 1.6f) * amplitude * 0.28f
+                    val angle = 0.52f + (i % 3) * 0.08f
+                    center + Offset(x * cos(angle) - y * sin(angle), x * sin(angle) + y * cos(angle))
+                } else {
+                    val distance = r * (0.24f + t * 0.90f) +
+                        sin(t * 8.5f + phase) * amplitude * 0.24f
+                    polar(center, distance, start + t * (3.5f + sin(phase) * 1.0f))
+                }
+            }
+            Path().apply {
+                moveTo(points.first().x, points.first().y)
+                for (step in 1 until points.lastIndex) {
+                    val point = points[step]
+                    val middle = (point + points[step + 1]) * 0.5f
+                    quadraticTo(point.x, point.y, middle.x, middle.y)
+                }
+                lineTo(points.last().x, points.last().y)
+            }
+        }
+    } else emptyList()
+    val spotCount = when (finish) {
+        VinylFinish.GLITTER, VinylFinish.GALAXY -> 150
+        VinylFinish.SPLATTER -> 110
+        VinylFinish.SHIMMER -> 85
+        else -> 0
+    }
+    val spots = List(spotCount) {
+        val radial = r * (0.48f + 0.54f * random.nextFloat())
+        polar(center, radial, random.nextFloat() * 6.283f) to (0.14f + random.nextFloat())
+    }
+    val hazeCount = if (finish == VinylFinish.SMOKED || finish == VinylFinish.GALAXY) 11 else 0
+    val haze = List(hazeCount) { i ->
+        val pt = polar(center, r * (0.58f + random.nextFloat() * 0.34f), random.nextFloat() * 6.283f)
+        val ink = when {
+            finish == VinylFinish.SMOKED -> if (i % 3 == 0) lerp(darkTint, Color.Black, 0.35f) else darkTint
+            i % 3 == 0 -> tint
+            i % 3 == 1 -> lerp(tint, Color(0xFF8D57BD), 0.58f)
+            else -> lerp(accent, Color(0xFF4792B8), 0.48f)
+        }
+        Brush.radialGradient(
+            listOf(ink.copy(alpha = if (finish == VinylFinish.SMOKED) 0.72f else 0.78f), ink.copy(alpha = 0f)),
+            pt,
+            (r * (0.36f + (i % 3) * 0.08f)).coerceAtLeast(1f),
+        )
+    }
+    return VinylWaxCache(swirlPaths, spots, haze)
+}
+
+private fun DrawScope.drawVinylWax(
+    finish: VinylFinish,
+    r: Float,
+    center: Offset,
+    base: Color,
+    tint: Color,
+    darkTint: Color,
+    accent: Color,
+    hasArtwork: Boolean,
+    cache: VinylWaxCache,
+) {
+    val baseFill = when (finish) {
+        VinylFinish.TRANSLUCENT -> base.copy(alpha = 0.42f)
+        VinylFinish.SMOKED -> base.copy(alpha = 0.62f)
+        VinylFinish.GLITTER -> base.copy(alpha = 0.78f)
+        VinylFinish.PICTURE_DISC -> if (hasArtwork) Color.Transparent else base
+        else -> base
+    }
+    drawCircle(baseFill, r, center)
+    when (finish) {
+        VinylFinish.TRANSLUCENT, VinylFinish.SMOKED -> {
+            drawCircle(
+                Brush.radialGradient(
+                    0.44f to base.copy(alpha = 0.82f),
+                    0.56f to tint.copy(alpha = 0.44f),
+                    0.82f to Color.Transparent,
+                    0.96f to tint.copy(alpha = 0.46f),
+                    1f to base.copy(alpha = 0.78f),
+                    center = center,
+                    radius = r,
+                ),
+                r,
+                center,
+            )
+            if (finish == VinylFinish.SMOKED) {
+                for (cloud in cache.haze) drawRect(cloud)
+            }
+        }
+        VinylFinish.MARBLED, VinylFinish.SWIRL -> {
+            for ((i, path) in cache.swirlPaths.withIndex()) {
+                val ink = when (i % 3) {
+                    0 -> darkTint
+                    1 -> tint
+                    else -> lerp(tint, accent, 0.5f)
+                }
+                val width = if (finish == VinylFinish.MARBLED) 0.008f else 0.034f
+                val band = r * width * (1 + i % 4)
+                drawPath(path, ink.copy(alpha = 0.14f), style = Stroke(band * 2.5f, cap = StrokeCap.Round))
+                drawPath(path, ink.copy(alpha = 0.34f + (i % 3) * 0.11f), style = Stroke(band, cap = StrokeCap.Round))
+            }
+        }
+        VinylFinish.GALAXY -> {
+            drawCircle(darkTint, r, center)
+            for (cloud in cache.haze) drawRect(cloud)
+            for ((point, amount) in cache.spots) {
+                val starColor = if (amount > 0.85f) lerp(tint, Color.White, 0.75f) else Color.White
+                drawCircle(starColor.copy(alpha = (0.58f * amount).coerceAtMost(0.9f)), r * 0.0036f * amount, point)
+            }
+        }
+        VinylFinish.SPLATTER, VinylFinish.GLITTER -> {
+            val glitter = finish == VinylFinish.GLITTER
+            for ((point, amount) in cache.spots) {
+                if (glitter) {
+                    val sparkle = lerp(tint, Color.White, 0.72f).copy(alpha = (amount * 0.85f).coerceAtMost(0.95f))
+                    val fleck = r * 0.0065f * amount
+                    drawCircle(sparkle, fleck, point)
+                    if (amount > 0.82f) {
+                        drawCircle(Color.White.copy(alpha = 0.75f), fleck * 0.45f, point)
+                    }
+                } else {
+                    val ink = when {
+                        amount > 0.75f -> tint
+                        amount > 0.45f -> accent
+                        else -> darkTint
+                    }
+                    val angle = atan2(point.y - center.y, point.x - center.x)
+                    val end = polar(point, r * 0.105f * amount * amount, angle + (amount - 0.6f) * 0.55f)
+                    drawLine(ink.copy(alpha = 0.18f), point, end, r * 0.034f * amount, StrokeCap.Round)
+                    drawLine(ink.copy(alpha = 0.82f), point, end, r * 0.014f * amount, StrokeCap.Round)
+                    drawCircle(ink.copy(alpha = 0.72f), r * 0.015f * amount, point)
+                }
+            }
+        }
+        VinylFinish.SPLIT -> {
+            drawArc(lerp(base, tint, 0.90f), 21f, 180f, true, topLeft = center - Offset(r, r), size = Size(r * 2f, r * 2f))
+            val seamRad = 21f * (PI / 180f).toFloat()
+            val seamA = polar(center, r, seamRad)
+            val seamB = polar(center, r, seamRad + PI.toFloat())
+            drawLine(lerp(base, tint, 0.5f).copy(alpha = 0.45f), seamA, seamB, r * 0.025f)
+        }
+        VinylFinish.COLOR_IN_COLOR -> {
+            drawCircle(
+                Brush.radialGradient(
+                    0.56f to tint.copy(alpha = 0.92f),
+                    0.67f to tint.copy(alpha = 0.78f),
+                    0.74f to lerp(tint, base, 0.5f).copy(alpha = 0.35f),
+                    0.80f to Color.Transparent,
+                    center = center,
+                    radius = r,
+                ),
+                r,
+                center,
+            )
+        }
+        VinylFinish.SHIMMER, VinylFinish.METALLIC -> {
+            val strong = finish == VinylFinish.METALLIC
+            drawCircle(
+                if (strong) Brush.sweepGradient(
+                    0f to darkTint, 0.12f to tint, 0.22f to lerp(tint, Color.White, 0.35f), 0.30f to base,
+                    0.42f to darkTint, 0.60f to tint, 0.72f to lerp(tint, Color.White, 0.3f), 0.82f to base,
+                    1f to darkTint, center = center,
+                ) else Brush.linearGradient(
+                    listOf(
+                        darkTint,
+                        tint.copy(alpha = 0.22f),
+                        lerp(tint, Color.White, 0.28f).copy(alpha = 0.76f),
+                        base.copy(alpha = 0.52f),
+                        accent.copy(alpha = 0.46f),
+                    ),
+                    start = center + Offset(-r, r),
+                    end = center + Offset(r, -r),
+                ),
+                r,
+                center,
+            )
+            if (!strong) for ((point, amount) in cache.spots) {
+                drawCircle(Color.White.copy(alpha = 0.24f * amount), r * 0.005f * amount, point)
+            }
+        }
+        VinylFinish.PINWHEEL -> {
+            val wedges = 12
+            val sweep = 360f / wedges
+            val topLeft = center - Offset(r, r)
+            val box = Size(r * 2f, r * 2f)
+            for (i in 0 until wedges) {
+                val wedgeColor = if (i % 2 == 0) base else lerp(base, tint, 0.88f)
+                drawArc(wedgeColor, i * sweep, sweep + 0.6f, true, topLeft = topLeft, size = box)
+            }
+        }
+        VinylFinish.TRI_COLOR -> {
+            val topLeft = center - Offset(r, r)
+            val box = Size(r * 2f, r * 2f)
+            val c1 = base
+            val c2 = lerp(base, tint, 0.86f)
+            val c3 = lerp(darkTint, accent, 0.58f)
+            drawArc(c1, -30f, 120.8f, true, topLeft = topLeft, size = box)
+            drawArc(c2, 90f, 120.8f, true, topLeft = topLeft, size = box)
+            drawArc(c3, 210f, 120.8f, true, topLeft = topLeft, size = box)
+        }
+        VinylFinish.GOLD_RECORD -> {
+            drawCircle(
+                Brush.sweepGradient(
+                    0.00f to darkTint,
+                    0.11f to base,
+                    0.22f to tint,
+                    0.31f to Color(0xFFFFF4C8),
+                    0.41f to base,
+                    0.52f to darkTint,
+                    0.64f to base,
+                    0.75f to tint,
+                    0.83f to Color(0xFFFFF0B8),
+                    0.92f to base,
+                    1.00f to darkTint,
+                    center = center,
+                ),
+                r,
+                center,
+            )
+        }
+        VinylFinish.PICTURE_DISC -> {
+            drawCircle(Color.White.copy(alpha = 0.12f), r * 0.985f, center, style = Stroke(r * 0.03f))
+        }
+        VinylFinish.PLAIN -> Unit
+    }
+}
+
+private class GrooveOverlayCache(
+    val sheen: Brush,
+    val bands: Brush,
+    val fine: Brush,
+    val rimSheen: Brush,
+)
+
+private fun buildGrooveOverlayCache(center: Offset, radius: Float, finePeriodPx: Float, bandWidthPx: Float): GrooveOverlayCache {
+    val sheen = Brush.sweepGradient(
+        0.00f to Color.Transparent,
+        0.10f to Color.Black.copy(alpha = 0.24f),
+        0.22f to Color.Transparent,
+        0.34f to Color.White.copy(alpha = 0.20f),
+        0.44f to Color.Transparent,
+        0.64f to Color.Black.copy(alpha = 0.18f),
+        0.82f to Color.White.copy(alpha = 0.16f),
+        0.92f to Color.Transparent,
+        1.00f to Color.Transparent,
+        center = center,
+    )
+    val rimSheen = Brush.sweepGradient(
+        0.00f to Color.White.copy(alpha = 0.04f),
+        0.32f to Color.White.copy(alpha = 0.28f),
+        0.50f to Color.White.copy(alpha = 0.04f),
+        0.82f to Color.White.copy(alpha = 0.22f),
+        1.00f to Color.White.copy(alpha = 0.04f),
+        center = center,
+    )
+    val from = 0.56f
+    val to = 0.968f
+    val count = ((to - from) * radius / bandWidthPx.coerceAtLeast(1f)).toInt().coerceIn(10, 96)
+    val stops = ArrayList<Pair<Float, Color>>(count + 3)
+    stops += 0f to Color.Transparent
+    for (i in 0..count) {
+        val slow = 0.5f + 0.5f * sin(i * 0.29f + 1.5f * sin(i * 0.07f))
+        val dark = (0.04f + 0.16f * slow).coerceAtMost(0.28f)
+        stops += (from + (to - from) * i / count) to Color.Black.copy(alpha = dark)
+    }
+    stops += 1f to Color.Transparent
+    val bands = Brush.radialGradient(*stops.toTypedArray(), center = center, radius = radius)
+    val fine = Brush.radialGradient(
+        0f to Color.Transparent,
+        0.52f to Color.Black.copy(alpha = 0.16f),
+        1f to Color.Transparent,
+        center = center,
+        radius = finePeriodPx.coerceAtLeast(1.8f),
+        tileMode = TileMode.Repeated,
+    )
+    return GrooveOverlayCache(sheen, bands, fine, rimSheen)
+}
+
+private fun DrawScope.drawGrooveOverlay(
+    c: Offset,
+    r: Float,
+    pictureCover: Boolean,
+    cache: GrooveOverlayCache,
+) {
+    val grooveAlpha = if (pictureCover) 0.58f else 1f
+    val band = Stroke(r * 0.415f)
+    drawCircle(cache.sheen, r * 0.755f, c, alpha = grooveAlpha, style = band)
+    drawCircle(cache.bands, r * 0.755f, c, alpha = grooveAlpha, style = band)
+    drawCircle(cache.fine, r * 0.755f, c, alpha = grooveAlpha, style = band)
+    for (i in 0..5) {
+        val gap = 0.585f + i * 0.064f
+        drawCircle(Color.Black.copy(alpha = 0.30f * grooveAlpha), r * gap, c, style = Stroke(1.dp.toPx()))
+        drawCircle(cache.sheen, r * (gap + 0.004f), c, alpha = grooveAlpha, style = Stroke(1.3.dp.toPx()))
+    }
+    drawCircle(Color.Black.copy(alpha = 0.42f * grooveAlpha), r * 0.534f, c, style = Stroke(r * 0.042f))
+    drawCircle(Color.Black.copy(alpha = 0.72f), r * 0.992f, c, style = Stroke(r * 0.015f))
+    drawCircle(cache.rimSheen, r * 0.985f, c, style = Stroke(r * 0.014f))
+}
+
+private fun DrawScope.drawSpindleHole(center: Offset, radius: Float) {
+    val hole = radius.coerceAtLeast(2f)
+    drawCircle(Color(0xFF0A0B0D), hole, center)
+    drawCircle(Color.White.copy(alpha = 0.22f), hole, center, style = Stroke((hole * 0.22f).coerceAtLeast(1f)))
+}
+
+/** Mini circular vinyl preview used in the revamped Vinyl Appearance Studio. */
+@Composable
+internal fun VinylFinishSwatch(
+    appearance: VinylAppearance,
+    palette: Color,
+    artwork: Any?,
+    modifier: Modifier = Modifier,
+) {
+    val colors = resolveVinylColors(appearance, palette)
+    val picture = appearance.finish == VinylFinish.PICTURE_DISC && artwork != null
+    Box(modifier.graphicsLayer { shape = CircleShape; clip = true }, contentAlignment = Alignment.Center) {
+        if (picture) {
+            LayoutArtwork(artwork, Modifier.fillMaxSize())
+        }
+        Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension / 2f
+            val c = Offset(size.width / 2f, size.height / 2f)
+            if (r <= 0f) return@Canvas
+            val wax = buildVinylWaxCache(
+                appearance.finish,
+                "swatch",
+                r,
+                c,
+                colors.base,
+                colors.tint,
+                colors.darkTint,
+                colors.accent,
+            )
+            drawVinylWax(appearance.finish, r, c, colors.base, colors.tint, colors.darkTint, colors.accent, picture, wax)
+            val grooves = buildGrooveOverlayCache(c, r, 1.8f, 3.5f)
+            drawGrooveOverlay(c, r, picture, grooves)
+            if (!picture) {
+                val labelR = r * 0.42f
+                drawCircle(lerp(palette, Color(0xFF2B2D33), 0.35f), labelR, c)
+                drawCircle(Color.Black.copy(alpha = 0.3f), labelR, c, style = Stroke(1f))
+            }
+            drawSpindleHole(c, r * 0.08f)
         }
     }
 }
