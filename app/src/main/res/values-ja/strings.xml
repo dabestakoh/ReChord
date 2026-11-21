@@ -1476,8 +1476,14 @@
     <string name="export_diagnostic_log">診断ログをエクスポート</string>
     <string name="diagnostic_report_error">診断レポートを開くかエクスポートできませんでした。</string>
     <string name="now_playing_layout">再生画面のレイアウト</string>
+    <string name="settings_app_appearance">アプリの外観</string>
+    <string name="settings_now_playing_skin">再生画面のスキン</string>
+    <string name="settings_lyrics_all_skins">歌詞（全スキン共通）</string>
+    <string name="poster_live_lyrics_subtitle">ポスター画面に同期歌詞をライブ表示</string>
     <string name="lyrics_style">歌詞のスタイル</string>
     <string name="lyrics_style_scope">拡大した歌詞画面に適用されます。ポスターは専用のエフェクトを使います。</string>
     <string name="video_mode">ビデオモード</string>
     <string name="vinyl_appearance">レコードの外観</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

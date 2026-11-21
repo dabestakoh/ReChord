@@ -1348,8 +1348,14 @@
     <string name="export_diagnostic_log">진단 로그 내보내기</string>
     <string name="diagnostic_report_error">진단 보고서를 열거나 내보낼 수 없습니다.</string>
     <string name="now_playing_layout">재생 화면 레이아웃</string>
+    <string name="settings_app_appearance">앱 외관</string>
+    <string name="settings_now_playing_skin">재생 화면 스킨</string>
+    <string name="settings_lyrics_all_skins">가사 (모든 스킨)</string>
+    <string name="poster_live_lyrics_subtitle">포스터 화면에 실시간 싱크 가사 표시</string>
     <string name="lyrics_style">가사 스타일</string>
     <string name="lyrics_style_scope">확장 가사 화면에 적용됩니다. 포스터는 전용 효과를 사용합니다.</string>
     <string name="video_mode">동영상 모드</string>
     <string name="vinyl_appearance">바이닐 모양</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

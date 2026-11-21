@@ -24,6 +24,8 @@ object PaxSenix {
     @Volatile
     private var apiKey: String = ""
 
+    fun hasApiKey(): Boolean = apiKey.isNotBlank()
+
     fun setApiKey(value: String) {
         apiKey = normalizePaxSenixApiKey(value)
     }

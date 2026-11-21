@@ -1475,8 +1475,14 @@
     <string name="export_diagnostic_log">Ekspor log diagnostik</string>
     <string name="diagnostic_report_error">Laporan diagnostik tidak dapat dibuka atau diekspor.</string>
     <string name="now_playing_layout">Tata letak pemutar</string>
+    <string name="settings_app_appearance">Tampilan Aplikasi</string>
+    <string name="settings_now_playing_skin">Tema Pemutar</string>
+    <string name="settings_lyrics_all_skins">Lirik (Semua Tema)</string>
+    <string name="poster_live_lyrics_subtitle">Tampilkan lirik tersinkronisasi di layar Poster</string>
     <string name="lyrics_style">Gaya lirik</string>
     <string name="lyrics_style_scope">Berlaku untuk tampilan lirik yang diperluas. Poster memakai efeknya sendiri.</string>
     <string name="video_mode">Mode video</string>
     <string name="vinyl_appearance">Tampilan vinil</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

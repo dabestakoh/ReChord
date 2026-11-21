@@ -1368,8 +1368,14 @@
     <string name="export_diagnostic_log">Export diagnostic log</string>
     <string name="diagnostic_report_error">Could not open or export the diagnostic report.</string>
     <string name="now_playing_layout">Now Playing layout</string>
+    <string name="settings_app_appearance">App Appearance</string>
+    <string name="settings_now_playing_skin">Now Playing Skin</string>
+    <string name="settings_lyrics_all_skins">Lyrics (All Skins)</string>
+    <string name="poster_live_lyrics_subtitle">Show live timed lyrics on the Poster screen</string>
     <string name="lyrics_style">Lyrics style</string>
     <string name="lyrics_style_scope">Applies to expanded Lyrics. Poster uses its own lyric effect.</string>
     <string name="video_mode">Video mode</string>
     <string name="vinyl_appearance">Vinyl appearance</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

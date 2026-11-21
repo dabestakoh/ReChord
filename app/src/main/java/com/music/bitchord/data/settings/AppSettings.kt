@@ -443,6 +443,9 @@ object AppSettings {
     val hideVolumeBar = MutableStateFlow(false)
     val hideVinylVolumeBar = MutableStateFlow(false)
     val hidePosterVolumeBar = MutableStateFlow(false)
+    val posterVisualizer = MutableStateFlow(false)
+    /** Per-song lyrics timing offsets in milliseconds, keyed by song videoId. */
+    val perSongLyricsOffsets = MutableStateFlow<Map<String, Int>>(emptyMap())
 
     /** Hides the device status bar (clock, battery, notifications) while the main player is open. */
     val hideStatusBarInPlayer = MutableStateFlow(false)
@@ -1026,6 +1029,8 @@ object AppSettings {
         hideVolumeBar.value = prefs.getBoolean(KEY_HIDE_VOLUME_BAR, false)
         hideVinylVolumeBar.value = prefs.getBoolean(KEY_HIDE_VINYL_VOLUME_BAR, false)
         hidePosterVolumeBar.value = prefs.getBoolean(KEY_HIDE_POSTER_VOLUME_BAR, false)
+        posterVisualizer.value = prefs.getBoolean(KEY_POSTER_VISUALIZER, false)
+        perSongLyricsOffsets.value = parsePerSongOffsets(prefs.getString(KEY_PER_SONG_LYRICS_OFFSETS, null))
         hideStatusBarInPlayer.value = prefs.getBoolean(KEY_HIDE_STATUS_BAR_IN_PLAYER, false)
         hideSongStatus.value = prefs.getBoolean(KEY_HIDE_SONG_STATUS, false)
         showQueueHistory.value = prefs.getBoolean(KEY_SHOW_QUEUE_HISTORY, false)
@@ -1805,6 +1810,45 @@ object AppSettings {
         prefs.edit().putString(KEY_NOW_PLAYING_LAYOUT, value.name).apply()
     }
 
+    fun setPosterVisualizer(enabled: Boolean) {
+        if (posterVisualizer.value == enabled) return
+        posterVisualizer.value = enabled
+        prefs.edit().putBoolean(KEY_POSTER_VISUALIZER, enabled).apply()
+    }
+
+    fun setLyricsOffsetFor(songId: String, offsetMs: Int) {
+        if (songId.isBlank()) return
+        val clamped = offsetMs.coerceIn(-5_000, 5_000)
+        val updated = LinkedHashMap(perSongLyricsOffsets.value)
+        updated.remove(songId)
+        if (clamped != 0) {
+            updated[songId] = clamped
+            while (updated.size > 500) {
+                val oldest = updated.keys.firstOrNull() ?: break
+                updated.remove(oldest)
+            }
+        }
+        perSongLyricsOffsets.value = updated
+        val serialized = updated.entries.joinToString("\n") { "${it.key}=${it.value}" }
+        prefs.edit().putString(KEY_PER_SONG_LYRICS_OFFSETS, serialized).apply()
+    }
+
+    private fun parsePerSongOffsets(raw: String?): Map<String, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        val out = LinkedHashMap<String, Int>()
+        raw.lineSequence().forEach { line ->
+            val sep = line.lastIndexOf('=')
+            if (sep > 0) {
+                val id = line.substring(0, sep)
+                val value = line.substring(sep + 1).toIntOrNull()
+                if (id.isNotBlank() && value != null && value != 0) {
+                    out[id] = value.coerceIn(-5_000, 5_000)
+                }
+            }
+        }
+        return out
+    }
+
     fun setVinylAppearance(value: VinylAppearance) {
         if (vinylAppearance.value == value) return
         vinylAppearance.value = value
@@ -2412,6 +2456,8 @@ object AppSettings {
     private const val KEY_HIDE_VOLUME_BAR = "hide_volume_bar"
     private const val KEY_HIDE_VINYL_VOLUME_BAR = "hide_vinyl_volume_bar"
     private const val KEY_HIDE_POSTER_VOLUME_BAR = "hide_poster_volume_bar"
+    private const val KEY_POSTER_VISUALIZER = "poster_visualizer"
+    private const val KEY_PER_SONG_LYRICS_OFFSETS = "per_song_lyrics_offsets"
     private const val KEY_HIDE_STATUS_BAR_IN_PLAYER = "hide_status_bar_in_player"
     private const val KEY_HIDE_SONG_STATUS = "hide_song_status"
     private const val KEY_SHOW_QUEUE_HISTORY = "show_queue_history"

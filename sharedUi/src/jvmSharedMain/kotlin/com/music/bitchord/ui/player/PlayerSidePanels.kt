@@ -48,8 +48,9 @@ fun LyricsSidePanel(
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberHaptics()
-    val lyricsOffsetMs by PlayerSettings.lyricsOffsetMs.collectAsStateWithLifecycle()
-    val lyricsPlayhead = rememberLyricPlayhead(position)
+    val perSongOffsets by PlayerSettings.perSongLyricsOffsets.collectAsStateWithLifecycle()
+    val lyricsOffsetMs = perSongOffsets[song.videoId] ?: 0
+    val lyricsPlayhead = rememberLyricPlayhead(position, song.videoId)
     val seekToLyric: (Long) -> Unit = { lineTimeMs ->
         onSeek(adjustedLyricsSeekTarget(lineTimeMs, lyricsOffsetMs))
     }

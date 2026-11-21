@@ -583,11 +583,24 @@ private fun BitChordApp(
     var showPlayerLayouts by remember { mutableStateOf(false) }
     var fullVideoMode by remember { mutableStateOf(false) }
     var fullVideoSearching by remember { mutableStateOf(false) }
+    var playerOrientationOverride by remember { mutableIntStateOf(0) }
+    val hostActivity = LocalContext.current as? android.app.Activity
     val nowPlayingLayout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
-    LaunchedEffect(showNowPlaying) {
+    LaunchedEffect(showNowPlaying, nowPlayingLayout, playerOrientationOverride) {
         if (!showNowPlaying) {
             showPlayerLayouts = false
             fullVideoMode = false
+            playerOrientationOverride = 0
+        }
+        if (nowPlayingLayout != NowPlayingLayout.DEFAULT) {
+            fullVideoMode = false
+            MusicVideoEngine.clearCompanion()
+        }
+        val active = showNowPlaying && nowPlayingLayout != NowPlayingLayout.DEFAULT
+        hostActivity?.requestedOrientation = when {
+            !active || playerOrientationOverride == 0 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            playerOrientationOverride > 0 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
     }
     // The DAC's own volume while direct USB output owns it; the full player
@@ -1582,7 +1595,14 @@ private fun BitChordApp(
             val video = if (current.isVideo) current else resolvePicture(
                 current, convertedFromVideo?.takeIf { convertedAudioId == current.videoId },
             )
-            if (video == null || !isCurrent()) return@LaunchedEffect
+            if (video == null) {
+                if (isCurrent()) {
+                    fullVideoMode = false
+                    showQueueNotice(versionContext.getString(R.string.no_video_version))
+                }
+                return@LaunchedEffect
+            }
+            if (!isCurrent()) return@LaunchedEffect
             val shown = MusicVideoEngine.showCompanion(
                 versionContext, current, video, tapAt, ::isCurrent,
                 allowApproximate = true,
@@ -1592,7 +1612,12 @@ private fun BitChordApp(
                     fullVideoSearching = false
                 },
             )
-            if (shown) awaitCancellation()
+            if (shown) {
+                awaitCancellation()
+            } else if (isCurrent()) {
+                fullVideoMode = false
+                showQueueNotice(versionContext.getString(R.string.no_video_version))
+            }
         } finally {
             ownedPicture?.let { MusicVideoEngine.clearCompanion(current, it) }
             fullVideoSearching = false
@@ -2612,6 +2637,12 @@ private fun BitChordApp(
             companionVideoId = companionVideoId?.takeIf { displayedSong.videoId == player.song?.videoId },
             layout = nowPlayingLayout,
             onOpenLayoutPicker = { showPlayerLayouts = true },
+            onToggleRotate = if (hostActivity != null) {
+                {
+                    val currentlyLandscape = windowWidth > windowHeight
+                    playerOrientationOverride = if (currentlyLandscape) -1 else 1
+                }
+            } else null,
             fullVideoMode = fullVideoMode,
             fullVideoSearching = fullVideoSearching,
             onExitVideoMode = { fullVideoMode = false },
@@ -3190,6 +3221,8 @@ private fun BitChordApp(
                                 onConfirmBitPerfect = { confirmBitPerfect = it },
                                 contentPadding = listPadding,
                                 currentArtwork = com.music.bitchord.ui.components.rememberRemoteArtworkUrl(player.song),
+                                onOpenChoice = { navigator.push(AppRoute.SettingsChoice(it)) },
+                                onSpotifyCanvasAuth = { showSpotifyCanvasAuth = true },
                             )
                         } else if (pageRoute == AppRoute.Settings || pageRoute is AppRoute.SettingsSection) {
                             // The main page and every category's page are the
@@ -4499,12 +4532,16 @@ private fun BitChordApp(
 
                     TrackLog.d("Player", "version menu action=$action", current.videoId)
                     when (action) {
-                        VersionDisplayAction.HIDE_PICTURE -> MusicVideoEngine.clearCompanion()
+                        VersionDisplayAction.HIDE_PICTURE -> {
+                            fullVideoMode = false
+                            MusicVideoEngine.clearCompanion()
+                        }
                         VersionDisplayAction.SHOW_PICTURE -> {
                             val original = convertedFromVideo?.takeIf { convertedAudioId == current.videoId }
                             scope.launch { switchToVideo(current, original) }
                         }
                         VersionDisplayAction.PLAY_AUDIO_VERSION -> {
+                            fullVideoMode = false
                             val cached = YtMusicRepository.cachedAudioVersion(current.videoId)
                             if (cached != null && cached.videoId != current.videoId && !cached.isVideo &&
                                 (!AppSettings.smartVersionAlignment.value ||
@@ -4710,7 +4747,7 @@ private fun BitChordApp(
                 onNowPlayingLayout = if (fromPlayer) {
                     { songActions = null; showPlayerLayouts = true }
                 } else null,
-                onVideoMode = if (fromPlayer && !fullVideoMode) {
+                onVideoMode = if (fromPlayer && !fullVideoMode && nowPlayingLayout == NowPlayingLayout.DEFAULT) {
                     {
                         songActions = null
                         fullVideoSearching = true

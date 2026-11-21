@@ -423,8 +423,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         manualLyricsJobs.values.forEach(Job::cancel)
         manualLyricsJobs.clear()
         lyricsProviderResults.clear()
-        _lyricsProviderStates.value =
-            LyricsSource.entries.associateWith { LyricsProviderState.NOT_FETCHED }
+        _lyricsProviderStates.value = LyricsSource.entries.associateWith { source ->
+            if (requiresMissingApiKey(source)) LyricsProviderState.API_KEY_REQUIRED else LyricsProviderState.NOT_FETCHED
+        }
         _lyrics.value = null
         _lyricsSource.value = null
         lyricsJob?.cancel()
@@ -464,6 +465,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     providerFinished(generation, source, result)
                 },
                 onSourceCancelled = { source -> providerCancelled(generation, source) },
+                onSourceError = { source -> providerErrored(generation, source) },
             )
             val selected = selectedLyricsSource?.let(lyricsProviderResults::get) ?: found
             _lyrics.value = selected?.lines
@@ -478,6 +480,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun selectLyricsProvider(source: LyricsSource) {
         val request = currentLyricsRequest ?: return
+        if (requiresMissingApiKey(source)) {
+            _lyricsProviderStates.update { it + (source to LyricsProviderState.API_KEY_REQUIRED) }
+            return
+        }
         when (_lyricsProviderStates.value[source]) {
             LyricsProviderState.FOUND -> {
                 selectedLyricsSource = source
@@ -487,7 +493,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Apply it as soon as the already-running automatic attempt completes.
                 selectedLyricsSource = source
             }
-            LyricsProviderState.NOT_FETCHED, LyricsProviderState.NOT_FOUND, null -> {
+            LyricsProviderState.API_KEY_REQUIRED -> Unit
+            LyricsProviderState.NOT_FETCHED, LyricsProviderState.NOT_FOUND, LyricsProviderState.UNAVAILABLE, null -> {
                 selectedLyricsSource = source
                 fetchLyricsProvider(request, lyricsGeneration, source)
             }
@@ -515,13 +522,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     providerFinished(generation, provider, result)
                 },
                 onSourceCancelled = { provider -> providerCancelled(generation, provider) },
+                onSourceError = { provider -> providerErrored(generation, provider) },
             )
         }
     }
 
+    private fun requiresMissingApiKey(source: LyricsSource): Boolean =
+        (source == LyricsSource.PAXSENIX_SPOTIFY || source == LyricsSource.PAXSENIX_MUSIXMATCH) &&
+            !com.music.bitchord.data.lyrics.PaxSenix.hasApiKey()
+
     private fun providerStarted(generation: Long, source: LyricsSource) {
         if (generation != lyricsGeneration) return
         _lyricsProviderStates.update { it + (source to LyricsProviderState.FETCHING) }
+    }
+
+    private fun providerErrored(generation: Long, source: LyricsSource) {
+        if (generation != lyricsGeneration) return
+        if (lyricsProviderResults.containsKey(source)) return
+        val state = if (requiresMissingApiKey(source)) {
+            LyricsProviderState.API_KEY_REQUIRED
+        } else {
+            LyricsProviderState.UNAVAILABLE
+        }
+        _lyricsProviderStates.update { it + (source to state) }
     }
 
     private fun providerFinished(
@@ -532,7 +555,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (generation != lyricsGeneration) return
         if (result == null) {
             if (lyricsProviderResults.containsKey(source)) return
-            _lyricsProviderStates.update { it + (source to LyricsProviderState.NOT_FOUND) }
+            val state = if (requiresMissingApiKey(source)) {
+                LyricsProviderState.API_KEY_REQUIRED
+            } else {
+                LyricsProviderState.NOT_FOUND
+            }
+            _lyricsProviderStates.update { it + (source to state) }
             return
         }
         lyricsProviderResults[source] = result
