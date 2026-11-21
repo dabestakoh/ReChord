@@ -15,12 +15,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
 
 internal actual fun uptimeMillis(): Long = SystemClock.uptimeMillis()
 
 // RenderEffect, API 31+; `Modifier.blur` is a no-op below it.
 internal actual val renderEffectBlurSupported: Boolean
     get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+internal actual fun posterPlatformTextStyle(): PlatformTextStyle? =
+    PlatformTextStyle(includeFontPadding = false)
 
 @Composable
 internal actual fun KeepScreenOn(enabled: Boolean) {

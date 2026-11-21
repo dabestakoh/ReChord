@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.PlatformTextStyle
 import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.round
@@ -25,6 +26,8 @@ internal actual fun uptimeMillis(): Long = (System.nanoTime() - startNanos) / 1_
 
 // Skia blurs at every size; there is no platform floor to check.
 internal actual val renderEffectBlurSupported: Boolean = true
+
+internal actual fun posterPlatformTextStyle(): PlatformTextStyle? = null
 
 // A desktop display's idle timeout is the user's own business.
 @Composable

@@ -2,12 +2,16 @@ package com.music.bitchord.ui.player
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.PlatformTextStyle
 
 /** Milliseconds on the clock `SystemClock.uptimeMillis` reads on the phone. */
 internal expect fun uptimeMillis(): Long
 
 /** Whether `Modifier.blur` actually blurs here, rather than being a no-op. */
 internal expect val renderEffectBlurSupported: Boolean
+
+/** Platform text style removing extra vertical font padding for tight poster lyrics on Android. */
+internal expect fun posterPlatformTextStyle(): PlatformTextStyle?
 
 /** Holds off the display's idle timeout for as long as [enabled]. */
 @Composable

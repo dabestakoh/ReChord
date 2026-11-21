@@ -451,7 +451,7 @@ private const val SCROLL_LEAD_MAX_MS = 500L
  * line handing over reads as a single movement rather than four that happen to
  * start together.
  */
-private val LYRIC_EASING = CubicBezierEasing(0.41f, 0f, 0.12f, 0.99f)
+internal val LYRIC_EASING = CubicBezierEasing(0.41f, 0f, 0.12f, 0.99f)
 private const val LYRIC_SETTLE_MS = 400
 
 /**
@@ -1664,225 +1664,106 @@ internal fun PosterLyricSpotlight(
     playhead: LyricPlayhead,
     isPlaying: Boolean,
     onOpenLyrics: () -> Unit,
+    subLines: List<LyricLine>? = null,
+    subAlpha: Float = 0.56f,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
-    val sung = remember(lines) {
-        lines.flatMap { line ->
-            listOfNotNull(line.copy(background = null), line.background?.copy(alignment = LyricAlignment.End))
-        }.filterNot { it.isGap }.sortedBy { it.timeMs }
+    val entries = remember(lines, subLines, subAlpha) {
+        posterPrepareLines(lines, subLines, subAlpha)
     }
-    val timed = remember(sung) { sung.any { it.timeMs > 0L || it.isWordSynced || it.sungUntilMs != null } }
-    val performed = remember(sung, timed) {
-        if (timed) sung.mapIndexed { index, line -> posterTimedLine(line, sung.getOrNull(index + 1)?.timeMs) }
-        else sung
+    val timed = remember(entries) {
+        entries.any { it.line.timeMs > 0L || it.line.isWordSynced || it.line.sungUntilMs != null }
     }
+    val hasLyrics = entries.isNotEmpty()
     val reduceMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
     val reduceBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
-    val active by remember(performed, clock, timed, reduceMotion) {
-        derivedStateOf {
-            if (timed) performed.indexOfLast { it.timeMs <= clock.longValue + if (reduceMotion) 0 else 160 }
-            else if (performed.isEmpty()) -1 else 0
+
+    val found = remember(trackKey) { Animatable(if (hasLyrics) 1f else 0f) }
+    LaunchedEffect(hasLyrics, reduceMotion) {
+        if (reduceMotion) {
+            found.snapTo(if (hasLyrics) 1f else 0f)
+        } else {
+            found.animateTo(
+                if (hasLyrics) 1f else 0f,
+                tween(820, easing = CubicBezierEasing(0.3f, 0f, 0.1f, 1f)),
+            )
         }
     }
-    val holdPrevious by remember(performed, clock, reduceMotion) {
-        derivedStateOf {
-            val now = clock.longValue
-            val current = performed.getOrNull(active) ?: return@derivedStateOf false
-            val previous = performed.getOrNull(active - 1) ?: return@derivedStateOf false
-            !reduceMotion && now < maxOf(current.timeMs - 120, previous.endMs - 100) + 360L
-        }
-    }
-    val titleProgress by animateFloatAsState(
-        if (active < 0) 0f else 1f,
-        animationSpec = if (reduceMotion) snap() else tween(680, easing = FastOutSlowInEasing),
-        label = "posterTitleToCredits",
-    )
-    val measurer = rememberTextMeasurer(cacheSize = 24)
-    val base = MaterialTheme.typography.headlineLarge
+    val titleShown by remember { derivedStateOf { found.value < 0.999f } }
+    val fontFamily = MaterialTheme.typography.headlineLarge.fontFamily
     val ink = lerp(LocalPlayerAccent.current, Color.White, 0.66f)
-    val density = LocalDensity.current
+
     BoxWithConstraints(
-        Modifier.fillMaxSize().clipToBounds()
+        Modifier.fillMaxSize()
             .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics)
             .padding(top = 4.dp, bottom = 8.dp),
         contentAlignment = Alignment.TopStart,
     ) {
-        val width = constraints.maxWidth
-        val height = constraints.maxHeight
         val stageHeight = maxHeight
-        if (width <= 0 || height <= 0) return@BoxWithConstraints
+        if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return@BoxWithConstraints
+        val baseSize = minOf(
+            (maxWidth.value * 0.12f).coerceIn(30f, 56f),
+            (maxHeight.value * 0.42f).coerceAtLeast(22f),
+        ).sp
 
-        val current = performed.getOrNull(active)
-        val previous = performed.getOrNull(active - 1)?.takeIf { holdPrevious }
-        val overlapping = previous != null && current != null && previous.endMs > current.timeMs
-        val gap = 6.dp
-        val halfHeight = ((stageHeight - gap) / 2).coerceAtLeast(1.dp)
-
-        if (titleProgress < 1f) {
-            Text(
-                title, color = ink,
-                style = posterType(title, base, width, height, density, measurer, 4),
-                maxLines = 4, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.graphicsLayer {
-                    val progress = titleProgress
-                    alpha = 1f - progress
-                    translationY = progress * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
-                    scaleX = 1f - progress * 0.57f
-                    scaleY = scaleX
-                    transformOrigin = TransformOrigin(0f, 0f)
-                },
-            )
-        }
-
-        if (overlapping) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
-                key(active - 1) {
-                    PosterPerformedLine(
-                        previous!!, current!!.timeMs, clock, width, with(density) { halfHeight.roundToPx() },
-                        base, ink, effects = true, blur = !reduceBlur, maxLines = 2,
+        if (hasLyrics) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val f = found.value
+                        if (f < 0.999f) alpha = ((f - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                    },
+            ) {
+                if (timed) {
+                    PosterExpressiveLyrics(
+                        entries = entries,
+                        clock = clock,
+                        color = ink,
+                        fontFamily = fontFamily,
+                        baseSize = baseSize,
+                        reduceMotion = reduceMotion,
+                        reduceBlur = reduceBlur,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                }
-                key(active) {
-                    PosterPerformedLine(
-                        current!!, performed.getOrNull(active + 1)?.timeMs, clock, width,
-                        with(density) { halfHeight.roundToPx() }, base, ink, effects = true,
-                        blur = !reduceBlur, maxLines = 2,
+                } else {
+                    PosterExpressiveTitle(
+                        text = entries.first().line.text,
+                        baseSize = baseSize,
+                        color = ink,
+                        fontFamily = fontFamily,
+                        reduceMotion = reduceMotion,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
-        } else {
-            previous?.let {
-                key(active - 1) {
-                    PosterPerformedLine(it, current?.timeMs, clock, width, height, base, ink, true, !reduceBlur, 4)
-                }
-            }
-            current?.let {
-                key(active) {
-                    if (timed) {
-                        PosterPerformedLine(
-                            it, performed.getOrNull(active + 1)?.timeMs, clock, width, height, base,
-                            ink, !reduceMotion, !reduceBlur, 4,
-                        )
-                    } else {
-                        Text(
-                            it.text, color = ink, maxLines = 4, overflow = TextOverflow.Ellipsis,
-                            style = posterType(it.text, base, width, height, density, measurer, 4),
-                        )
-                    }
-                }
+        }
+
+        if (titleShown) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val f = found.value
+                        translationY = f * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
+                        val s = 1f - 0.57f * f
+                        scaleX = s
+                        scaleY = s
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        alpha = 1f - ((f - 0.6f) / 0.35f).coerceIn(0f, 1f)
+                    },
+            ) {
+                PosterExpressiveTitle(
+                    text = title,
+                    baseSize = baseSize,
+                    color = ink,
+                    fontFamily = fontFamily,
+                    reduceMotion = reduceMotion,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
-}
-
-@Composable
-private fun PosterPerformedLine(
-    line: LyricLine,
-    nextStart: Long?,
-    clock: MutableLongState,
-    width: Int,
-    height: Int,
-    base: TextStyle,
-    ink: Color,
-    effects: Boolean,
-    blur: Boolean,
-    maxLines: Int,
-) {
-    val density = LocalDensity.current
-    val measurer = rememberTextMeasurer(cacheSize = 12)
-    val type = remember(line.text, base, width, height, density, measurer, maxLines) {
-        posterType(line.text, base, width, height, density, measurer, maxLines)
-    }
-    val window = remember(line, nextStart) {
-        PosterWordWindow(line.timeMs - 160, nextStart?.let { maxOf(it - 120, line.endMs - 100) })
-    }
-    val softEdge = remember(density, blur, effects) {
-        if (blur && effects && renderEffectBlurSupported) {
-            val radius = with(density) { 1.2.dp.toPx() }
-            BlurEffect(radius, radius)
-        } else null
-    }
-    val alignEnd = line.alignment == LyricAlignment.End
-    val dy: () -> Float = {
-        val now = clock.longValue
-        val entering = ((now - window.enter) / 220f).coerceIn(0f, 1f)
-        val leaving = window.exit?.let { ((now - it) / 350f).coerceIn(0f, 1f) } ?: 0f
-        (1f - entering) * 5f - leaving * 10f
-    }
-    SweptLyricLine(
-        line, clock, voiceStyle(type, line.text, alignEnd, laneLocked = alignEnd), dimAlpha = 0.32f,
-        modifier = Modifier.fillMaxWidth().then(
-            if (effects) Modifier.graphicsLayer {
-                val now = clock.longValue
-                translationY = dy().dp.toPx()
-                renderEffect = softEdge.takeIf { now < window.enter + 110L || (window.exit?.let { now > it + 110L } == true) }
-            } else Modifier
-        ),
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        alignEnd = alignEnd,
-        laneLocked = alignEnd,
-        color = ink,
-        rise = effects,
-        feather = true,
-        glowAlpha = if (effects && blur) 0.85f else 0f,
-        riseAmount = 4.dp,
-        posterWindow = window.takeIf { effects },
-    )
-}
-
-private fun posterType(
-    text: String,
-    base: TextStyle,
-    width: Int,
-    height: Int,
-    density: androidx.compose.ui.unit.Density,
-    measurer: androidx.compose.ui.text.TextMeasurer,
-    maxLines: Int,
-): TextStyle {
-    var size = with(density) { minOf((width * 0.115f).toSp().value.coerceIn(20f, 56f), (height / 1.26f).toSp().value) }
-        .coerceAtLeast(10f)
-    while (true) {
-        val candidate = base.copy(
-            fontSize = size.sp, lineHeight = (size * 1.26f).sp,
-            fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
-        )
-        val measured = measurer.measure(
-            text, candidate, maxLines = maxLines, constraints = Constraints(maxWidth = width),
-        )
-        if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 10f) return candidate
-        size = (size - 1.25f).coerceAtLeast(10f)
-    }
-}
-
-/** Synthetic timing is local to Poster and never affects provider ranking or full lyrics. */
-private fun posterTimedLine(line: LyricLine, nextStart: Long?): LyricLine {
-    if (line.isWordSynced) return line
-    val breaker = java.text.BreakIterator.getWordInstance()
-    breaker.setText(line.text)
-    val tokens = buildList {
-        var start = breaker.first()
-        var end = breaker.next()
-        while (end != java.text.BreakIterator.DONE) {
-            val token = line.text.substring(start, end)
-            if (token.isNotBlank()) add(token)
-            start = end
-            end = breaker.next()
-        }
-    }
-    if (tokens.isEmpty()) return line
-    val end = line.sungUntilMs ?: line.timingSource?.endMs ?: nextStart ?: line.timeMs + 4_000
-    val available = (end - line.timeMs).coerceAtLeast(1)
-    val singing = (available * 0.86).toLong().coerceIn(1, minOf(available, tokens.size * 900L))
-    val total = tokens.sumOf { it.length + 1.5 }
-    var weight = 0.0
-    val words = tokens.map { token ->
-        val start = line.timeMs + (singing * weight / total).toLong()
-        weight += token.length + 1.5
-        val finish = line.timeMs + (singing * weight / total).toLong()
-        LyricWord(start, finish.coerceAtLeast(start + 1), token)
-    }
-    return line.copy(words = words)
 }
 
 private data class PosterWordWindow(val enter: Long, val exit: Long?)

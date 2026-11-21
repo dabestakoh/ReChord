@@ -2316,7 +2316,10 @@ fun NowPlayingScreen(
                         key(song.videoId) {
                             if (layout == NowPlayingLayout.POSTER) {
                                 PosterLyricSpotlight(
-                                    lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    lines = (if (lyricsTranslation.subLines != null) lyrics.orEmpty() else lyricsTranslation.displayedLyrics)
+                                        .takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    subLines = lyricsTranslation.subLines.takeIf { syncedLyricsEnabled },
+                                    subAlpha = if (lyricsTranslation.showingRomanization) 0.74f else 0.56f,
                                     title = song.title,
                                     trackKey = song.videoId,
                                     playhead = lyricsPlayhead,
