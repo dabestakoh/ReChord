@@ -18,6 +18,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -26,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -56,6 +59,11 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+
+// Keep the latest phases on the UI thread when the player leaves composition for Appearance.
+private val lastRecordPhases = object : LinkedHashMap<String, Float>(8, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean = size > 8
+}
 
 private const val RECORD_WIDTH_FRACTION = 0.682f
 private const val RECORD_HEIGHT_FRACTION = 0.446f
@@ -133,18 +141,20 @@ internal fun VinylDisc(
     seeking: () -> Boolean,
     modifier: Modifier,
     albumKey: String = trackKey,
+    labelPlacement: ((LayoutCoordinates) -> Unit)? = null,
 ) {
-    var rotation by remember(trackKey) { mutableFloatStateOf(0f) }
-    LaunchedEffect(spin, trackKey) {
-        if (!spin) return@LaunchedEffect
+    var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
+    val foreground = com.music.bitchord.ui.rememberIsForeground()
+    DisposableEffect(trackKey, spin) {
+        onDispose { if (spin) lastRecordPhases[trackKey] = rotation }
+    }
+    LaunchedEffect(spin, trackKey, foreground) {
+        if (!spin || !foreground) return@LaunchedEffect
+        val initialAngle = rotation
         val start = withFrameNanos { it }
-        var last = start
         while (true) {
             val frame = withFrameNanos { it }
-            val acceleration = ((frame - start) / 300_000_000f).coerceIn(0f, 1f)
-            val elapsed = (frame - last).coerceAtMost(70_000_000L)
-            rotation = (rotation + elapsed * 0.000000055f * acceleration) % 360f
-            last = frame
+            rotation = (initialAngle + (frame - start) * 0.000000055).rem(360.0).toFloat()
         }
     }
     val picture = style.finish == VinylFinish.PICTURE_DISC
@@ -358,12 +368,15 @@ internal fun VinylDisc(
                 }
             }
         })
+        val labelModifier = Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
+            .size(label * 2)
+            .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned(labelPlacement))
         if (!picture || artwork == null) {
-            LayoutArtwork(
-                artwork,
-                Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
-                    .size(label * 2).graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true },
-            )
+            LayoutArtwork(artwork, labelModifier.graphicsLayer {
+                rotationZ = rotation; shape = CircleShape; clip = true
+            })
+        } else if (labelPlacement != null) {
+            Box(labelModifier)
         }
     }
 }
@@ -406,7 +419,7 @@ internal fun VinylTonearm(
         },
         onDragging = { seeking = it; onSeeking(it) },
     )
-    Canvas(modifier.then(gesture)) {
+    Canvas(modifier.then(gesture).artworkSeekControls(shown, durationMs, onScrub, onFinish)) {
         val g = RecordGeometry(size)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit

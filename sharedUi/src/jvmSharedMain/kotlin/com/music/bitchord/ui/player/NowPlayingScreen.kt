@@ -676,17 +676,24 @@ private fun playerDeckSlideOut() = slideOutVertically(
  * swelling to fill the screen and shrinking back over one 420ms trip.
  */
 @Composable
-private fun SlidingPlayerDeck(
+internal fun SlidingPlayerDeck(
     visible: Boolean,
     reveal: Animatable<Float, AnimationVector1D>,
     modifier: Modifier = Modifier,
     fadeIn: () -> Boolean = { false },
+    reduced: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     var mounted by remember { mutableStateOf(visible) }
     val alpha = remember { Animatable(1f) }
 
-    LaunchedEffect(visible) {
+    LaunchedEffect(visible, reduced) {
+        if (reduced) {
+            alpha.snapTo(1f)
+            reveal.snapTo(if (visible) 1f else 0f)
+            mounted = visible
+            return@LaunchedEffect
+        }
         if (visible) {
             if (fadeIn() && reveal.value < 1f) {
                 alpha.snapTo(0f)
@@ -883,6 +890,10 @@ fun NowPlayingScreen(
     fullVideoSearching: Boolean = false,
     onExitVideoMode: () -> Unit = {},
     layoutPreview: Boolean = false,
+    previewHideVolume: Boolean? = null,
+    previewFullBleedArtwork: Boolean? = null,
+    previewPlayerTheme: PlayerTheme? = null,
+    wantsPlayback: Boolean = isPlaying,
 ) {
     val density = LocalDensity.current
     val artPx = remember(windowWidth, density.density) { playerArtPx(windowWidth.value, density.density) }
@@ -961,7 +972,8 @@ fun NowPlayingScreen(
     val seekToLyric: (Long) -> Unit = { lineTimeMs ->
         onSeek(adjustedLyricsSeekTarget(lineTimeMs, lyricsOffsetMs))
     }
-    val hideVolumeBar by PlayerSettings.hideVolumeBar.collectAsStateWithLifecycle()
+    val savedHideVolumeBar by PlayerSettings.hideVolumeBarFor(layout).collectAsStateWithLifecycle()
+    val hideVolumeBar = previewHideVolume ?: savedHideVolumeBar
     val disableBlendEffects by PlayerSettings.disableBlendEffects.collectAsStateWithLifecycle()
     // The lyric slot above the scrubber: the tallest line it holds — titleMedium's
     // own line box — and the 4dp each of them is padded by above and below.
@@ -1046,7 +1058,8 @@ fun NowPlayingScreen(
     // request is rebuilt on each pass and so would not be skipped.
     val canvasCover = remember(canvas?.url) { mutableFloatStateOf(0f) }
     // What the main player stands on — see [PlayerTheme].
-    val playerTheme by PlayerSettings.playerTheme.collectAsStateWithLifecycle()
+    val savedPlayerTheme by PlayerSettings.playerTheme.collectAsStateWithLifecycle()
+    val playerTheme = previewPlayerTheme ?: savedPlayerTheme
     // Both meshes follow a playing clip's colours. The blurred still cover has
     // nothing to re-tint, and each read is a GPU readback.
     val tintsOffClip = playerTheme != PlayerTheme.SIMPLE
@@ -1081,7 +1094,8 @@ fun NowPlayingScreen(
     // queue are then composed offscreen on separate beats rather than all three
     // competing with the song change. Opening a panel early bypasses its wait.
     var playerPrewarmStage by remember(song.videoId) { mutableIntStateOf(0) }
-    LaunchedEffect(song.videoId) {
+    LaunchedEffect(song.videoId, alternateLayout, layoutPreview) {
+        if (alternateLayout || layoutPreview) return@LaunchedEffect
         delay(600)
         playerPrewarmStage = 1 // 128px backdrop decode + CPU blur
         delay(650)
@@ -1427,7 +1441,8 @@ fun NowPlayingScreen(
             )
         }
     }
-    val fullBleedArt by PlayerSettings.fullBleedArtwork.collectAsStateWithLifecycle()
+    val savedFullBleed by PlayerSettings.fullBleedArtwork.collectAsStateWithLifecycle()
+    val fullBleedArt = previewFullBleedArtwork ?: savedFullBleed
     // Full-bleed is a phone idiom. What the width has to rule out is a player
     // running a foot wider than the column of controls under it — edge to edge
     // meaning "a picture, and separately some controls" rather than "the
@@ -1700,6 +1715,74 @@ fun NowPlayingScreen(
         haptics.play(Haptic.Select)
         scrub.release(onSeekFraction)
     }
+    val playerPanelGestures = Modifier
+        .onGloballyPositioned { dismissBandSpace = it }
+        .pointerInput(showAudioPipeline, showCast, panelScrolling) {
+            if (showAudioPipeline || showCast || panelScrolling) return@pointerInput
+            awaitEachGesture {
+                // Unconsumed on purpose, as the blanket version was:
+                // the collapsed sleeve's own clickable — the way back
+                // out of the queue — has taken the press by the time
+                // an ancestor sees it.
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val space = dismissBandSpace
+                val y = space?.localToRoot(down.position)?.y
+                    ?: down.position.y
+                // A panel is up from the moment it is asked for to
+                // the moment the sleeve has finished growing back —
+                // never mind where the sleeve is in between.
+                val panelUp = queueOpen || lyricsOpen ||
+                    queueSlide.floatValue > 0.01f
+                val bandTop: Float
+                val bandBottom: Float
+                if (panelUp) {
+                    bandTop = space?.positionInRoot()?.y ?: 0f
+                    bandBottom = bandTop +
+                        (ART_BOX_TOP_PAD + portraitHeaderHeight).toPx()
+                } else {
+                    bandTop = dismissBandTop
+                    bandBottom = dismissBandBottom
+                }
+                if (y >= bandTop && y <= bandBottom) {
+                    if (!panelUp) {
+                        dragQueueIn(
+                            down = down,
+                            travel = bandBottom - bandTop -
+                                portraitHeaderHeight.toPx(),
+                            slide = queueSlide,
+                            onHold = { queueDragging = it },
+                            onSettle = { open ->
+                                if (open != queueOpen) {
+                                    haptics.play(
+                                        if (open) Haptic.Expand else Haptic.Tap,
+                                    )
+                                    if (open) queueControlsOpen = true
+                                    queueOpen = open
+                                }
+                                queueReleased++
+                            },
+                        )
+                    }
+                    return@awaitEachGesture
+                }
+                // A down already taken means the sheet grabbed it
+                // while "settling" after a scroll (see
+                // guardSheetFromContentTouches), and the guard is
+                // about to hand it back to the list under the
+                // finger. Holding it here would strand that list
+                // mid-handback, and the list would never scroll.
+                if (down.isConsumed) return@awaitEachGesture
+                // What detectVerticalDragGestures does, minus the
+                // callbacks: cross the slop, then hold the gesture
+                // to the end so nothing downstream of the first
+                // event reaches the sheet either.
+                val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ ->
+                    change.consume()
+                }
+                if (drag != null) verticalDrag(drag.id) { it.consume() }
+            }
+        }
+
     val onVolumeChange: (Float) -> Unit = volume::drag
     val onVolumeChangeFinished: () -> Unit = volume::release
 
@@ -1978,7 +2061,7 @@ fun NowPlayingScreen(
                     val offset = dock.offset() ?: return@onGloballyPositioned
                     dockFrame.anchorFor = coordinates.size
                     dockFrame.anchor = coordinates.positionOnScreen() - Offset(0f, offset.toInt().toFloat())
-                    if (!dock.attached) dock.attached = true
+                    if (!alternateLayout && !dock.attached) dock.attached = true
                 }
             } else {
                 Modifier
@@ -1989,7 +2072,7 @@ fun NowPlayingScreen(
         // everything while it travels, as the one thing still moving.
         .drawWithContent {
             drawContent()
-            if (docking()) {
+            if (docking() && !alternateLayout) {
                 translate(dockFrame.portalLeft, dockFrame.portalTop) {
                     val portalScale = dockFrame.portalScale
                     scale(portalScale, portalScale, pivot = Offset.Zero) { drawLayer(sleeveLayer) }
@@ -2002,7 +2085,7 @@ fun NowPlayingScreen(
         // way home the cover went on being drawn from a stale recording,
         // bigger and higher than the bar's. One step of 255 is nothing to
         // look at and keeps the subtree drawing.
-        .graphicsLayer { alpha = if (docking()) dockFade().coerceAtLeast(DOCK_FADE_FLOOR) else 1f }
+        .graphicsLayer { alpha = if (docking() && !alternateLayout) dockFade().coerceAtLeast(DOCK_FADE_FLOOR) else 1f }
 
     // The ⋯ menu's frost for the drawers and popups over the player — see
     // [FrostedPlayerFrame], which records the player for it and draws them
@@ -2083,9 +2166,9 @@ fun NowPlayingScreen(
                         isPlaying = isPlaying && position.advancing,
                         active = active,
                         onSeekToLine = seekToLyric,
-                        controlsOpen = true,
-                        onRevealControls = {},
-                        onHideControls = {},
+                        controlsOpen = if (alternateLayout) lyricsControlsOpen else true,
+                        onRevealControls = { if (alternateLayout) lyricsControlsOpen = true },
+                        onHideControls = { if (alternateLayout) lyricsControlsOpen = false },
                         translationProgress = particleProgress,
                         canPick = lyricsShareEnabled,
                         picking = lyricPicker.picking,
@@ -2110,6 +2193,9 @@ fun NowPlayingScreen(
                 onMove = onMoveInQueue,
                 onClear = onClearQueue,
                 onDragActiveChange = onQueueDragActiveChange,
+                collapsePlayerOnScroll = alternateLayout && active,
+                onRevealPlayer = { queueControlsOpen = true },
+                onHidePlayer = { queueControlsOpen = false },
                 onScrollingChange = onScroll,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -2166,101 +2252,92 @@ fun NowPlayingScreen(
                 )
             }
         } else if (alternateLayout) {
-            val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
-            AlternateNowPlaying(
-                layout = layout,
-                song = song,
-                previousSong = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious },
-                nextSong = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext },
-                durationMs = durationMs,
-                artwork = art.request.takeIf { remoteArt != null },
-                artworkUrl = remoteArt,
-                isPlaying = isPlaying,
-                isLoading = isLoading || audioVersionSwitching,
-                liked = likeStatus == LikeStatus.LIKE,
-                previousEnabled = !controlsLocked && (hasPrevious || pastRestartPoint),
-                nextEnabled = !controlsLocked && hasNext,
-                canSeek = durationMs > 0L && !controlsLocked,
-                shown = shown,
-                onScrub = onScrub,
-                onScrubFinished = onScrubFinished,
-                onScrubCanceled = scrub::cancel,
-                onFavorite = onToggleLike,
-                onPrevious = onPrevious,
-                onSwipePrevious = onSwipePrevious,
-                onPlayPause = onPlayPause,
-                onNext = onNext,
-                onMenu = onOpenMenu,
-                onOpenPicker = openLayoutPicker,
-                reduceAnimation = reduceAnimation,
-                artworkBackdrop = accentTarget,
-                recordPalette = resolvedAccent ?: Color.Unspecified,
-                statusScrimAlpha = artworkStatusScrimAlpha,
-                pane = when {
-                    lyricsOpen -> PlayerPane.Lyrics
-                    queueOpen -> PlayerPane.Queue
-                    else -> PlayerPane.Main
-                },
-                lyricsPane = { active -> embeddedLyrics(active) { lyricsScrolling = it } },
-                queuePane = { active ->
-                    Column(Modifier.fillMaxSize()) {
-                        Box(Modifier.fillMaxWidth().padding(bottom = 4.dp), contentAlignment = Alignment.Center) {
-                            PlayerQueueModes(
-                                shuffleEnabled, repeatMode, autoplayEnabled,
-                                onToggleShuffle, onCycleRepeat, onToggleAutoplay,
-                            )
+            Box(Modifier.fillMaxSize().then(dockHost)) {
+                AlternateNowPlaying(
+                    layout = layout,
+                    song = song,
+                    previousSong = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious },
+                    nextSong = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext },
+                    durationMs = durationMs,
+                    artwork = art.request.takeIf { remoteArt != null },
+                    artworkUrl = remoteArt,
+                    isPlaying = isPlaying,
+                    isLoading = isLoading || audioVersionSwitching,
+                    liked = likeStatus == LikeStatus.LIKE,
+                    previousEnabled = !controlsLocked && (hasPrevious || pastRestartPoint),
+                    nextEnabled = !controlsLocked && hasNext,
+                    canSeek = durationMs > 0L && !controlsLocked,
+                    shown = shown,
+                    onScrub = onScrub,
+                    onScrubFinished = onScrubFinished,
+                    onScrubCanceled = scrub::cancel,
+                    onFavorite = onToggleLike,
+                    onPrevious = onPrevious,
+                    onSwipePrevious = onSwipePrevious,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    onMenu = onOpenMenu,
+                    onOpenPicker = openLayoutPicker,
+                    reduceAnimation = reduceAnimation,
+                    artworkBackdrop = accentTarget,
+                    recordPalette = resolvedAccent ?: Color.Unspecified,
+                    statusScrimAlpha = artworkStatusScrimAlpha,
+                    pane = when {
+                        lyricsOpen -> PlayerPane.Lyrics
+                        queueOpen -> PlayerPane.Queue
+                        else -> PlayerPane.Main
+                    },
+                    lyricsPane = { active -> embeddedLyrics(active) { lyricsScrolling = it } },
+                    queuePane = { active -> embeddedQueue(active) { queueScrolling = it } },
+                    deckVisible = !lyricPicker.picking &&
+                        (!lyricsOpen || lyricsControlsOpen) && (!queueOpen || queueControlsOpen),
+                    deckReveal = playerDeckReveal,
+                    controlsLocked = controlsLocked,
+                    onBlockedControl = onBlockedControl,
+                    panelGestures = playerPanelGestures,
+                    onArtworkBand = { bounds ->
+                        dismissBandTop = bounds.top
+                        dismissBandBottom = bounds.bottom
+                    },
+                    queuePreview = if (queueDragging) ({ queueSlide.floatValue }) else null,
+                    onDismissPane = { queueOpen = false; closeLyrics() },
+                    playbackOrigin = if (hideSongStatus) null else playbackOriginText(song, playedBy),
+                    onOpenPlaybackOrigin = openPlaybackOrigin,
+                    onOpenAlbum = onOpenAlbum,
+                    onOpenArtist = onOpenArtist,
+                    spinRecord = wantsPlayback,
+                    dock = dock,
+                    lyrics = {
+                        key(song.videoId) {
+                            if (layout == NowPlayingLayout.POSTER) {
+                                PosterLyricSpotlight(
+                                    lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
+                                    trackKey = song.videoId,
+                                    playhead = lyricsPlayhead,
+                                    isPlaying = isPlaying && position.advancing,
+                                    onOpenLyrics = openLyrics,
+                                )
+                            } else if (syncedLyricsEnabled) {
+                                CurrentLyricStrip(
+                                    lines = lyricsTranslation.displayedLyrics,
+                                    trackKey = song.videoId,
+                                    playhead = lyricsPlayhead,
+                                    isPlaying = isPlaying && position.advancing,
+                                    durationMs = durationMs,
+                                    lyricsUnavailable = lyricsUnavailable,
+                                    loadingText = lyricsLoadingText,
+                                    onClick = openLyrics,
+                                )
+                            }
                         }
-                        Box(Modifier.fillMaxWidth().weight(1f)) {
-                            embeddedQueue(active) { queueScrolling = it }
-                        }
-                    }
-                },
-                lyrics = {
-                    key(song.videoId) {
-                        if (layout == NowPlayingLayout.POSTER) {
-                            PosterLyricSpotlight(
-                                lines = lyricsTranslation.displayedLyrics.takeIf { syncedLyricsEnabled }.orEmpty(),
-                                trackKey = song.videoId,
-                                playhead = lyricsPlayhead,
-                                isPlaying = isPlaying && position.advancing,
-                                onOpenLyrics = openLyrics,
-                            )
-                        } else if (syncedLyricsEnabled) {
-                            CurrentLyricStrip(
-                                lines = lyricsTranslation.displayedLyrics,
-                                trackKey = song.videoId,
-                                playhead = lyricsPlayhead,
-                                isPlaying = isPlaying && position.advancing,
-                                durationMs = durationMs,
-                                lyricsUnavailable = lyricsUnavailable,
-                                loadingText = lyricsLoadingText,
-                                onClick = openLyrics,
-                            )
-                        }
-                    }
-                },
-                scrubber = {
-                    PlayerScrubber(
-                        shown = shown,
-                        durationMs = durationMs,
-                        loading = audioVersionSwitching,
-                        mixing = mixing && !scrub.scrubbing,
-                        transitionWindow = transitionWindow
-                            ?.takeIf { !scrub.scrubbing && it.end > it.start }
-                            ?.let { it.start..it.end },
-                        onScrub = onScrub,
-                        onScrubFinished = onScrubFinished,
-                    ) {
-                        PlaybackQualityLabel(
-                            song = song,
-                            isLoading = isLoading,
-                            modifier = Modifier.align(Alignment.Center),
-                        )
-                    }
-                },
-                actions = { playerActions(true) },
-                modifier = Modifier.then(dockHost),
-            )
+                    },
+                    volume = if (hideVolumeBar) null else {
+                        { VolumeRow({ volume.level.value }, onVolumeChange, onVolumeChangeFinished) }
+                    },
+                    quality = { PlaybackQualityLabel(song = song, isLoading = isLoading) },
+                    actions = { playerActions(false) },
+                )
+            }
         } else if (landscape) {
             // Paused always wins outright over a scrub in progress — see
             // [ARTWORK_PAUSE_SHRINK_SCALE].
@@ -2288,20 +2365,16 @@ fun NowPlayingScreen(
             // sleeve's `dockRide`.
             fun landscapeDockPose(): LandscapeDockPose? {
                 if (dock == null) return null
-                val t = dockT()
-                val mini = dock.miniArtOnScreen() ?: return null
                 val anchor = dockFrame.anchor ?: return null
                 val host = dockFrame.host?.takeIf { it.isAttached } ?: return null
                 val sleeve = dockFrame.landscapeArt?.takeIf { it.isAttached } ?: return null
                 val offset = (dock.offset() ?: return null).toInt().toFloat()
-                val travel = dock.sheetTravel.takeIf { it > 0f } ?: return null
                 if (sleeve.size.width <= 0) return null
                 val open = Rect(
                     offset = anchor + host.localPositionOf(sleeve, Offset.Zero),
                     size = Size(sleeve.size.width.toFloat(), sleeve.size.height.toFloat()),
                 )
-                val ride = ((mini.top - open.top) / travel).coerceIn(0f, 1f)
-                val rect = lerp(mini, open.translate(0f, offset * ride), t)
+                val rect = dock.artworkInFlight(open) ?: return null
                 // In the player's own pixels, where it sits this frame.
                 return LandscapeDockPose(
                     left = rect.left - anchor.x,
@@ -2955,72 +3028,7 @@ fun NowPlayingScreen(
                             // the queue opens, and a hole that waited for it spent that
                             // half second lying across a list the finger was already
                             // scrolling.
-                            .onGloballyPositioned { dismissBandSpace = it }
-                            .pointerInput(showAudioPipeline, showCast, panelScrolling) {
-                                if (showAudioPipeline || showCast || panelScrolling) return@pointerInput
-                                awaitEachGesture {
-                                    // Unconsumed on purpose, as the blanket version was:
-                                    // the collapsed sleeve's own clickable — the way back
-                                    // out of the queue — has taken the press by the time
-                                    // an ancestor sees it.
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val space = dismissBandSpace
-                                    val y = space?.localToRoot(down.position)?.y
-                                        ?: down.position.y
-                                    // A panel is up from the moment it is asked for to
-                                    // the moment the sleeve has finished growing back —
-                                    // never mind where the sleeve is in between.
-                                    val panelUp = queueOpen || lyricsOpen ||
-                                        queueSlide.floatValue > 0.01f
-                                    val bandTop: Float
-                                    val bandBottom: Float
-                                    if (panelUp) {
-                                        bandTop = space?.positionInRoot()?.y ?: 0f
-                                        bandBottom = bandTop +
-                                            (ART_BOX_TOP_PAD + portraitHeaderHeight).toPx()
-                                    } else {
-                                        bandTop = dismissBandTop
-                                        bandBottom = dismissBandBottom
-                                    }
-                                    if (y >= bandTop && y <= bandBottom) {
-                                        if (!panelUp) {
-                                            dragQueueIn(
-                                                down = down,
-                                                travel = bandBottom - bandTop -
-                                                    portraitHeaderHeight.toPx(),
-                                                slide = queueSlide,
-                                                onHold = { queueDragging = it },
-                                                onSettle = { open ->
-                                                    if (open != queueOpen) {
-                                                        haptics.play(
-                                                            if (open) Haptic.Expand else Haptic.Tap,
-                                                        )
-                                                        if (open) queueControlsOpen = true
-                                                        queueOpen = open
-                                                    }
-                                                    queueReleased++
-                                                },
-                                            )
-                                        }
-                                        return@awaitEachGesture
-                                    }
-                                    // A down already taken means the sheet grabbed it
-                                    // while "settling" after a scroll (see
-                                    // guardSheetFromContentTouches), and the guard is
-                                    // about to hand it back to the list under the
-                                    // finger. Holding it here would strand that list
-                                    // mid-handback, and the list would never scroll.
-                                    if (down.isConsumed) return@awaitEachGesture
-                                    // What detectVerticalDragGestures does, minus the
-                                    // callbacks: cross the slop, then hold the gesture
-                                    // to the end so nothing downstream of the first
-                                    // event reaches the sheet either.
-                                    val drag = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ ->
-                                        change.consume()
-                                    }
-                                    if (drag != null) verticalDrag(drag.id) { it.consume() }
-                                }
-                            }
+                            .then(playerPanelGestures)
                             .padding(horizontal = PLAYER_GUTTER),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {

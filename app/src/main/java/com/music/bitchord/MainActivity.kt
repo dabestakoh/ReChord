@@ -2607,6 +2607,7 @@ private fun BitChordApp(
             }
         NowPlayingScreen(
             song = displayedSong,
+            wantsPlayback = controller?.playWhenReady ?: player.isPlaying,
             companionVideoId = companionVideoId?.takeIf { displayedSong.videoId == player.song?.videoId },
             layout = nowPlayingLayout,
             onOpenLayoutPicker = { showPlayerLayouts = true },
@@ -3183,6 +3184,7 @@ private fun BitChordApp(
                         } else if (pageRoute is AppRoute.SettingsChoice) {
                             SettingsChoicePage(
                                 choice = pageRoute.choice,
+                                windowWidth = windowWidth,
                                 onChosen = { navigator.pop() },
                                 onConfirmBitPerfect = { confirmBitPerfect = it },
                                 contentPadding = listPadding,

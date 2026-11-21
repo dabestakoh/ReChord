@@ -441,6 +441,8 @@ object AppSettings {
 
     /** Hides the volume slider on the main player, leaving the rest of the layout to reflow. */
     val hideVolumeBar = MutableStateFlow(false)
+    val hideVinylVolumeBar = MutableStateFlow(false)
+    val hidePosterVolumeBar = MutableStateFlow(false)
 
     /** Hides the device status bar (clock, battery, notifications) while the main player is open. */
     val hideStatusBarInPlayer = MutableStateFlow(false)
@@ -1032,6 +1034,8 @@ object AppSettings {
         )
         stopOnTaskRemoved.value = prefs.getBoolean(KEY_STOP_ON_TASK_REMOVED, true)
         hideVolumeBar.value = prefs.getBoolean(KEY_HIDE_VOLUME_BAR, false)
+        hideVinylVolumeBar.value = prefs.getBoolean(KEY_HIDE_VINYL_VOLUME_BAR, false)
+        hidePosterVolumeBar.value = prefs.getBoolean(KEY_HIDE_POSTER_VOLUME_BAR, false)
         hideStatusBarInPlayer.value = prefs.getBoolean(KEY_HIDE_STATUS_BAR_IN_PLAYER, false)
         hideSongStatus.value = prefs.getBoolean(KEY_HIDE_SONG_STATUS, false)
         showQueueHistory.value = prefs.getBoolean(KEY_SHOW_QUEUE_HISTORY, false)
@@ -1783,6 +1787,36 @@ object AppSettings {
         prefs.edit().putBoolean(KEY_FULL_BLEED_DETAIL_ARTWORK, value).apply()
     }
 
+    fun applyNowPlayingLayoutSettings(
+        layout: NowPlayingLayout,
+        defaultHideVolume: Boolean,
+        vinylHideVolume: Boolean,
+        posterHideVolume: Boolean,
+        fullBleed: Boolean,
+        theme: PlayerTheme,
+        coverOverCellular: Boolean,
+        canvasAutoHide: Boolean,
+    ) {
+        prefs.edit()
+            .putString(KEY_NOW_PLAYING_LAYOUT, layout.name)
+            .putBoolean(KEY_HIDE_VOLUME_BAR, defaultHideVolume)
+            .putBoolean(KEY_HIDE_VINYL_VOLUME_BAR, vinylHideVolume)
+            .putBoolean(KEY_HIDE_POSTER_VOLUME_BAR, posterHideVolume)
+            .putBoolean(KEY_FULL_BLEED_ARTWORK, fullBleed)
+            .putString(KEY_PLAYER_THEME, theme.name)
+            .putBoolean(KEY_CANVAS_OVER_CELLULAR, coverOverCellular)
+            .putBoolean(KEY_SPOTIFY_CANVAS_AUTO_HIDE, canvasAutoHide)
+            .apply()
+        hideVolumeBar.value = defaultHideVolume
+        hideVinylVolumeBar.value = vinylHideVolume
+        hidePosterVolumeBar.value = posterHideVolume
+        fullBleedArtwork.value = fullBleed
+        playerTheme.value = theme
+        canvasOverCellular.value = coverOverCellular
+        spotifyCanvasAutoHide.value = canvasAutoHide
+        nowPlayingLayout.value = layout
+    }
+
     fun setNowPlayingLayout(value: NowPlayingLayout) {
         if (nowPlayingLayout.value == value) return
         nowPlayingLayout.value = value
@@ -2394,6 +2428,8 @@ object AppSettings {
     private const val KEY_PERFORMANCE_REFRESH_RATE = "performance_refresh_rate"
     private const val KEY_STOP_ON_TASK_REMOVED = "stop_on_task_removed"
     private const val KEY_HIDE_VOLUME_BAR = "hide_volume_bar"
+    private const val KEY_HIDE_VINYL_VOLUME_BAR = "hide_vinyl_volume_bar"
+    private const val KEY_HIDE_POSTER_VOLUME_BAR = "hide_poster_volume_bar"
     private const val KEY_HIDE_STATUS_BAR_IN_PLAYER = "hide_status_bar_in_player"
     private const val KEY_HIDE_SONG_STATUS = "hide_song_status"
     private const val KEY_SHOW_QUEUE_HISTORY = "show_queue_history"

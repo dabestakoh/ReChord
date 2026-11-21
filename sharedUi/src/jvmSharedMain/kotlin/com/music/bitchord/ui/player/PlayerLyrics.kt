@@ -127,7 +127,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.ResolvedTextDirection
-import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -1614,9 +1613,6 @@ internal fun RomanizationToggleButton(
  * second scroll, a blank frame, or a new lyrics timeline. The app's Reduce
  * animation preference collapses the whole response to an immediate swap.
  */
-private const val POSTER_WORD_GROWTH = 0.23f
-private val PosterWordWidth = TextGeometricTransform(scaleX = 1.06f / (1f + POSTER_WORD_GROWTH))
-
 @Composable
 internal fun PosterLyricSpotlight(
     lines: List<LyricLine>,
@@ -1641,7 +1637,7 @@ internal fun PosterLyricSpotlight(
     BoxWithConstraints(
         Modifier.fillMaxSize()
             .clickable(onClickLabel = stringResource(Res.string.open_lyrics), onClick = onOpenLyrics)
-            .padding(vertical = 8.dp),
+            .padding(top = 14.dp, bottom = 10.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         val width = constraints.maxWidth
@@ -1667,106 +1663,32 @@ internal fun PosterLyricSpotlight(
             label = "posterLyric",
         ) { active ->
             if (active != null && width > 0 && height > 0) {
-                val index = remember(active, style, reduceAnimation) {
-                    if (!active.isWordSynced || !style.rises || reduceAnimation || active.words.size < 2) null
-                    else active.wordSpans.indices.maxByOrNull { active.wordSpans[it].count() }
-                }
-                val range = index?.let(active.wordSpans::get)
-                val typeset = remember(active, range, width, height, maxSize, base, measurer) {
+                val type = remember(active, width, height, maxSize, base, measurer) {
                     var size = maxSize
-                    var type: TextStyle
-                    var peak: AnnotatedString
-                    var measured: TextLayoutResult
+                    var candidate: TextStyle
                     do {
-                        type = base.copy(
-                            fontSize = size.sp,
-                            lineHeight = (size * if (range == null) 1.22f else 1.26f).sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            lineBreak = LineBreak.Heading,
+                        candidate = base.copy(
+                            fontSize = size.sp, lineHeight = (size * 1.26f).sp,
+                            fontWeight = FontWeight.ExtraBold, lineBreak = LineBreak.Heading,
                         )
-                        peak = if (range == null) AnnotatedString(active.text) else AnnotatedString(
-                            active.text, spanStyles = listOf(
-                                AnnotatedString.Range(
-                                    SpanStyle(
-                                        fontSize = (size * (1f + POSTER_WORD_GROWTH)).sp,
-                                        textGeometricTransform = PosterWordWidth,
-                                    ), range.first, range.last + 1,
-                                ),
-                            ),
-                        )
-                        measured = measurer.measure(
-                            peak, voiceStyle(type, active.text, false, false),
-                            maxLines = 3, constraints = Constraints(maxWidth = width),
+                        val measured = measurer.measure(
+                            active.text, voiceStyle(candidate, active.text, false, false),
+                            maxLines = 4, constraints = Constraints(maxWidth = width),
                         )
                         if ((!measured.hasVisualOverflow && measured.size.height <= height) || size <= 12f) break
                         size = (size - 1.25f).coerceAtLeast(12f)
                     } while (true)
-                    Triple(type, peak, measured)
+                    candidate
                 }
-                val (type, peak, textLayout) = typeset
                 if (active.isWordSynced) {
-                    // Plant the emphasized word in a space measured at peak size. Animate
-                    // its ink separately, so the other words never reflow or get sliced.
-                    val word = index?.let(active.words::get)
-                    val isolated = remember(range, peak, textLayout, type, measurer) {
-                        val first = range?.first ?: return@remember null
-                        val last = range.last + 1
-                        val row = textLayout.getLineForOffset(first)
-                        if (last > textLayout.getLineEnd(row, visibleEnd = true) ||
-                            textLayout.getParagraphDirection(first) != ResolvedTextDirection.Ltr
-                        ) return@remember null
-                        val x0 = textLayout.getHorizontalPosition(first, true)
-                        val x1 = textLayout.getHorizontalPosition(last, true)
-                        if (x1 <= x0) return@remember null
-                        val peakSize = type.fontSize * (1f + POSTER_WORD_GROWTH)
-                        val label = measurer.measure(
-                            active.text.substring(first, last),
-                            type.copy(fontSize = peakSize, textGeometricTransform = PosterWordWidth),
-                            maxLines = 1,
-                        )
-                        val silent = AnnotatedString(
-                            active.text, spanStyles = listOf(
-                                AnnotatedString.Range(
-                                    SpanStyle(
-                                        fontSize = peakSize, color = Color.Transparent,
-                                        textGeometricTransform = PosterWordWidth,
-                                    ), first, last,
-                                ),
-                            ),
-                        )
-                        Triple(label, silent, Offset(x0, textLayout.getLineBaseline(row)))
-                    }
-                    Box(Modifier.fillMaxWidth()) {
-                        PresetLyricLine(
-                            active, clock, style, type, 3, isolated?.second ?: peak,
-                            color = ink, effects = !reduceAnimation, blur = !reduceBlur, liftWords = false,
-                        )
-                        if (isolated != null && word != null) {
-                            val (label, _, anchor) = isolated
-                            Canvas(Modifier.matchParentSize()) {
-                                val elapsed = (clock.longValue - word.startMs).toFloat()
-                                val duration = (word.endMs - word.startMs).coerceAtLeast(1L).toFloat()
-                                val completion = (elapsed / duration).coerceIn(0f, 1f)
-                                val growth = LYRIC_EASING.transform(
-                                    (elapsed / maxOf(420f, duration * 0.76f)).coerceIn(0f, 1f),
-                                )
-                                val heightScale = (1f + POSTER_WORD_GROWTH * growth) / (1f + POSTER_WORD_GROWTH)
-                                val top = anchor - Offset(0f, label.firstBaseline)
-                                scale(1f, heightScale, anchor) {
-                                    drawText(label, color = ink.copy(alpha = 0.36f), topLeft = top)
-                                    if (completion > 0f) {
-                                        clipRect(right = anchor.x + label.size.width * completion) {
-                                            drawText(label, color = ink, topLeft = top)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    PresetLyricLine(
+                        active, clock, style, type, 4, styled = null,
+                        color = ink, effects = !reduceAnimation, blur = !reduceBlur,
+                    )
                 } else {
                     Text(
                         text = active.text, style = voiceStyle(type, active.text, false, false),
-                        maxLines = 3, color = ink, overflow = TextOverflow.Ellipsis,
+                        maxLines = 4, color = ink, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

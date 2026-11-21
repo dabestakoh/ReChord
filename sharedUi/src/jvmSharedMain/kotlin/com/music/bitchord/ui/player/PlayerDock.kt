@@ -84,6 +84,16 @@ class PlayerDock {
         )
     }
 
+    internal fun artworkInFlight(expandedOnScreen: Rect): Rect? {
+        val mini = miniArtOnScreen() ?: return null
+        val offset = offset()?.toInt()?.toFloat() ?: return null
+        val travel = sheetTravel.takeIf { it > 0f } ?: return null
+        val ride = ((mini.top - expandedOnScreen.top) / travel).coerceIn(0f, 1f)
+        return androidx.compose.ui.geometry.lerp(
+            mini, expandedOnScreen.translate(0f, offset * ride), openFraction(),
+        )
+    }
+
     internal fun miniArtCorner(): Dp = miniArtCorner
 
     /** The sheet's offset this frame, or null with no sheet laid out. */

@@ -1,6 +1,32 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import kotlin.math.roundToInt
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
@@ -24,7 +50,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -74,7 +99,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.music.bitchord.data.model.Song
@@ -145,10 +169,25 @@ internal fun AlternateNowPlaying(
     lyricsPane: @Composable (Boolean) -> Unit,
     queuePane: @Composable (Boolean) -> Unit,
     lyrics: @Composable () -> Unit,
-    scrubber: @Composable () -> Unit,
+    volume: (@Composable () -> Unit)?,
+    quality: @Composable () -> Unit,
     actions: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     preview: Boolean = false,
+    deckVisible: Boolean = true,
+    deckReveal: Animatable<Float, AnimationVector1D>? = null,
+    controlsLocked: Boolean = false,
+    onBlockedControl: () -> Unit = {},
+    panelGestures: Modifier = Modifier,
+    onArtworkBand: (Rect) -> Unit = {},
+    queuePreview: (() -> Float)? = null,
+    onDismissPane: () -> Unit = {},
+    playbackOrigin: String? = null,
+    onOpenPlaybackOrigin: () -> Unit = {},
+    onOpenAlbum: (String) -> Unit = {},
+    onOpenArtist: (String?, String) -> Unit = { _, _ -> },
+    spinRecord: Boolean = isPlaying,
+    dock: PlayerDock? = null,
 ) {
     val vinyl = layout == NowPlayingLayout.VINYL
     val haptics = rememberHaptics()
@@ -169,6 +208,7 @@ internal fun AlternateNowPlaying(
     val artworkStride = if (vinyl) 1.64f else 1f
     val gesture = if (preview) Modifier else Modifier.alternateTrackGesture(
         swipe, previousSong, nextSong, artworkStride, reduceAnimation, onSwipePrevious, onNext,
+        controlsLocked, onBlockedControl,
     )
     val textOpacity by animateFloatAsState(
         (1f - abs(swipe.artworkOffset(song)) * 3.5f).coerceIn(0f, 1f),
@@ -178,299 +218,375 @@ internal fun AlternateNowPlaying(
     val tracks = remember(song, previousSong, nextSong) {
         listOfNotNull(previousSong?.let { -1 to it }, 0 to song, nextSong?.let { 1 to it })
     }
-    Box(modifier.fillMaxSize().clipToBounds().drawWithCache {
-        fun colors(tone: Color): Brush {
-            val tint = tone.takeUnless { it == Color.Unspecified || it == Color.White } ?: Color(0xFF3E4147)
-            return if (vinyl) {
-                Brush.verticalGradient(listOf(lerp(base, tint, 0.30f), base))
-            } else {
-                Brush.linearGradient(
-                    0f to lerp(base, tint, 0.26f),
-                    0.37f to lerp(base, tint, 0.49f),
-                    1f to lerp(base, tint, 0.12f),
-                )
-            }
+    var dockRoot by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var artworkSource by remember(pane) { mutableStateOf<LayoutCoordinates?>(null) }
+    val reportArtwork: (LayoutCoordinates) -> Unit = {
+        if (dock != null) {
+            artworkSource = it
+            if (!dock.attached) dock.attached = true
         }
-        val current = colors(artworkBackdrop)
-        val previous = colors(if (prevColor == Color.Unspecified && !prevAnalysis.unavailable) artworkBackdrop else prevColor)
-        val next = colors(if (nextColor == Color.Unspecified && !nextAnalysis.unavailable) artworkBackdrop else nextColor)
-        onDrawBehind {
-            drawRect(current)
-            val offset = swipe.artworkOffset(song)
-            val toward = if (offset > 0f) previous else next
-            val strength = kotlin.math.abs(offset)
-            if (strength > 0.001f) drawRect(toward, alpha = strength.coerceAtMost(1f))
-        }
-    }) {
-        if (!vinyl) {
-            for ((slot, track) in tracks) key(track.swipeIdentity) {
-                val mesh = rememberArtworkMesh(when (slot) {
-                    -1 -> prevArt
-                    1 -> nextArt
-                    else -> artworkUrl
-                })
-                if (mesh != null) {
-                    ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer {
-                        alpha = 0.36f * (1f - abs(slot + swipe.artworkOffset(song))).coerceIn(0f, 1f)
-                    })
+    }
+    Box(modifier.fillMaxSize().onGloballyPositioned { if (dock != null) dockRoot = it }) {
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            val fraction = dock?.openFraction() ?: 1f
+            alpha = ((fraction - 0.18f) / 0.82f).coerceIn(0f, 1f)
+        }.drawWithCache {
+            fun colors(tone: Color): Brush {
+                val tint = tone.takeUnless { it == Color.Unspecified || it == Color.White } ?: Color(0xFF3E4147)
+                return if (vinyl) {
+                    Brush.verticalGradient(listOf(lerp(base, tint, 0.30f), base))
+                } else {
+                    Brush.linearGradient(
+                        0f to lerp(base, tint, 0.26f),
+                        0.37f to lerp(base, tint, 0.49f),
+                        1f to lerp(base, tint, 0.12f),
+                    )
                 }
             }
-        }
-        Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.navigationBarsPadding())) {
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                val compact = maxHeight < 364.dp
-                val controlsHeight = if (compact) 100.dp else 192.dp
-                Column(Modifier.fillMaxSize()) {
-                    AnimatedContent(
-                        targetState = pane,
-                        modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds(),
-                        transitionSpec = {
-                            if (reduceAnimation) {
-                                fadeIn(snap()) togetherWith fadeOut(snap())
-                            } else {
-                                val forward = targetState != PlayerPane.Main
-                                val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
-                                    if (forward) min(it / 4, 132) else -it / 12
-                                } + fadeIn(tween(durationMillis = 145, delayMillis = 105))
-                                val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
-                                    if (forward) -it / 12 else min(it / 4, 132)
-                                } + fadeOut(tween(durationMillis = 100))
-                                enter togetherWith exit
+            val current = colors(artworkBackdrop)
+            val previous = colors(if (prevColor == Color.Unspecified && !prevAnalysis.unavailable) artworkBackdrop else prevColor)
+            val next = colors(if (nextColor == Color.Unspecified && !nextAnalysis.unavailable) artworkBackdrop else nextColor)
+            onDrawBehind {
+                drawRect(current)
+                val offset = swipe.artworkOffset(song)
+                val toward = if (offset > 0f) previous else next
+                val strength = kotlin.math.abs(offset)
+                if (strength > 0.001f) drawRect(toward, alpha = strength.coerceAtMost(1f))
+            }
+        }) {
+            if (!vinyl) {
+                for ((slot, track) in tracks) key(track.swipeIdentity) {
+                    val mesh = rememberArtworkMesh(when (slot) {
+                        -1 -> prevArt
+                        1 -> nextArt
+                        else -> artworkUrl
+                    })
+                    if (mesh != null) {
+                        ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer {
+                            alpha = 0.36f * (1f - abs(slot + swipe.artworkOffset(song))).coerceIn(0f, 1f)
+                        })
+                    }
+                }
+            }
+            Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.navigationBarsPadding())) {
+                BoxWithConstraints(Modifier.fillMaxSize().then(panelGestures)) {
+                    val compact = maxHeight < 465.dp
+                    val transportHeight = if (compact) 100.dp else 192.dp
+                    val posterTransport = !vinyl && pane == PlayerPane.Main && !compact
+                    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+                    val controlsHeight = if (posterTransport) maxOf(86.dp, 75.dp * fontScale) else transportHeight
+                    var footerHeight by remember { mutableStateOf(0) }
+                    val reveal = deckReveal ?: remember { Animatable(1f) }
+                    val favorite: @Composable () -> Unit = {
+                        PlaybackPill(
+                            icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                            description = stringResource(if (liked) Res.string.remove_from_liked else Res.string.like),
+                            onClick = { haptics.play(Haptic.Tap); onFavorite() },
+                        )
+                    }
+                    val previous: @Composable () -> Unit = {
+                        PlaybackPill(
+                            Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
+                        ) { haptics.play(Haptic.SkipPrevious); onPrevious() }
+                    }
+                    val play: @Composable () -> Unit = {
+                        if (isLoading) {
+                            Box(Modifier.size(52.dp, 48.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(Modifier.size(21.dp), color = LocalPlayerAccent.current, strokeWidth = 2.dp)
                             }
-                        },
-                        label = "alternatePlayerPane",
-                    ) { shownPane ->
-                        val active = shownPane == pane
-                        val paneModifier = if (active) Modifier else {
-                            Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        } else {
+                            PlaybackPill(
+                                if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
+                                stringResource(if (isPlaying) Res.string.pause else Res.string.play),
+                                true,
+                            ) { haptics.play(if (isPlaying) Haptic.Pause else Haptic.Resume); onPlayPause() }
+                        }
+                    }
+                    val next: @Composable () -> Unit = {
+                        PlaybackPill(
+                            Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
+                        ) { haptics.play(Haptic.SkipNext); onNext() }
+                    }
+                    Column(Modifier.fillMaxSize()) {
+                        AnimatedContent(
+                            targetState = pane,
+                            modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()
+                                .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
+                            transitionSpec = {
+                                if (reduceAnimation) {
+                                    fadeIn(snap()) togetherWith fadeOut(snap())
+                                } else {
+                                    val forward = targetState != PlayerPane.Main
+                                    val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
+                                        if (forward) min(it / 4, 132) else -it / 12
+                                    } + fadeIn(tween(durationMillis = 145, delayMillis = 105))
+                                    val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
+                                        if (forward) -it / 12 else min(it / 4, 132)
+                                    } + fadeOut(tween(durationMillis = 100))
+                                    enter togetherWith exit
+                                }
+                            },
+                            label = "alternatePlayerPane",
+                        ) { shownPane ->
+                            val active = shownPane == pane
+                            val paneModifier = if (active) Modifier else {
+                                Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Box(Modifier.fillMaxSize().then(paneModifier)) {
-                            when (shownPane) {
-                                PlayerPane.Main -> {
-                                    val drag = onScrub.takeIf { canSeek && active }
-                                    val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
-                                    Box(artModifier) {
-                                        if (vinyl) {
-                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                val current = slot == 0
-                                                val request = when (slot) {
-                                                    -1 -> prevArt
-                                                    1 -> nextArt
-                                                    else -> artworkUrl ?: artwork
-                                                }
-                                                val color = when (slot) {
-                                                    -1 -> prevColor
-                                                    1 -> nextColor
-                                                    else -> recordPalette
-                                                }
-                                                VinylDisc(
-                                                    request, track.swipeIdentity, vinylStyle, color,
-                                                    active && current && isPlaying && !reduceAnimation,
-                                                    if (current) shown else ({ 0f }),
-                                                    { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
-                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
-                                                    },
-                                                    albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                )
-                                            }
-                                            VinylTonearm(
-                                                shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
-                                                reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
-                                                durationMs = durationMs,
-                                            )
-                                        } else {
-                                            BoxWithConstraints(Modifier.fillMaxSize()) {
-                                                val spotlightHeight = (maxHeight * 0.28f).coerceIn(
-                                                    minOf(maxHeight * 0.36f, 78.dp), 160.dp,
-                                                )
-                                                Column(Modifier.fillMaxSize()) {
-                                                    PosterArtwork(
-                                                        null, shown, Modifier.fillMaxWidth().weight(1f), drag,
-                                                        onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
-                                                    ) {
-                                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                            val art = when (slot) {
-                                                                -1 -> prevArt
-                                                                1 -> nextArt
-                                                                else -> artworkUrl ?: artwork
-                                                            }
-                                                            LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
-                                                                translationX = (slot + swipe.artworkOffset(song)) * size.width
-                                                            })
-                                                        }
+                            Box(Modifier.fillMaxSize().then(paneModifier)) {
+                                when (shownPane) {
+                                    PlayerPane.Main -> {
+                                        val drag = onScrub.takeIf { canSeek && active }
+                                        val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
+                                            .graphicsLayer { alpha = 1f - (queuePreview?.invoke() ?: 0f) }
+                                        Box(artModifier) {
+                                            if (vinyl) {
+                                                for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                    val current = slot == 0
+                                                    val request = when (slot) {
+                                                        -1 -> prevArt
+                                                        1 -> nextArt
+                                                        else -> artworkUrl ?: artwork
                                                     }
-                                                    Box(
-                                                        Modifier.fillMaxWidth().height(spotlightHeight)
-                                                            .padding(horizontal = if (compact) 20.dp else 24.dp)
-                                                            .graphicsLayer { alpha = textOpacity },
-                                                    ) { if (active) key(song.swipeIdentity) { lyrics() } }
+                                                    val color = when (slot) {
+                                                        -1 -> prevColor
+                                                        1 -> nextColor
+                                                        else -> recordPalette
+                                                    }
+                                                    VinylDisc(
+                                                        request, track.swipeIdentity, vinylStyle, color,
+                                                        active && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                        if (current) shown else ({ 0f }),
+                                                        { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
+                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                        },
+                                                        albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                        labelPlacement = if (active && current) reportArtwork else null,
+                                                    )
+                                                }
+                                                VinylTonearm(
+                                                    shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
+                                                    reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
+                                                    durationMs = durationMs,
+                                                )
+                                            } else {
+                                                BoxWithConstraints(Modifier.fillMaxSize()) {
+                                                    Column(Modifier.fillMaxSize()) {
+                                                        PosterArtwork(
+                                                            null, shown, Modifier.fillMaxWidth().weight(if (compact) 0.59f else 0.57f)
+                                                                .onGloballyPositioned { if (active) reportArtwork(it) }, drag,
+                                                            onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
+                                                        ) {
+                                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                                val art = when (slot) {
+                                                                    -1 -> prevArt
+                                                                    1 -> nextArt
+                                                                    else -> artworkUrl ?: artwork
+                                                                }
+                                                                LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                                })
+                                                            }
+                                                        }
+                                                        Box(
+                                                            Modifier.fillMaxWidth().weight(if (compact) 0.41f else 0.43f)
+                                                                .padding(start = 20.dp, end = if (compact) 20.dp else 72.dp)
+                                                                .graphicsLayer { alpha = textOpacity },
+                                                        ) { if (active) key(song.swipeIdentity) { lyrics() } }
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    if (statusScrimAlpha > 0f) {
-                                        Box(
-                                            Modifier.fillMaxWidth().height(80.dp).background(
-                                                Brush.verticalGradient(
-                                                    listOf(Color.Black.copy(alpha = statusScrimAlpha), Color.Transparent),
+                                        if (statusScrimAlpha > 0f) {
+                                            Box(
+                                                Modifier.fillMaxWidth().height(80.dp).background(
+                                                    Brush.verticalGradient(
+                                                        listOf(Color.Black.copy(alpha = statusScrimAlpha), Color.Transparent),
+                                                    ),
                                                 ),
-                                            ),
-                                        )
+                                            )
+                                        }
+                                    }
+                                    PlayerPane.Lyrics, PlayerPane.Queue -> Box(
+                                        Modifier.fillMaxSize()
+                                            .windowInsetsPadding(stableStatusBarInsets())
+                                            .padding(start = 18.dp, top = 48.dp, end = 18.dp),
+                                    ) {
+                                        if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
                                     }
                                 }
-                                PlayerPane.Lyrics, PlayerPane.Queue -> Box(
-                                    Modifier.fillMaxSize()
-                                        .windowInsetsPadding(stableStatusBarInsets())
-                                        .padding(start = 18.dp, top = 48.dp, end = 18.dp),
+                                if (queuePreview != null && shownPane == PlayerPane.Main) {
+                                    Box(Modifier.fillMaxSize().windowInsetsPadding(stableStatusBarInsets())
+                                        .padding(start = 18.dp, end = 18.dp, top = 48.dp)
+                                        .graphicsLayer {
+                                            alpha = ((queuePreview() - 0.45f) / 0.55f).coerceIn(0f, 1f)
+                                            translationY = (1f - queuePreview()) * 26.dp.toPx()
+                                        }
+                                        .clearAndSetSemantics {},
+                                    ) { queuePane(false) }
+                                }
+                            }
+                        }
+                        SlidingPlayerDeck(visible = deckVisible, reveal = reveal, reduced = reduceAnimation,
+                            modifier = Modifier.clipToBounds(),
+                        ) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(
+                                    Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
+                                    Column(
+                                        Modifier.weight(1f).then(
+                                            if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
+                                        ),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Box(Modifier.fillMaxWidth().graphicsLayer {
+                                            alpha = if (pane == PlayerPane.Main) textOpacity else 1f
+                                        }) {
+                                            PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                        }
+                                        if (playbackOrigin != null && pane == PlayerPane.Main) {
+                                            PlaybackOriginCaption(
+                                                playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                            )
+                                        }
+                                        if (vinyl) {
+                                            // Reserve the same placement for the credits across all three panes.
+                                            Box(
+                                                Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
+                                                    alpha = textOpacity
+                                                },
+                                                contentAlignment = Alignment.CenterStart,
+                                            ) {
+                                                if (pane == PlayerPane.Main) lyrics()
+                                            }
+                                        }
+                                    }
+                                    if (posterTransport) {
+                                        Spacer(Modifier.width(52.dp))
+                                    } else if (compact) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Column { favorite(); previous() }
+                                            Column { play(); next() }
+                                        }
+                                    } else {
+                                        Column { favorite(); previous(); play(); next() }
+                                    }
+                                }
+                                Column(Modifier.fillMaxWidth().onSizeChanged { footerHeight = it.height }.padding(horizontal = 20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth())
+                                    quality()
+                                    volume?.invoke()
+                                    actions()
+                                    Spacer(Modifier.height(6.dp))
                                 }
                             }
                         }
                     }
-                    Row(
-                        Modifier.fillMaxWidth().height(controlsHeight).padding(start = 20.dp, end = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    if (posterTransport) {
+                        Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp)
+                            .offset { IntOffset(0, -footerHeight) }) {
+                            favorite(); previous(); play(); next()
+                        }
+                    }
+                }
+            }
+            Box(
+                Modifier.fillMaxWidth()
+                    .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
+                    .height(44.dp).then(topHold),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
+                if (pane != PlayerPane.Main) {
+                    LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
+                        .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
+                        .clickable(onClick = onDismissPane))
+                }
+                IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
+                    Box(
+                        Modifier.size(34.dp).clip(CircleShape).then(
+                            if (vinyl) Modifier.background(Color.Black.copy(alpha = 0.52f)) else Modifier,
+                        ),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Column(
-                            Modifier.weight(1f).then(
-                                if (vinyl) Modifier else Modifier.align(Alignment.Bottom).padding(bottom = 10.dp),
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Box(Modifier.fillMaxWidth().graphicsLayer {
-                                alpha = if (pane == PlayerPane.Main) textOpacity else 1f
-                            }) {
-                                PlayerLayoutCredits(song.title, song.artist)
-                            }
-                            if (vinyl) {
-                                // Reserve the same placement for the credits across all three panes.
-                                Box(
-                                    Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
-                                        alpha = textOpacity
-                                    },
-                                    contentAlignment = Alignment.CenterStart,
-                                ) {
-                                    if (pane == PlayerPane.Main) lyrics()
-                                }
-                            }
-                        }
-                        val favorite: @Composable () -> Unit = {
-                            PlaybackPill(
-                                icon = if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                description = stringResource(if (liked) Res.string.remove_from_liked else Res.string.like),
-                                onClick = { haptics.play(Haptic.Tap); onFavorite() },
-                            )
-                        }
-                        val previous: @Composable () -> Unit = {
-                            PlaybackPill(
-                                Res.drawable.ic_player_previous, stringResource(Res.string.widget_previous), previousEnabled,
-                            ) { haptics.play(Haptic.SkipPrevious); onPrevious() }
-                        }
-                        val play: @Composable () -> Unit = {
-                            if (isLoading) {
-                                Box(Modifier.size(52.dp, 48.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(21.dp), color = LocalPlayerAccent.current, strokeWidth = 2.dp)
-                                }
-                            } else {
-                                PlaybackPill(
-                                    if (isPlaying) Res.drawable.ic_player_pause else Res.drawable.ic_player_play,
-                                    stringResource(if (isPlaying) Res.string.pause else Res.string.play),
-                                    true,
-                                ) { haptics.play(if (isPlaying) Haptic.Pause else Haptic.Resume); onPlayPause() }
-                            }
-                        }
-                        val next: @Composable () -> Unit = {
-                            PlaybackPill(
-                                Res.drawable.ic_player_next, stringResource(Res.string.widget_next), nextEnabled,
-                            ) { haptics.play(Haptic.SkipNext); onNext() }
-                        }
-                        if (compact) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Column { favorite(); previous() }
-                                Column { play(); next() }
-                            }
-                        } else {
-                            Column { favorite(); previous(); play(); next() }
-                        }
+                        Icon(
+                            Icons.Rounded.MoreHoriz, stringResource(Res.string.more),
+                            tint = if (vinyl) lerp(accent, Color.White, 0.30f) else accent,
+                        )
                     }
-                }
-            }
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                if (!preview) {
-                    val statsVisible by PlayerSettings.showNerdStats.collectAsStateWithLifecycle()
-                    if (statsVisible) {
-                        val automix by PlayerSettings.smartFadeEnabled.collectAsStateWithLifecycle()
-                        val lineHeight = MaterialTheme.typography.labelSmall.lineHeight
-                            .takeIf { it.isSp } ?: 16.sp
-                        val minimum = with(androidx.compose.ui.platform.LocalDensity.current) {
-                            (lineHeight * if (automix) 3f else 1f).toDp()
-                        }
-                        Box(Modifier.fillMaxWidth().padding(bottom = 4.dp).heightIn(min = minimum),
-                            contentAlignment = Alignment.BottomCenter,
-                        ) {
-                            SleeveNerdStats(song, Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-                scrubber()
-                actions()
-                Spacer(Modifier.height(6.dp))
-            }
-        }
-        Box(
-            Modifier.fillMaxWidth()
-                .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
-                .height(44.dp).then(topHold),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
-            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
-                Box(
-                    Modifier.size(34.dp).clip(CircleShape).then(
-                        if (vinyl) Modifier.background(Color.Black.copy(alpha = 0.52f)) else Modifier,
-                    ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.MoreHoriz, stringResource(Res.string.more),
-                        tint = if (vinyl) lerp(accent, Color.White, 0.30f) else accent,
-                    )
                 }
             }
         }
     }
+        if (dock != null && artworkSource != null && dockRoot != null) {
+            val circular = vinyl && pane == PlayerPane.Main
+            LayoutArtwork(artworkUrl ?: artwork, Modifier
+                .clearAndSetSemantics {}
+                .layout { measurable, _ ->
+                    val root = dockRoot
+                    val source = artworkSource
+                    val offset = dock.offset()?.toInt()?.toFloat()
+                    val fraction = dock.openFraction()
+                    val frame = if (root != null && source != null && root.isAttached && source.isAttached &&
+                        offset != null && fraction < 1f
+                    ) {
+                        val origin = source.localToScreen(Offset.Zero)
+                        val end = source.localToScreen(Offset(source.size.width.toFloat(), source.size.height.toFloat()))
+                        dock.artworkInFlight(Rect(origin, end).translate(0f, -offset))
+                    } else null
+                    if (frame == null || root == null) {
+                        val invisible = measurable.measure(Constraints.fixed(0, 0))
+                        layout(0, 0) { invisible.place(0, 0) }
+                    } else {
+                        val at = root.screenToLocal(frame.topLeft)
+                        val work = measurable.measure(Constraints.fixed(
+                            frame.width.roundToInt().coerceAtLeast(1), frame.height.roundToInt().coerceAtLeast(1),
+                        ))
+                        // Report no size: this layer is painted over the fading deck.
+                        layout(0, 0) { work.place(at.x.roundToInt(), at.y.roundToInt()) }
+                    }
+                }
+                .graphicsLayer {
+                    val round = if (circular) size.minDimension.toDp() / 2 else 7.dp
+                    shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(dock.miniArtCorner(), round, dock.openFraction()))
+                    clip = true
+                })
+        }
 }
 
 @Composable
-internal fun PlayerLayoutCredits(title: String?, artist: String) {
+private fun PlayerLayoutCredits(
+    song: Song,
+    onOpenAlbum: (String) -> Unit,
+    onOpenArtist: (String?, String) -> Unit,
+) {
     Column {
-        val titleStyle = MaterialTheme.typography.headlineSmall
-        if (title != null) {
-            Text(
-                title,
-                color = LocalPlayerAccent.current,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = titleStyle,
-            )
-        } else {
-            val height = with(androidx.compose.ui.platform.LocalDensity.current) { titleStyle.lineHeight.toDp() }
-            Spacer(Modifier.height(height))
-        }
-        Text(
-            artist,
-            color = LocalPlayerAccent.current.copy(alpha = 0.74f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        MarqueeText(
+            text = song.title.orEmpty(),
+            style = MaterialTheme.typography.headlineSmall,
+            color = LocalPlayerAccent.current,
+            enabled = true,
+            modifier = Modifier.opensPage(song.albumId, onOpenAlbum),
+        )
+        ArtistCreditsMarquee(
+            text = song.artist,
+            credits = remember(song.artist, song.artists, song.artistId) {
+                artistCredits(song.artist, song.artists, song.artistId)
+            },
             style = MaterialTheme.typography.bodyMedium,
+            color = LocalPlayerAccent.current.copy(alpha = 0.74f),
+            enabled = true,
+            onOpenArtist = onOpenArtist,
         )
     }
 }
@@ -562,12 +678,17 @@ internal fun PosterArtwork(
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
     var seeking by remember { mutableStateOf(false) }
-    val insetPx = with(androidx.compose.ui.platform.LocalDensity.current) { 7.dp.toPx() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val gap = with(density) { 9.dp.toPx() }
+    val footer = with(density) { 38.dp.toPx() }
+    fun coverSize(size: Size) = Size(size.width, (size.height - footer).coerceAtLeast(1f))
+    fun seekArc(size: Size) = PosterArc(coverSize(size), -gap, size.width * 0.047f)
     val expanded by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "posterArc",
     )
-    val mask = remember {
-        androidx.compose.foundation.shape.GenericShape { size, _ ->
+    val mask = remember(footer) {
+        androidx.compose.foundation.shape.GenericShape { bounds, _ ->
+            val size = coverSize(bounds)
             val start = posterRimPoint(size, 0f)
             val end = posterRimPoint(size, 1f)
             moveTo(start.x, start.y)
@@ -584,19 +705,20 @@ internal fun PosterArtwork(
         val rimGesture = Modifier.seekArtwork(
             shown, onScrub, onFinish, onCancel,
             accepts = { size, down, tolerance, _ ->
-                PosterArc(size, insetPx, size.width * 0.034f).project(down).second <= tolerance * tolerance
+                seekArc(size).project(down).second <= tolerance * tolerance
             },
             along = { size, down, motion ->
-                val slope = -0.66f * size.height * down.x / (size.width * size.width)
+                val slope = -0.66f * coverSize(size).height * down.x / (size.width * size.width)
                 abs(motion.y - slope * motion.x) < abs(motion.x) * 1.3f
             },
             fraction = { size, _, current, _ ->
-                PosterArc(size, insetPx, size.width * 0.034f).project(current).first
+                seekArc(size).project(current).first
             },
             onDragging = { seeking = it },
         )
-        Box(Modifier.fillMaxSize().then(rimGesture).drawWithCache {
-            val arc = PosterArc(size, 7.dp.toPx(), size.width * 0.034f)
+        Box(Modifier.fillMaxSize().then(rimGesture)
+            .artworkSeekControls(shown, durationMs, onScrub, onFinish).drawWithCache {
+            val arc = seekArc(size)
             val measure = PathMeasure().apply { setPath(arc.path, false) }
             val played = Path()
             onDrawBehind {
@@ -616,7 +738,7 @@ internal fun PosterArtwork(
                     for ((point, ms) in arrayOf(start to (durationMs * progress).toLong(), end to durationMs)) {
                         val measureLabel = measurer.measure(formatTime(ms), timeStyle)
                         val x = if (point == start) point.x else point.x - measureLabel.size.width
-                        val y = (point.y - measureLabel.size.height - 5.dp.toPx()).coerceAtLeast(0f)
+                        val y = (point.y + 5.dp.toPx()).coerceAtMost(size.height - measureLabel.size.height - 2.dp.toPx())
                         val at = Offset(x.coerceAtLeast(0f), y)
                         drawRoundRect(
                             Color.Black.copy(alpha = 0.72f * amount),
@@ -630,6 +752,34 @@ internal fun PosterArtwork(
             }
         })
     }
+}
+
+internal fun Modifier.artworkSeekControls(
+    shown: () -> Float,
+    durationMs: Long,
+    onScrub: ((Float) -> Unit)?,
+    onFinish: () -> Unit,
+): Modifier {
+    if (onScrub == null || durationMs <= 0L) return this
+    fun seek(value: Float): Boolean {
+        onScrub(value.coerceIn(0f, 1f))
+        onFinish()
+        return true
+    }
+    return semantics {
+        val fraction = shown().coerceIn(0f, 1f)
+        progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+        stateDescription = "\${formatTime((fraction * durationMs).toLong())} / \${formatTime(durationMs)}"
+        setProgress(action = ::seek)
+    }.onKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+        val step = 5_000f / durationMs
+        when (event.key) {
+            Key.DirectionLeft -> seek(shown() - step)
+            Key.DirectionRight -> seek(shown() + step)
+            else -> false
+        }
+    }.focusable()
 }
 
 @Composable

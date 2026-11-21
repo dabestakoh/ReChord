@@ -125,12 +125,16 @@ internal fun Modifier.alternateTrackGesture(
     reduced: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    controlsLocked: Boolean = false,
+    onBlockedControl: () -> Unit = {},
 ): Modifier {
     val haptics = rememberHaptics()
     val latestPrevious by rememberUpdatedState(previous)
     val latestNext by rememberUpdatedState(next)
     val latestPreviousAction by rememberUpdatedState(onPrevious)
     val latestNextAction by rememberUpdatedState(onNext)
+    val locked by rememberUpdatedState(controlsLocked)
+    val blocked by rememberUpdatedState(onBlockedControl)
     return pointerInput(swipe, reduced, artworkStride) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = true)
@@ -156,6 +160,11 @@ internal fun Modifier.alternateTrackGesture(
                 (travelled < -0.40f || speed < -1.0f) && latestNext != null -> -1f
                 (travelled > 0.40f || speed > 1.0f) && latestPrevious != null -> 1f
                 else -> 0f
+            }
+            if (direction != 0f && locked) {
+                blocked()
+                swipe.end(0f, speed, null, reduced) {}
+                return@awaitEachGesture
             }
             val target = when (direction) {
                 -1f -> latestNext

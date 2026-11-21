@@ -41,6 +41,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.music.bitchord.data.settings.LyricsStyle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
+import com.music.bitchord.data.settings.PlayerTheme
 import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.sharedui.resources.*
 import kotlinx.coroutines.launch
@@ -74,9 +77,14 @@ fun NowPlayingLayoutPicker(
     modifier: Modifier = Modifier,
     artwork: Any? = null,
     showTitle: Boolean = true,
+    initialPage: NowPlayingLayout = selected,
+    hideVolumeFor: ((NowPlayingLayout) -> Boolean)? = null,
+    options: @Composable (NowPlayingLayout) -> Unit = {},
+    defaultArtworkFullBleed: Boolean? = null,
+    defaultPlayerTheme: PlayerTheme? = null,
 ) {
     val layouts = NowPlayingLayout.entries
-    val pages = rememberPagerState(initialPage = selected.ordinal) { layouts.size }
+    val pages = rememberPagerState(initialPage = initialPage.ordinal) { layouts.size }
     val scope = rememberCoroutineScope()
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         if (showTitle) {
@@ -99,6 +107,9 @@ fun NowPlayingLayoutPicker(
                 LayoutPreview(
                     layout = layouts[page],
                     artwork = artwork,
+                    hideVolume = hideVolumeFor?.invoke(layouts[page]),
+                    fullBleed = defaultArtworkFullBleed,
+                    playerTheme = defaultPlayerTheme,
                     modifier = Modifier.fillMaxWidth().height(cardHeight),
                 )
             }
@@ -120,6 +131,7 @@ fun NowPlayingLayoutPicker(
                 }
             }
         }
+        options(layouts[pages.currentPage])
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
@@ -134,7 +146,12 @@ fun NowPlayingLayoutPicker(
 }
 
 @Composable
-private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Modifier) {
+private fun LayoutPreview(
+    layout: NowPlayingLayout, artwork: Any?, hideVolume: Boolean?,
+    fullBleed: Boolean?, playerTheme: PlayerTheme?, modifier: Modifier,
+) {
+    val savedHideVolume by PlayerSettings.hideVolumeBarFor(layout).collectAsStateWithLifecycle()
+    val volumeHidden = hideVolume ?: savedHideVolume
     val shape = RoundedCornerShape(22.dp)
     val tint = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
@@ -164,6 +181,9 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
                         lyricsSource = null, lyricsProviderStates = emptyMap(), onSelectLyricsProvider = {},
                         lyricsUnavailable = false, lyricsOffsetOpen = false, onDismissLyricsOffset = {},
                         windowWidth = maxWidth, windowHeight = maxHeight, layoutPreview = true,
+                        previewHideVolume = volumeHidden,
+                        previewFullBleedArtwork = fullBleed,
+                        previewPlayerTheme = playerTheme,
                     )
                 } else androidx.compose.runtime.CompositionLocalProvider(LocalPlayerAccent provides palette) {
                     AlternateNowPlaying(
@@ -181,12 +201,10 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
                                 else MaterialTheme.typography.headlineLarge,
                             )
                         },
-                        scrubber = {
-                            PlayerScrubber(
-                                shown = { 0.38f }, durationMs = 225_000L, loading = false,
-                                mixing = false, transitionWindow = null, onScrub = {}, onScrubFinished = {},
-                            )
+                        volume = if (volumeHidden) null else {
+                            { VolumeRow({ 0.5f }, {}, {}) }
                         },
+                        quality = {},
                         actions = { Box(Modifier.height(44.dp)) },
                         preview = true,
                     )

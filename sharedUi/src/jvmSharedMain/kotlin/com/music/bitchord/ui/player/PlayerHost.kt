@@ -11,6 +11,7 @@ import com.music.bitchord.data.lyrics.LyricsSource
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.settings.AudioQuality
 import com.music.bitchord.data.settings.LastPlayerScreen
+import com.music.bitchord.data.settings.NowPlayingLayout
 import com.music.bitchord.data.settings.LyricsStyle
 import com.music.bitchord.data.settings.VinylAppearance
 import com.music.bitchord.data.settings.PlayerTheme
@@ -249,6 +250,7 @@ interface PlayerSettingsSource {
     val hideSongStatus: StateFlow<Boolean>
     val showQueueHistory: StateFlow<Boolean>
     val hideVolumeBar: StateFlow<Boolean>
+    fun hideVolumeBarFor(layout: NowPlayingLayout): StateFlow<Boolean> = hideVolumeBar
     /** Hide the device status bar while the player is up. Always false where there is none. */
     val hideStatusBar: StateFlow<Boolean>
     val lastPlayerScreen: StateFlow<LastPlayerScreen>
