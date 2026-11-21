@@ -127,6 +127,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.ResolvedTextDirection
+import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -1613,6 +1614,9 @@ internal fun RomanizationToggleButton(
  * second scroll, a blank frame, or a new lyrics timeline. The app's Reduce
  * animation preference collapses the whole response to an immediate swap.
  */
+private const val POSTER_WORD_GROWTH = 0.23f
+private val PosterWordWidth = TextGeometricTransform(scaleX = 1.06f / (1f + POSTER_WORD_GROWTH))
+
 @Composable
 internal fun PosterLyricSpotlight(
     lines: List<LyricLine>,
@@ -1654,8 +1658,9 @@ internal fun PosterLyricSpotlight(
                 if (reduceAnimation || !style.rises) {
                     fadeIn(snap()) togetherWith fadeOut(snap())
                 } else {
-                    (slideInVertically(tween(250, easing = LYRIC_EASING)) { it / 8 } + fadeIn(tween(220)))
-                        .togetherWith(slideOutVertically(tween(160)) { -it / 10 } + fadeOut(tween(150)))
+                    (slideInVertically(tween(220, easing = LYRIC_EASING)) { it / 8 } +
+                        fadeIn(tween(durationMillis = 140, delayMillis = 75)))
+                        .togetherWith(slideOutVertically(tween(130)) { -it / 10 } + fadeOut(tween(75)))
                         .using(SizeTransform(clip = false) { _, _ -> snap() })
                 }
             },
@@ -1681,7 +1686,12 @@ internal fun PosterLyricSpotlight(
                         )
                         peak = if (range == null) AnnotatedString(active.text) else AnnotatedString(
                             active.text, spanStyles = listOf(
-                                AnnotatedString.Range(SpanStyle(fontSize = (size * 1.23f).sp), range.first, range.last + 1),
+                                AnnotatedString.Range(
+                                    SpanStyle(
+                                        fontSize = (size * (1f + POSTER_WORD_GROWTH)).sp,
+                                        textGeometricTransform = PosterWordWidth,
+                                    ), range.first, range.last + 1,
+                                ),
                             ),
                         )
                         measured = measurer.measure(
@@ -1708,14 +1718,19 @@ internal fun PosterLyricSpotlight(
                         val x0 = textLayout.getHorizontalPosition(first, true)
                         val x1 = textLayout.getHorizontalPosition(last, true)
                         if (x1 <= x0) return@remember null
-                        val peakSize = type.fontSize * 1.23f
+                        val peakSize = type.fontSize * (1f + POSTER_WORD_GROWTH)
                         val label = measurer.measure(
-                            active.text.substring(first, last), type.copy(fontSize = peakSize), maxLines = 1,
+                            active.text.substring(first, last),
+                            type.copy(fontSize = peakSize, textGeometricTransform = PosterWordWidth),
+                            maxLines = 1,
                         )
                         val silent = AnnotatedString(
                             active.text, spanStyles = listOf(
                                 AnnotatedString.Range(
-                                    SpanStyle(fontSize = peakSize, color = Color.Transparent), first, last,
+                                    SpanStyle(
+                                        fontSize = peakSize, color = Color.Transparent,
+                                        textGeometricTransform = PosterWordWidth,
+                                    ), first, last,
                                 ),
                             ),
                         )
@@ -1735,9 +1750,9 @@ internal fun PosterLyricSpotlight(
                                 val growth = LYRIC_EASING.transform(
                                     (elapsed / maxOf(420f, duration * 0.76f)).coerceIn(0f, 1f),
                                 )
-                                val scale = (1f + 0.40f * growth) / 1.40f
+                                val heightScale = (1f + POSTER_WORD_GROWTH * growth) / (1f + POSTER_WORD_GROWTH)
                                 val top = anchor - Offset(0f, label.firstBaseline)
-                                scale(scale, scale, anchor) {
+                                scale(1f, heightScale, anchor) {
                                     drawText(label, color = ink.copy(alpha = 0.36f), topLeft = top)
                                     if (completion > 0f) {
                                         clipRect(right = anchor.x + label.size.width * completion) {

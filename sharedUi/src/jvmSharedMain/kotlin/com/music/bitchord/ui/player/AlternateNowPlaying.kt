@@ -159,8 +159,10 @@ internal fun AlternateNowPlaying(
     val swipe = rememberAlternateTrackSwipe(song, previousSong, nextSong, pane == PlayerPane.Main && !reduceAnimation)
     val prevArt = rememberRemoteArtworkUrl(previousSong)
     val nextArt = rememberRemoteArtworkUrl(nextSong)
-    val prevColor = rememberArtworkPlayerAnalysis(prevArt).accent ?: Color.Unspecified
-    val nextColor = rememberArtworkPlayerAnalysis(nextArt).accent ?: Color.Unspecified
+    val prevAnalysis = rememberArtworkPlayerAnalysis(prevArt)
+    val nextAnalysis = rememberArtworkPlayerAnalysis(nextArt)
+    val prevColor = prevAnalysis.accent ?: Color.Unspecified
+    val nextColor = nextAnalysis.accent ?: Color.Unspecified
     val vinylStyle by PlayerSettings.vinylAppearance.collectAsStateWithLifecycle()
     val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     var seekingArm by remember { mutableStateOf(false) }
@@ -190,8 +192,8 @@ internal fun AlternateNowPlaying(
             }
         }
         val current = colors(artworkBackdrop)
-        val previous = colors(prevColor)
-        val next = colors(nextColor)
+        val previous = colors(if (prevColor == Color.Unspecified && !prevAnalysis.unavailable) artworkBackdrop else prevColor)
+        val next = colors(if (nextColor == Color.Unspecified && !nextAnalysis.unavailable) artworkBackdrop else nextColor)
         onDrawBehind {
             drawRect(current)
             val offset = swipe.artworkOffset(song)

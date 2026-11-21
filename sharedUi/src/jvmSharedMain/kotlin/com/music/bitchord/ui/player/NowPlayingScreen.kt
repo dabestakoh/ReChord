@@ -2194,7 +2194,7 @@ fun NowPlayingScreen(
                 onOpenPicker = openLayoutPicker,
                 reduceAnimation = reduceAnimation,
                 artworkBackdrop = accentTarget,
-                recordPalette = accentTarget,
+                recordPalette = resolvedAccent ?: Color.Unspecified,
                 statusScrimAlpha = artworkStatusScrimAlpha,
                 pane = when {
                     lyricsOpen -> PlayerPane.Lyrics
