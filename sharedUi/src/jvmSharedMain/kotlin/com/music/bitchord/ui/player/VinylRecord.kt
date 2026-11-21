@@ -210,10 +210,14 @@ internal fun VinylDisc(
     LaunchedEffect(spin, coastOnPause, foreground, trackKey) {
         if (!foreground || (!spin && !coastOnPause)) return@LaunchedEffect
         var previousFrame = withFrameNanos { it }
+        var lastPublishFrame = previousFrame
+        val minStepNanos = 15_500_000L // ~60 FPS cap: identical smoothness on 90/120Hz screens with half the GPU wakeups.
         while (spin || spinRate.value > 0f) {
             val frame = withFrameNanos { it }
+            if (frame - lastPublishFrame < minStepNanos) continue
             val seconds = (frame - previousFrame) / 1_000_000_000f
             previousFrame = frame
+            lastPublishFrame = frame
             rotation = (rotation + spinRate.value * seconds) % 360f
         }
     }
@@ -223,6 +227,7 @@ internal fun VinylDisc(
     val tint = colors.tint
     val darkTint = colors.darkTint
     val accentColor = colors.accent
+    val waxLayer = rememberGraphicsLayer()
 
     BoxWithConstraints(modifier) {
         val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -263,9 +268,19 @@ internal fun VinylDisc(
                 val r = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
                 val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
+                val finish = style.finish
+                val hasArt = artwork != null
+                val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+                var baked = false
                 onDrawBehind {
                     if (r <= 0f) return@onDrawBehind
-                    drawVinylWax(style.finish, r, center, base, tint, darkTint, accentColor, artwork != null, cache)
+                    if (!baked) {
+                        waxLayer.record(layerSize) {
+                            drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
+                        }
+                        baked = true
+                    }
+                    drawLayer(waxLayer)
                 }
             })
         }
@@ -274,6 +289,16 @@ internal fun VinylDisc(
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
             val grooveCache = buildGrooveOverlayCache(c, r, 1.2.dp.toPx(), 2.2.dp.toPx())
+            val idleLight = Brush.sweepGradient(
+                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
+                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+            )
+            val seekingLight = Brush.sweepGradient(
+                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.43f),
+                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+            )
+            val idleStroke = Stroke(1.dp.toPx())
+            val seekingStroke = Stroke(2.dp.toPx())
             onDrawBehind {
                 if (g.radius <= 0f) return@onDrawBehind
                 drawGrooveOverlay(c, r, pictureCover, grooveCache)
@@ -281,14 +306,11 @@ internal fun VinylDisc(
                 val tip = g.tip(p)
                 val activeRadius = (tip - c).getDistance()
                 val tipAngle = degrees(atan2(tip.y - c.y, tip.x - c.x))
-                val strength = if (seeking()) 0.43f else 0.16f
-                val light = Brush.sweepGradient(
-                    0f to Color.Transparent, 0.034f to Color.White.copy(alpha = strength),
-                    0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
-                )
+                val isSeeking = seeking()
+                val light = if (isSeeking) seekingLight else idleLight
                 rotate(tipAngle - 12f, c) {
                     drawArc(light, 0f, 26f, false, c - Offset(activeRadius, activeRadius),
-                        Size(activeRadius * 2, activeRadius * 2), style = Stroke(if (seeking()) 2.dp.toPx() else 1.dp.toPx()))
+                        Size(activeRadius * 2, activeRadius * 2), style = if (isSeeking) seekingStroke else idleStroke)
                 }
             }
         })
@@ -755,6 +777,15 @@ internal fun VinylTonearm(
     }
     val useGpuShadow = renderEffectBlurSupported && !blurReduced
     val shadowLayer = if (useGpuShadow) rememberGraphicsLayer() else null
+    val shadowCache = remember {
+        object {
+            var box: IntSize = IntSize.Zero
+            var swing: Float = Float.NaN
+            var raised: Float = Float.NaN
+            var blurRadius: Float = Float.NaN
+            var dim: Float = Float.NaN
+        }
+    }
     val lastDrawn = remember { TonearmPose(shown()) }
     val start = remember { TonearmPose(shown()) }
     val trip = remember { Animatable(1f) }
@@ -871,18 +902,33 @@ internal fun VinylTonearm(
         if (shadowLayer != null && size.width > 1f && size.height > 1f) {
             val res = 0.5f
             val blurRadius = (u * (0.020f + 0.026f * raised) * res).coerceAtLeast(1.5f)
-            shadowLayer.renderEffect = BlurEffect(blurRadius, blurRadius, TileMode.Decal)
             val box = IntSize(
                 (size.width * res).roundToInt().coerceAtLeast(1),
                 (size.height * res).roundToInt().coerceAtLeast(1),
             )
-            val p = g.pivot + Offset(shift, shift * 1.45f)
-            shadowLayer.record(box) {
-                scale(res, res, pivot = Offset.Zero) {
-                    rotate(swing, p) {
-                        drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.06f).coerceIn(0.10f, 0.32f)))
+            val blurChanged = shadowCache.blurRadius.isNaN() || abs(blurRadius - shadowCache.blurRadius) > 0.4f
+            val needsRecord = shadowCache.box != box ||
+                blurChanged ||
+                shadowCache.swing.isNaN() || abs(swing - shadowCache.swing) > 0.25f ||
+                shadowCache.raised.isNaN() || abs(raised - shadowCache.raised) > 0.015f ||
+                shadowCache.dim != dim
+            if (blurChanged) {
+                shadowLayer.renderEffect = BlurEffect(blurRadius, blurRadius, TileMode.Decal)
+                shadowCache.blurRadius = blurRadius
+            }
+            if (needsRecord) {
+                val p = g.pivot + Offset(shift, shift * 1.45f)
+                shadowLayer.record(box) {
+                    scale(res, res, pivot = Offset.Zero) {
+                        rotate(swing, p) {
+                            drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.06f).coerceIn(0.10f, 0.32f)))
+                        }
                     }
                 }
+                shadowCache.box = box
+                shadowCache.swing = swing
+                shadowCache.raised = raised
+                shadowCache.dim = dim
             }
             scale(1f / res, 1f / res, pivot = Offset.Zero) { drawLayer(shadowLayer) }
         } else {

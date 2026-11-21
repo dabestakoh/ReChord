@@ -244,8 +244,9 @@ internal fun AlternateNowPlaying(
     val nextColor = nextAnalysis.accent ?: Color.Unspecified
     val vinylStyle by PlayerSettings.vinylAppearance.collectAsStateWithLifecycle()
     val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val foreground = com.music.bitchord.ui.rememberIsForeground()
     val posterVisualizerEnabled by PlayerSettings.posterVisualizer.collectAsStateWithLifecycle()
-    val visualizerActive = !vinyl && !preview && posterVisualizerEnabled && pane == PlayerPane.Main && video == null
+    val visualizerActive = foreground && !vinyl && !preview && posterVisualizerEnabled && pane == PlayerPane.Main && video == null
     val visualizerLevels = remember { FloatArray(24) }
     val visualizerRaw = remember { FloatArray(24) }
     val visualizerTick = remember { mutableLongStateOf(0L) }
@@ -260,9 +261,11 @@ internal fun AlternateNowPlaying(
             return@LaunchedEffect
         }
         var lastNs = 0L
+        val minStepNs = 28_000_000L // ~35 FPS: smooth visualizer motion without pegging 90/120Hz displays.
         while (true) {
             val now = withFrameNanos { it }
-            val dt = if (lastNs == 0L) 0.016f else ((now - lastNs) / 1e9f).coerceIn(0.001f, 0.08f)
+            if (lastNs != 0L && now - lastNs < minStepNs) continue
+            val dt = if (lastNs == 0L) 0.032f else ((now - lastNs) / 1e9f).coerceIn(0.001f, 0.08f)
             lastNs = now
             val heard = isPlaying && PlayerPlatform.host.readVisualizerSpectrum(visualizerRaw)
             var maxLevel = 0f
@@ -348,16 +351,20 @@ internal fun AlternateNowPlaying(
             }
         }) {
             if (!vinyl) {
-                for ((slot, track) in tracks) key(track.swipeIdentity) {
-                    val mesh = rememberArtworkMesh(when (slot) {
-                        -1 -> prevArt
-                        1 -> nextArt
-                        else -> artworkUrl
-                    })
-                    if (mesh != null) {
-                        ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer {
-                            alpha = 0.36f * (1f - abs(slot + swipe.artworkOffset(song))).coerceIn(0f, 1f)
+                val swipingBackdrop = abs(swipe.artworkOffset(song)) > 0.001f
+                for ((slot, track) in tracks) {
+                    if (slot != 0 && !swipingBackdrop) continue
+                    key(track.swipeIdentity) {
+                        val mesh = rememberArtworkMesh(when (slot) {
+                            -1 -> prevArt
+                            1 -> nextArt
+                            else -> artworkUrl
                         })
+                        if (mesh != null) {
+                            ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer {
+                                alpha = 0.36f * (1f - abs(slot + swipe.artworkOffset(song))).coerceIn(0f, 1f)
+                            })
+                        }
                     }
                 }
             }
@@ -574,16 +581,20 @@ internal fun AlternateNowPlaying(
                                                 visualizerLevels = { visualizerLevels },
                                                 visualizerTick = { visualizerTick.longValue },
                                             ) {
-                                                for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                    val art = when (slot) {
-                                                        -1 -> prevArt
-                                                        1 -> nextArt
-                                                        else -> artworkUrl ?: artwork
+                                                val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
+                                                for ((slot, track) in tracks) {
+                                                    if (slot != 0 && !swipingNow) continue
+                                                    key(track.swipeIdentity) {
+                                                        val art = when (slot) {
+                                                            -1 -> prevArt
+                                                            1 -> nextArt
+                                                            else -> artworkUrl ?: artwork
+                                                        }
+                                                        LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                            if (slot == 0 && pane == PlayerPane.Main) alpha = liveCoverAlpha()
+                                                        })
                                                     }
-                                                    LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
-                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width
-                                                        if (slot == 0 && pane == PlayerPane.Main) alpha = liveCoverAlpha()
-                                                    })
                                                 }
                                             }
                                         }
@@ -722,36 +733,40 @@ internal fun AlternateNowPlaying(
                                             translationY = -vinylSlide * (size.height / 12f)
                                         }
                                     Box(vinylStageModifier) {
-                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                        val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
+                                        for ((slot, track) in tracks) {
                                             val current = slot == 0
-                                            val request = when (slot) {
-                                                -1 -> prevArt
-                                                1 -> nextArt
-                                                else -> artworkUrl ?: artwork
+                                            if (!current && !swipingNow) continue
+                                            key(track.swipeIdentity) {
+                                                val request = when (slot) {
+                                                    -1 -> prevArt
+                                                    1 -> nextArt
+                                                    else -> artworkUrl ?: artwork
+                                                }
+                                                val color = when (slot) {
+                                                    -1 -> prevColor
+                                                    1 -> nextColor
+                                                    else -> recordPalette
+                                                }
+                                                VinylDisc(
+                                                    request, track.swipeIdentity, vinylStyle, color,
+                                                    vinylMain && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                    if (current) shown else ({ 0f }),
+                                                    { current && seekingArm },
+                                                    Modifier.fillMaxSize().graphicsLayer {
+                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                    },
+                                                    albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                    labelPlacement = if (vinylMain && current) ({ coordinates, angle ->
+                                                        artworkAngle = angle
+                                                        reportArtwork(coordinates)
+                                                    }) else null,
+                                                    coastOnPause = vinylMain && current && !reduceAnimation,
+                                                    coverAlpha = { if (vinylMain && current) liveCoverAlpha() else 1f },
+                                                    mountTopInset = mountTopInset,
+                                                    maxDiscBottom = vinylMaxDiscBottom,
+                                                )
                                             }
-                                            val color = when (slot) {
-                                                -1 -> prevColor
-                                                1 -> nextColor
-                                                else -> recordPalette
-                                            }
-                                            VinylDisc(
-                                                request, track.swipeIdentity, vinylStyle, color,
-                                                vinylMain && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
-                                                if (current) shown else ({ 0f }),
-                                                { current && seekingArm },
-                                                Modifier.fillMaxSize().graphicsLayer {
-                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
-                                                },
-                                                albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
-                                                labelPlacement = if (vinylMain && current) ({ coordinates, angle ->
-                                                    artworkAngle = angle
-                                                    reportArtwork(coordinates)
-                                                }) else null,
-                                                coastOnPause = vinylMain && current && !reduceAnimation,
-                                                coverAlpha = { if (vinylMain && current) liveCoverAlpha() else 1f },
-                                                mountTopInset = mountTopInset,
-                                                maxDiscBottom = vinylMaxDiscBottom,
-                                            )
                                         }
                                         VinylTonearm(
                                             shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
@@ -885,16 +900,20 @@ internal fun AlternateNowPlaying(
                                                                             visualizerLevels = { visualizerLevels },
                                                                             visualizerTick = { visualizerTick.longValue },
                                                                         ) {
-                                                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                                                                val art = when (slot) {
-                                                                                    -1 -> prevArt
-                                                                                    1 -> nextArt
-                                                                                    else -> artworkUrl ?: artwork
+                                                                            val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
+                                                                            for ((slot, track) in tracks) {
+                                                                                if (slot != 0 && !swipingNow) continue
+                                                                                key(track.swipeIdentity) {
+                                                                                    val art = when (slot) {
+                                                                                        -1 -> prevArt
+                                                                                        1 -> nextArt
+                                                                                        else -> artworkUrl ?: artwork
+                                                                                    }
+                                                                                    LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                                                        if (slot == 0 && active) alpha = liveCoverAlpha()
+                                                                                    })
                                                                                 }
-                                                                                LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
-                                                                                    translationX = (slot + swipe.artworkOffset(song)) * size.width
-                                                                                    if (slot == 0 && active) alpha = liveCoverAlpha()
-                                                                                })
                                                                             }
                                                                         }
                                                                     }
