@@ -943,6 +943,7 @@ private fun SweptLyricLine(
                 drawContent()
                 canvas.saveLayer(bounds, Paint().apply { blendMode = BlendMode.DstIn })
                 val visibleEnd = measured.getLineEnd(measured.lineCount - 1, visibleEnd = true)
+                val textLeft = if (alignsRight(line.text, alignEnd, laneLocked)) size.width - measured.size.width else 0f
                 for ((index, span) in words.withIndex()) {
                     val end = minOf(span.last + 1, visibleEnd)
                     if (end <= span.first) continue
@@ -951,7 +952,9 @@ private fun SweptLyricLine(
                     val leave = exit?.let { ((now - it - delay / 2) / 220f).coerceIn(0f, 1f) } ?: 0f
                     val alpha = FastOutSlowInEasing.transform(enter) * (1f - leave)
                     if (alpha > 0f) {
-                        drawPath(measured.getPathForRange(span.first, end), Color.White.copy(alpha = alpha))
+                        translate(left = textLeft) {
+                            drawPath(measured.getPathForRange(span.first, end), Color.White.copy(alpha = alpha))
+                        }
                     }
                 }
                 canvas.restore()
