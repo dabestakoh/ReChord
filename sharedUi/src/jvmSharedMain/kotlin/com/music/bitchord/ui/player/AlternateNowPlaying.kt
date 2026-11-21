@@ -407,6 +407,7 @@ internal fun AlternateNowPlaying(
                     if (statsVisible) {
                         val automix by PlayerSettings.smartFadeEnabled.collectAsStateWithLifecycle()
                         val lineHeight = MaterialTheme.typography.labelSmall.lineHeight
+                            .takeIf { it.isSp } ?: 16.sp
                         val minimum = with(androidx.compose.ui.platform.LocalDensity.current) {
                             (lineHeight * if (automix) 3f else 1f).toDp()
                         }
