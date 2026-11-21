@@ -1609,21 +1609,14 @@ internal fun RomanizationToggleButton(
     }
 }
 
-/**
- * A short text-material transition: the list and its playback clock stay in
- * place while a field of tiny glyph-like particles resolves into the new text.
- * Only the dedicated Canvas drawing moves, so changing language never causes a
- * second scroll, a blank frame, or a new lyrics timeline. The app's Reduce
- * animation preference collapses the whole response to an immediate swap.
- */
 private fun AnimatedContentTransitionScope<*>.lyricHandoff(reduced: Boolean, travel: Float): ContentTransform {
     if (reduced) return (fadeIn(snap()) togetherWith fadeOut(snap()))
         .using(SizeTransform(clip = false) { _, _ -> snap() })
     val motion = tween<IntOffset>(durationMillis = 310, easing = LYRIC_EASING)
     val enter = slideInVertically(motion) { (it * travel).roundToInt() } +
-        fadeIn(tween(260, easing = LYRIC_EASING))
+        fadeIn(tween(durationMillis = 205, delayMillis = 90, easing = LYRIC_EASING))
     val exit = slideOutVertically(motion) { -(it * travel).roundToInt() } +
-        fadeOut(tween(260, easing = LYRIC_EASING))
+        fadeOut(tween(140, easing = LYRIC_EASING))
     return (enter togetherWith exit).using(SizeTransform(clip = false) { _, _ -> snap() })
 }
 
@@ -1666,7 +1659,7 @@ internal fun PosterLyricSpotlight(
                 targetState = line,
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier.fillMaxWidth(),
-                transitionSpec = { lyricHandoff(reduceAnimation, travel = 0.22f) },
+                transitionSpec = { lyricHandoff(reduceAnimation, travel = 0.38f) },
                 label = "posterLyric",
             ) { active ->
                 if (active != null && width > 0 && height > 0) {
@@ -1770,6 +1763,13 @@ private fun PresetLyricLine(
     )
 }
 
+/**
+ * A short text-material transition: the list and its playback clock stay in
+ * place while a field of tiny glyph-like particles resolves into the new text.
+ * Only the dedicated Canvas drawing moves, so changing language never causes a
+ * second scroll, a blank frame, or a new lyrics timeline. The app's Reduce
+ * animation preference collapses the whole response to an immediate swap.
+ */
 @Composable
 internal fun LyricsTranslationMotion(
     trigger: Int,
