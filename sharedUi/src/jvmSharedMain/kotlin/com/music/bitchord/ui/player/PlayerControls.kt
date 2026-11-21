@@ -437,11 +437,7 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier, reserveS
         // report on analysis nothing is going to use, which is noise rather
         // than a stat.
         if (smartFadeOn) {
-            Text(
-                // Both sides always named, even when they agree, so the line
-                // reads the same way every time and the eye can find the half
-                // it wants without re-parsing the sentence.
-                text = when {
+            val summary = when {
                     // Ahead of the video case because it is the broader one:
                     // in a party nothing is analysed for any song, video or
                     // not, so naming the video limitation there would describe
@@ -457,19 +453,27 @@ internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier, reserveS
                         smartAnalysis.current.localizedLabel(),
                         smartAnalysis.next.localizedLabel(),
                     )
-                },
-                style = nerdStyle,
-                // Dimmer than the measured line above it: that one describes
-                // the audio, this one describes the app, and the ranking
-                // should show.
-                color = Color.White.copy(alpha = 0.5f),
-                // The detailed line runs long on a phone: a second line rather
-                // than an ellipsis through the part that says what the mix is.
-                minLines = if (reserveSpace) 2 else 1,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            }
+            val measurer = rememberTextMeasurer()
+            val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val overflows = measurer.measure(
+                    summary, nerdStyle, softWrap = false, maxLines = 1, constraints = constraints,
+                ).hasVisualOverflow
+                Text(
+                    text = summary,
+                    style = nerdStyle,
+                    color = Color.White.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    textAlign = if (overflows) TextAlign.Left else TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (overflows) Modifier.fadingEdges(16.dp, start = { if (rtl) 1f else 0f },
+                            end = { if (rtl) 0f else 1f }) else Modifier,
+                    ),
+                )
+            }
         }
     }
 }

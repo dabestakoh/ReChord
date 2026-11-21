@@ -298,10 +298,10 @@
     <string name="video_searching">Looking for a music video…</string>
     <string name="video_missing">No music video available</string>
     <string name="lyrics_style_default">ReChord Default</string>
-    <string name="lyrics_style_motion">Style 1</string>
-    <string name="lyrics_style_wave">Style 2</string>
-    <string name="lyrics_style_lift">Boring</string>
-    <string name="lyrics_style_plain">Plain</string>
+    <string name="lyrics_style_motion">Rise and glow</string>
+    <string name="lyrics_style_wave">Shimmer sweep</string>
+    <string name="lyrics_style_lift">Word lift</string>
+    <string name="lyrics_style_plain">Plain sweep</string>
     <string name="lyrics_style_sample">Follow the rhythm</string>
     <string name="enter_full_screen">Full screen</string>
     <string name="exit_full_screen">Exit full screen</string>

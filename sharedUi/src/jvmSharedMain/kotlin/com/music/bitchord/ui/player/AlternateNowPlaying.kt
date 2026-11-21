@@ -600,7 +600,7 @@ internal fun AlternateNowPlaying(
                     .size(38.dp, 5.dp)
                     .shadow(2.dp, handleShape, clip = false)
                     .background(accent.copy(alpha = 0.75f), handleShape))
-                if (pane != PlayerPane.Main) {
+                if (pane == PlayerPane.Lyrics) {
                     LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
                         .clickable(onClick = onDismissPane).graphicsLayer { alpha = liveCoverAlpha() })

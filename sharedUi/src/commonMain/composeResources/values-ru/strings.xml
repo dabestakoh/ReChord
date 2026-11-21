@@ -209,10 +209,10 @@
     <string name="video_searching">Поиск клипа…</string>
     <string name="video_missing">Клип недоступен</string>
     <string name="lyrics_style_default">Стиль ReChord</string>
-    <string name="lyrics_style_motion">Стиль 1</string>
-    <string name="lyrics_style_wave">Стиль 2</string>
-    <string name="lyrics_style_lift">Сдержанный</string>
-    <string name="lyrics_style_plain">Простой</string>
+    <string name="lyrics_style_motion">Подъём и свечение</string>
+    <string name="lyrics_style_wave">Мерцающая подсветка</string>
+    <string name="lyrics_style_lift">Подъём слов</string>
+    <string name="lyrics_style_plain">Простая подсветка</string>
     <string name="lyrics_style_sample">Следуй за ритмом</string>
     <string name="enter_full_screen">Полный экран</string>
     <string name="exit_full_screen">Выйти из полноэкранного режима</string>

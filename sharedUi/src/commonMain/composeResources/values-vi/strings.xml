@@ -209,10 +209,10 @@
     <string name="video_searching">Đang tìm video âm nhạc…</string>
     <string name="video_missing">Không có video âm nhạc</string>
     <string name="lyrics_style_default">Mặc định của ReChord</string>
-    <string name="lyrics_style_motion">Kiểu 1</string>
-    <string name="lyrics_style_wave">Kiểu 2</string>
-    <string name="lyrics_style_lift">Tiết chế</string>
-    <string name="lyrics_style_plain">Đơn giản</string>
+    <string name="lyrics_style_motion">Nâng lên và phát sáng</string>
+    <string name="lyrics_style_wave">Tô sáng lấp lánh</string>
+    <string name="lyrics_style_lift">Nâng từng từ</string>
+    <string name="lyrics_style_plain">Tô sáng đơn giản</string>
     <string name="lyrics_style_sample">Theo nhịp điệu</string>
     <string name="enter_full_screen">Toàn màn hình</string>
     <string name="exit_full_screen">Thoát toàn màn hình</string>

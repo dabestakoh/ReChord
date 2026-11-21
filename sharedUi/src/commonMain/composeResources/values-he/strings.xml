@@ -209,10 +209,10 @@
     <string name="video_searching">מחפש קליפ…</string>
     <string name="video_missing">אין קליפ זמין</string>
     <string name="lyrics_style_default">ברירת המחדל של ReChord</string>
-    <string name="lyrics_style_motion">סגנון 1</string>
-    <string name="lyrics_style_wave">סגנון 2</string>
-    <string name="lyrics_style_lift">מאופק</string>
-    <string name="lyrics_style_plain">פשוט</string>
+    <string name="lyrics_style_motion">הרמה וזוהר</string>
+    <string name="lyrics_style_wave">הדגשה מנצנצת</string>
+    <string name="lyrics_style_lift">הרמת מילים</string>
+    <string name="lyrics_style_plain">הדגשה פשוטה</string>
     <string name="lyrics_style_sample">עקבו אחר הקצב</string>
     <string name="enter_full_screen">מסך מלא</string>
     <string name="exit_full_screen">יציאה ממסך מלא</string>

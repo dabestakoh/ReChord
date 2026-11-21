@@ -209,10 +209,10 @@
     <string name="video_searching">Müzik videosu aranıyor…</string>
     <string name="video_missing">Müzik videosu yok</string>
     <string name="lyrics_style_default">ReChord varsayılanı</string>
-    <string name="lyrics_style_motion">Stil 1</string>
-    <string name="lyrics_style_wave">Stil 2</string>
-    <string name="lyrics_style_lift">Sade</string>
-    <string name="lyrics_style_plain">Basit</string>
+    <string name="lyrics_style_motion">Yükselme ve parlama</string>
+    <string name="lyrics_style_wave">Parıltılı vurgu</string>
+    <string name="lyrics_style_lift">Kelimeleri yükselt</string>
+    <string name="lyrics_style_plain">Sade vurgu</string>
     <string name="lyrics_style_sample">Ritmi takip et</string>
     <string name="enter_full_screen">Tam ekran</string>
     <string name="exit_full_screen">Tam ekrandan çık</string>

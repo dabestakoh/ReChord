@@ -209,10 +209,10 @@
     <string name="video_searching">ミュージックビデオを検索中…</string>
     <string name="video_missing">ミュージックビデオがありません</string>
     <string name="lyrics_style_default">ReChord 標準</string>
-    <string name="lyrics_style_motion">スタイル1</string>
-    <string name="lyrics_style_wave">スタイル2</string>
-    <string name="lyrics_style_lift">控えめ</string>
-    <string name="lyrics_style_plain">シンプル</string>
+    <string name="lyrics_style_motion">浮き上がりと発光</string>
+    <string name="lyrics_style_wave">きらめくハイライト</string>
+    <string name="lyrics_style_lift">単語の浮き上がり</string>
+    <string name="lyrics_style_plain">シンプルなハイライト</string>
     <string name="lyrics_style_sample">リズムに合わせて</string>
     <string name="enter_full_screen">全画面</string>
     <string name="exit_full_screen">全画面を終了</string>

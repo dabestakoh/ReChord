@@ -209,10 +209,10 @@
     <string name="video_searching">Buscando un vídeo musical…</string>
     <string name="video_missing">No hay vídeo musical disponible</string>
     <string name="lyrics_style_default">Predeterminado de ReChord</string>
-    <string name="lyrics_style_motion">Estilo 1</string>
-    <string name="lyrics_style_wave">Estilo 2</string>
-    <string name="lyrics_style_lift">Sobrio</string>
-    <string name="lyrics_style_plain">Simple</string>
+    <string name="lyrics_style_motion">Elevación y brillo</string>
+    <string name="lyrics_style_wave">Barrido brillante</string>
+    <string name="lyrics_style_lift">Palabras elevadas</string>
+    <string name="lyrics_style_plain">Barrido simple</string>
     <string name="lyrics_style_sample">Sigue el ritmo</string>
     <string name="enter_full_screen">Pantalla completa</string>
     <string name="exit_full_screen">Salir de pantalla completa</string>

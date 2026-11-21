@@ -209,10 +209,10 @@
     <string name="video_searching">Musikvideo wird gesucht…</string>
     <string name="video_missing">Kein Musikvideo verfügbar</string>
     <string name="lyrics_style_default">ReChord-Standard</string>
-    <string name="lyrics_style_motion">Stil 1</string>
-    <string name="lyrics_style_wave">Stil 2</string>
-    <string name="lyrics_style_lift">Schlicht</string>
-    <string name="lyrics_style_plain">Einfach</string>
+    <string name="lyrics_style_motion">Anheben und Leuchten</string>
+    <string name="lyrics_style_wave">Schimmernder Verlauf</string>
+    <string name="lyrics_style_lift">Wörter anheben</string>
+    <string name="lyrics_style_plain">Einfacher Verlauf</string>
     <string name="lyrics_style_sample">Dem Rhythmus folgen</string>
     <string name="enter_full_screen">Vollbild</string>
     <string name="exit_full_screen">Vollbild verlassen</string>

@@ -209,10 +209,10 @@
     <string name="video_searching">Szukanie teledysku…</string>
     <string name="video_missing">Brak teledysku</string>
     <string name="lyrics_style_default">Domyślny styl ReChord</string>
-    <string name="lyrics_style_motion">Styl 1</string>
-    <string name="lyrics_style_wave">Styl 2</string>
-    <string name="lyrics_style_lift">Skromny</string>
-    <string name="lyrics_style_plain">Prosty</string>
+    <string name="lyrics_style_motion">Unoszenie i poświata</string>
+    <string name="lyrics_style_wave">Migoczące podświetlenie</string>
+    <string name="lyrics_style_lift">Unoszenie słów</string>
+    <string name="lyrics_style_plain">Proste podświetlenie</string>
     <string name="lyrics_style_sample">Podążaj za rytmem</string>
     <string name="enter_full_screen">Pełny ekran</string>
     <string name="exit_full_screen">Zamknij pełny ekran</string>
