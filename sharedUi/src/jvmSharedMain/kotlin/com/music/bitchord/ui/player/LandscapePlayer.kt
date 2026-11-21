@@ -294,9 +294,11 @@ internal fun LandscapeArtwork(
     sleeveShape: () -> Shape = { LandscapeArtShape },
     /** How much of the sleeve's shadow is cast, 1 at rest. */
     shadowFraction: () -> Float = { 1f },
+    videoRendered: Boolean = false,
+    video: (@Composable BoxScope.() -> Unit)? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
-    val casts = artLoaded || canvasRendered
+    val casts = artLoaded || canvasRendered || videoRendered
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
@@ -317,10 +319,10 @@ internal fun LandscapeArtwork(
                     shape = sleeveShape()
                     clip = true
                 }
-                .background(Color.Black.copy(alpha = 0.18f)),
+                .background(Color.Black.copy(alpha = if (videoRendered) 1f else 0.18f)),
             contentAlignment = Alignment.Center,
         ) {
-            if (!artLoaded && !canvasRendered) {
+            if (!artLoaded && !canvasRendered && !videoRendered) {
                 Icon(
                     imageVector = BitChordIcons.MusicNote,
                     contentDescription = null,
@@ -337,7 +339,7 @@ internal fun LandscapeArtwork(
                 // portrait sleeve's note on TextureView stacking order.
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawWithContent { if (artLoaded || !canvasRendered) drawContent() },
+                    .drawWithContent { if (!videoRendered && (artLoaded || !canvasRendered)) drawContent() },
             )
             canvas?.let { clip ->
                 CanvasArtworkPlayer(
@@ -348,6 +350,7 @@ internal fun LandscapeArtwork(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            video?.invoke(this)
         }
         overlay()
     }

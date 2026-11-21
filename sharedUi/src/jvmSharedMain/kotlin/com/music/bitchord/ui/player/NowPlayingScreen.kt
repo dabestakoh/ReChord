@@ -155,7 +155,6 @@ import com.music.bitchord.ui.components.ExplicitBadge
 import com.music.bitchord.ui.components.VideoThumbnails
 import com.music.bitchord.ui.components.menuAnchor
 import com.music.bitchord.ui.theme.HideStatusBar
-import com.music.bitchord.ui.theme.rememberScreenOrientation
 import com.music.bitchord.ui.theme.StatusBarIcons
 import com.music.bitchord.ui.theme.stableStatusBarInsets
 import com.music.bitchord.ui.theme.rememberArtworkTopBandLuminance
@@ -883,6 +882,7 @@ fun NowPlayingScreen(
     fullVideoMode: Boolean = false,
     fullVideoSearching: Boolean = false,
     onExitVideoMode: () -> Unit = {},
+    layoutPreview: Boolean = false,
 ) {
     val density = LocalDensity.current
     val artPx = remember(windowWidth, density.density) { playerArtPx(windowWidth.value, density.density) }
@@ -911,7 +911,7 @@ fun NowPlayingScreen(
     LaunchedEffect(accentTarget, artworkAnalysis.unavailable, resolvedAccent) {
         // Do not save an interim loading color; save white on a definitive
         // failure so closing and reopening the player stays consistent.
-        if (resolvedAccent != null || artworkAnalysis.unavailable) {
+        if (!layoutPreview && (resolvedAccent != null || artworkAnalysis.unavailable)) {
             PlayerAccentMemory.lastResolved = accentTarget
         }
     }
@@ -924,7 +924,7 @@ fun NowPlayingScreen(
     // Media-player convention: the player always owns light status icons. The
     // top treatment below, rather than a window-flag flip per cover, provides
     // their contrast and stays visually stable through artwork transitions.
-    StatusBarIcons(dark = false)
+    if (!layoutPreview) StatusBarIcons(dark = false)
     // Composed only while the player is, so closing it brings the bar back.
     // The layout below reads [stableStatusBarInsets] and keeps its place.
     val hideStatusBar by PlayerSettings.hideStatusBar.collectAsStateWithLifecycle()
@@ -989,14 +989,15 @@ fun NowPlayingScreen(
         val lineHeight = MaterialTheme.typography.titleLarge.lineHeight
         maxOf(HEADER_HEIGHT, (lineHeight.takeIf { it.isSpecified }?.toDp() ?: 28.dp) * 2)
     }
-    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !sideways
+    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !sideways && !fullVideoMode
     val pictureId = companionVideoId ?: song.videoId
     val videoAllowed = fullVideoMode || !alternateLayout
     val videoMode = videoAllowed && (companionVideoId != null || showsMusicVideo(song))
+    val videoPresentation = videoMode || fullVideoMode
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
     // to it, in place of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
-    val animatedCover = if (!alternateLayout && !fullVideoMode && !videoMode) rememberCanvasArtwork(song) else null
+    val animatedCover = if (!layoutPreview && !alternateLayout && !videoPresentation) rememberCanvasArtwork(song) else null
     val canvas = animatedCover?.let {
         // Apple's 3:4 rendition runs under the whole phone screen, the way its
         // own player shows it; the square one stays the fallback.
@@ -1010,22 +1011,13 @@ fun NowPlayingScreen(
     // The picture's shape, read only at layout (see the sleeve's card rect), so
     // a new aspect re-lays the sleeve out without recomposing the player.
     val videoAspectState = PlayerPlatform.host.musicVideoAspect.collectAsStateWithLifecycle()
-    // One rule for a music video: held upright it is the player, sideways it
-    // is the whole screen. The full-screen buttons turn the phone's screen
-    // rather than switching a layout.
-    val screenOrientation = rememberScreenOrientation()
-    // Whether a full-screen button turned the screen, which outlasts the video
-    // that asked: the queue can move on to a song while it is still sideways.
-    var fullscreenRequested by remember { mutableStateOf(false) }
-    LaunchedEffect(sideways) { if (!sideways) fullscreenRequested = false }
-    val exitFullscreen = {
-        fullscreenRequested = false
-        screenOrientation.portrait()
-        if (fullVideoMode) onExitVideoMode()
-    }
-    LaunchedEffect(fullVideoMode) {
-        if (fullVideoMode && !sideways) screenOrientation.landscape()
-    }
+    var fullscreenRequested by remember(song.swipeIdentity) { mutableStateOf(false) }
+    val videoFullscreen = videoPresentation && fullscreenRequested
+    val exitFullscreen = { fullscreenRequested = false }
+    val enterFullscreen = { fullscreenRequested = true }
+    val videoStatus = if (fullVideoMode && !videoMode) stringResource(
+        if (fullVideoSearching) Res.string.video_searching else Res.string.video_missing,
+    ) else null
     var canvasAspect by remember(canvas) { mutableFloatStateOf(0f) }
     // Whether the clip actually has a frame on screen right now, and one of
     // them — used to blow the sleeve out to the full-bleed hero treatment and
@@ -1226,16 +1218,10 @@ fun NowPlayingScreen(
     // recomposition: this is a piece of state on the window, not a per-frame
     // value, and the panel now outlives a track change (see above), so there is
     // no longer a whole-player recomposition standing behind it as a backstop.
-    KeepScreenOn(enabled = lyricsOpen)
+    if (!layoutPreview) KeepScreenOn(enabled = lyricsOpen)
 
-    // Back out of full screen to the player, as its corner button does, rather
-    // than past it to the mini player: with the phone lying flat no sensor
-    // turns the screen back, so Home would be left sideways. First in this list
-    // so anything opened over the video, such as its quality sheet, closes first.
-    PlayerBackHandler(
-        enabled = fullVideoMode || (sideways && (videoMode || fullscreenRequested)),
-        onBack = exitFullscreen,
-    )
+    PlayerBackHandler(enabled = fullVideoMode && !videoFullscreen, onBack = onExitVideoMode)
+    PlayerBackHandler(enabled = videoFullscreen, onBack = exitFullscreen)
 
     // Back out of the lyrics panel to the player, and only from the player
     // itself out to the mini player.
@@ -1461,7 +1447,7 @@ fun NowPlayingScreen(
     // still-art full-bleed preference. Other providers and static artwork keep
     // answering to that preference exactly as before.
     // A music video sits in the card's place at its own 16:9, never full bleed.
-    val heroMode = !videoMode && (
+    val heroMode = !videoPresentation && (
         spotifyCanvasOnPhone ||
             (fullBleedArt && playerFillsWindow(windowWidth))
         )
@@ -1867,7 +1853,7 @@ fun NowPlayingScreen(
     // player take part: the portrait sleeve morphs into the cover (see the
     // sleeve), the landscape one is carried and scaled onto it (see
     // [landscapeDockPose]).
-    val dock = LocalPlayerDock.current
+    val dock = LocalPlayerDock.current.takeUnless { layoutPreview }
     if (dock != null) {
         // Attached on first placement below rather than here: until then the
         // sheet's window may not have drawn anything, and the mini player's
@@ -2034,7 +2020,7 @@ fun NowPlayingScreen(
         // controls. On over a Canvas: the controls only show with its dim and
         // glass deck up, so the glyphs blend into the blurred, darkened clip.
         // And off everywhere with "Disable blend effects".
-        chrome = !disableBlendEffects && !fullVideoMode && !(landscape && videoMode),
+        chrome = !disableBlendEffects && !videoFullscreen,
         frost = frost,
         live = spotifyCanvasPresentation,
         // Not the host's ⋯ menu: that takes its own still, of everything.
@@ -2129,16 +2115,14 @@ fun NowPlayingScreen(
             )
         }
 
-        if (fullVideoMode || (landscape && videoMode)) {
+        if (videoFullscreen) {
             val versionAligning by PlayerSettings.versionAlignmentInProgress.collectAsStateWithLifecycle()
             val transitionWindow by PlayerSettings.smartTransitionWindow.collectAsStateWithLifecycle()
             Box(modifier = Modifier.fillMaxSize().then(dockHost)) {
                 FullscreenVideoPlayer(
                     song = song,
                     pictureId = pictureId.takeIf { videoMode },
-                    status = if (!fullVideoMode || videoMode) null else stringResource(
-                        if (fullVideoSearching) Res.string.video_searching else Res.string.video_missing,
-                    ),
+                    status = videoStatus,
                     showArtworkUntilReady = fullVideoMode,
                     isPlaying = isPlaying,
                     artRequest = art.request,
@@ -2209,8 +2193,8 @@ fun NowPlayingScreen(
                 onMenu = onOpenMenu,
                 onOpenPicker = openLayoutPicker,
                 reduceAnimation = reduceAnimation,
-                artworkBackdrop = trackAccent,
-                recordPalette = resolvedAccent ?: Color.Unspecified,
+                artworkBackdrop = accentTarget,
+                recordPalette = accentTarget,
                 statusScrimAlpha = artworkStatusScrimAlpha,
                 pane = when {
                     lyricsOpen -> PlayerPane.Lyrics
@@ -2366,6 +2350,30 @@ fun NowPlayingScreen(
                             // Let go of on the way to the mini player, whose
                             // cover sits flat in its bar.
                             shadowFraction = dockT,
+                            videoRendered = videoRendered && videoMode,
+                            video = if (videoPresentation) {
+                                {
+                                    if (videoMode) {
+                                        MusicVideoSurface(
+                                            videoId = pictureId, fit = true,
+                                            onRenderedChanged = { videoRendered = it },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                    VideoCornerControls(
+                                        fullscreen = false,
+                                        onToggleFullscreen = enterFullscreen,
+                                        onOpenQuality = { showVideoQuality = true },
+                                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                    )
+                                    if (videoStatus != null) {
+                                        Text(
+                                            videoStatus, color = Color.White,
+                                            modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                                        )
+                                    }
+                                }
+                            } else null,
                             modifier = artworkModifier
                                 .then(
                                     if (dock != null) {
@@ -3728,7 +3736,7 @@ fun NowPlayingScreen(
                         }
 
                         // Fit the picture inside both axes of the sleeve area.
-                        if (videoMode) {
+                        if (videoPresentation) {
                             WhileShown({ !collapsePastHalf && !docking() }) {
                                 Box(
                                     modifier = Modifier
@@ -3757,20 +3765,22 @@ fun NowPlayingScreen(
                                                 .clip(RoundedCornerShape(10.dp)),
                                         )
                                     }
-                                    MusicVideoSurface(
-                                        videoId = pictureId,
-                                        fit = !squareVideo,
-                                        onRenderedChanged = { videoRendered = it },
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(RoundedCornerShape(10.dp)),
-                                    )
+                                    if (videoMode) {
+                                        MusicVideoSurface(
+                                            videoId = pictureId,
+                                            fit = !squareVideo,
+                                            onRenderedChanged = { videoRendered = it },
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(RoundedCornerShape(10.dp)),
+                                        )
+                                    } else if (videoStatus != null) {
+                                        Text(videoStatus, color = Color.White,
+                                            modifier = Modifier.align(Alignment.Center).padding(8.dp))
+                                    }
                                     VideoCornerControls(
                                         fullscreen = false,
-                                        onToggleFullscreen = {
-                                            fullscreenRequested = true
-                                            screenOrientation.landscape()
-                                        },
+                                        onToggleFullscreen = enterFullscreen,
                                         onOpenQuality = { showVideoQuality = true },
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)

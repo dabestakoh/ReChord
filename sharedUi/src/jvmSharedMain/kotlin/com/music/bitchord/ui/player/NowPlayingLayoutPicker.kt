@@ -1,12 +1,10 @@
 package com.music.bitchord.ui.player
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,13 +22,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.ui.input.pointer.pointerInput
+import com.music.bitchord.data.lyrics.LyricLine
+import com.music.bitchord.data.model.LikeStatus
+import com.music.bitchord.playback.PlaybackPosition
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -139,15 +138,34 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
     val shape = RoundedCornerShape(22.dp)
     val tint = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
-    if (layout != NowPlayingLayout.DEFAULT) {
-        val track = Song("layout-preview", nowPlayingLayoutLabel(layout), "", artwork as? String)
-        val palette = rememberArtworkPlayerAnalysis(track.thumbnailUrl).accent ?: tint
-        val line = stringResource(Res.string.lyrics_style_sample)
-        Layout(
-            modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surface)
-                .border(1.dp, ink.copy(alpha = 0.16f), shape).clearAndSetSemantics {},
-            content = {
-                androidx.compose.runtime.CompositionLocalProvider(LocalPlayerAccent provides palette) {
+    val track = Song("layout-preview", nowPlayingLayoutLabel(layout), "", artwork as? String)
+    val palette = rememberArtworkPlayerAnalysis(track.thumbnailUrl).accent ?: tint
+    val line = stringResource(Res.string.lyrics_style_sample)
+    Layout(
+        modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, ink.copy(alpha = 0.16f), shape).clearAndSetSemantics {},
+        content = {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                if (layout == NowPlayingLayout.DEFAULT) {
+                    val position = remember { PlaybackPosition().apply { report(85_500L) } }
+                    NowPlayingScreen(
+                        song = track, isPlaying = false, isLoading = false, position = position,
+                        durationMs = 225_000L, audioVersionSwitching = false, qualityUpgraded = false,
+                        queue = listOf(track), queueIndex = 0, hasPrevious = true, hasNext = true,
+                        repeatMode = 0, shuffleEnabled = false, autoplayEnabled = false,
+                        signedIn = false, accountName = null, likeStatus = LikeStatus.INDIFFERENT,
+                        onToggleLike = {}, onPlayPause = {}, onNext = {}, onPrevious = {},
+                        onBlockedControl = {}, onSeek = {}, onSeekFraction = {},
+                        onToggleShuffle = {}, onCycleRepeat = {}, onToggleAutoplay = {},
+                        onJumpTo = {}, onRemoveFromQueue = {}, onMoveInQueue = { _, _ -> },
+                        onClearQueue = {}, onOpenMenu = {}, onOpenAlbum = {}, onOpenArtist = { _, _ -> },
+                        onOpenPlaybackSource = {}, onListenTogether = {},
+                        lyrics = remember(line) { listOf(LyricLine(0L, line)) },
+                        lyricsSource = null, lyricsProviderStates = emptyMap(), onSelectLyricsProvider = {},
+                        lyricsUnavailable = false, lyricsOffsetOpen = false, onDismissLyricsOffset = {},
+                        windowWidth = maxWidth, windowHeight = maxHeight, layoutPreview = true,
+                    )
+                } else androidx.compose.runtime.CompositionLocalProvider(LocalPlayerAccent provides palette) {
                     AlternateNowPlaying(
                         layout = layout, song = track, previousSong = null, nextSong = null,
                         artwork = artwork, durationMs = 225_000L, isPlaying = false, isLoading = false,
@@ -173,47 +191,23 @@ private fun LayoutPreview(layout: NowPlayingLayout, artwork: Any?, modifier: Mod
                         preview = true,
                     )
                 }
-            },
-        ) { children, bounds ->
-            val height = 776.dp.roundToPx()
-            val width = minOf(408.dp.roundToPx(), (height * bounds.maxWidth.toFloat() / bounds.maxHeight).toInt())
-                .coerceAtLeast(1)
-            val stage = children.single().measure(Constraints.fixed(width, height))
-            val factor = minOf(bounds.maxWidth.toFloat() / width, bounds.maxHeight.toFloat() / height)
-            layout(bounds.maxWidth, bounds.maxHeight) {
-                stage.placeRelativeWithLayer(((bounds.maxWidth - width * factor) / 2f).toInt(), 0) {
-                    scaleX = factor
-                    scaleY = factor
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
+                // Keep the preview inert while leaving horizontal paging to its parent.
+                Box(Modifier.matchParentSize().pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) awaitPointerEvent() }
+                })
             }
-        }
-        return
-    }
-    Box(
-        modifier.clip(shape)
-            .border(1.dp, ink.copy(alpha = 0.16f), shape)
-            .background(Brush.linearGradient(listOf(tint.copy(alpha = 0.32f), MaterialTheme.colorScheme.surface))),
-    ) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.58f)) {
-            LayoutArtwork(
-                artwork,
-                Modifier.align(Alignment.Center).padding(horizontal = 38.dp, vertical = 16.dp)
-                    .fillMaxSize().clip(RoundedCornerShape(12.dp)),
-            )
-        }
-        Canvas(Modifier.fillMaxSize()) {
-            fun bar(x: Float, y: Float, w: Float, opacity: Float) = drawRoundRect(
-                color = ink.copy(alpha = opacity),
-                topLeft = Offset(size.width * x, size.height * y),
-                size = Size(size.width * w, 4.dp.toPx()),
-                cornerRadius = CornerRadius(4.dp.toPx()),
-            )
-            bar(0.10f, 0.66f, 0.36f, 0.84f)
-            bar(0.10f, 0.72f, 0.22f, 0.42f)
-            bar(0.10f, 0.79f, 0.80f, 0.25f)
-            for (i in 0..2) {
-                drawCircle(ink.copy(alpha = 0.76f), 5.dp.toPx(), Offset(size.width * (0.32f + i * 0.18f), size.height * 0.88f))
+        },
+    ) { children, bounds ->
+        val height = 776.dp.roundToPx()
+        val width = minOf(408.dp.roundToPx(), (height * bounds.maxWidth.toFloat() / bounds.maxHeight).toInt())
+            .coerceAtLeast(1)
+        val stage = children.single().measure(Constraints.fixed(width, height))
+        val factor = minOf(bounds.maxWidth.toFloat() / width, bounds.maxHeight.toFloat() / height)
+        layout(bounds.maxWidth, bounds.maxHeight) {
+            stage.placeRelativeWithLayer(((bounds.maxWidth - width * factor) / 2f).toInt(), 0) {
+                scaleX = factor
+                scaleY = factor
+                transformOrigin = TransformOrigin(0f, 0f)
             }
         }
     }

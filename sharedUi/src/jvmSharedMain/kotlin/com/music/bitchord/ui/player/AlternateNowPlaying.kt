@@ -1,6 +1,7 @@
 package com.music.bitchord.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -162,9 +164,14 @@ internal fun AlternateNowPlaying(
     val vinylStyle by PlayerSettings.vinylAppearance.collectAsStateWithLifecycle()
     val lessBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     var seekingArm by remember { mutableStateOf(false) }
-    val artworkStride = if (vinyl) 1.64f else 1.08f
+    val artworkStride = if (vinyl) 1.64f else 1f
     val gesture = if (preview) Modifier else Modifier.alternateTrackGesture(
         swipe, previousSong, nextSong, artworkStride, reduceAnimation, onSwipePrevious, onNext,
+    )
+    val textOpacity by animateFloatAsState(
+        (1f - abs(swipe.artworkOffset(song)) * 3.5f).coerceIn(0f, 1f),
+        animationSpec = if (reduceAnimation) snap() else tween(130),
+        label = "alternateTrackText",
     )
     val tracks = remember(song, previousSong, nextSong) {
         listOfNotNull(previousSong?.let { -1 to it }, 0 to song, nextSong?.let { 1 to it })
@@ -187,20 +194,25 @@ internal fun AlternateNowPlaying(
         val next = colors(nextColor)
         onDrawBehind {
             drawRect(current)
-            val offset = swipe.offset
+            val offset = swipe.artworkOffset(song)
             val toward = if (offset > 0f) previous else next
             val strength = kotlin.math.abs(offset)
             if (strength > 0.001f) drawRect(toward, alpha = strength.coerceAtMost(1f))
         }
     }) {
-        if (!vinyl && artworkUrl != null) {
-            val mesh = rememberArtworkMesh(artworkUrl)
-            ArtworkMeshBackdrop(
-                mesh = mesh,
-                modifier = Modifier.graphicsLayer {
-                    alpha = if (mesh == null) 0f else 0.36f * (1f - kotlin.math.abs(swipe.offset).coerceIn(0f, 1f))
-                },
-            )
+        if (!vinyl) {
+            for ((slot, track) in tracks) key(track.swipeIdentity) {
+                val mesh = rememberArtworkMesh(when (slot) {
+                    -1 -> prevArt
+                    1 -> nextArt
+                    else -> artworkUrl
+                })
+                if (mesh != null) {
+                    ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer {
+                        alpha = 0.36f * (1f - abs(slot + swipe.artworkOffset(song))).coerceIn(0f, 1f)
+                    })
+                }
+            }
         }
         Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.navigationBarsPadding())) {
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
@@ -217,10 +229,10 @@ internal fun AlternateNowPlaying(
                                 val forward = targetState != PlayerPane.Main
                                 val enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 285f)) {
                                     if (forward) min(it / 4, 132) else -it / 12
-                                } + fadeIn(spring(stiffness = 285f))
+                                } + fadeIn(tween(durationMillis = 145, delayMillis = 105))
                                 val exit = slideOutVertically(spring(dampingRatio = 0.90f, stiffness = 420f)) {
                                     if (forward) -it / 12 else min(it / 4, 132)
-                                } + fadeOut(spring(stiffness = 420f))
+                                } + fadeOut(tween(durationMillis = 100))
                                 enter togetherWith exit
                             }
                         },
@@ -242,17 +254,14 @@ internal fun AlternateNowPlaying(
                                     val drag = onScrub.takeIf { canSeek && active }
                                     val artModifier = Modifier.fillMaxSize().then(gesture).then(artHold)
                                     Box(artModifier) {
-                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                            val current = slot == 0
-                                            val request = when (slot) {
-                                                -1 -> prevArt
-                                                1 -> nextArt
-                                                else -> artwork
-                                            }
-                                            val offset = Modifier.fillMaxSize().graphicsLayer {
-                                                translationX = (slot + swipe.offset) * size.width * artworkStride
-                                            }.then(if (current) Modifier else Modifier.clearAndSetSemantics {})
-                                            if (vinyl) {
+                                        if (vinyl) {
+                                            for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                val current = slot == 0
+                                                val request = when (slot) {
+                                                    -1 -> prevArt
+                                                    1 -> nextArt
+                                                    else -> artworkUrl ?: artwork
+                                                }
                                                 val color = when (slot) {
                                                     -1 -> prevColor
                                                     1 -> nextColor
@@ -262,35 +271,45 @@ internal fun AlternateNowPlaying(
                                                     request, track.swipeIdentity, vinylStyle, color,
                                                     active && current && isPlaying && !reduceAnimation,
                                                     if (current) shown else ({ 0f }),
-                                                    { current && seekingArm }, offset,
+                                                    { current && seekingArm }, Modifier.fillMaxSize().graphicsLayer {
+                                                        translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                    },
                                                     albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
                                                 )
-                                            } else {
-                                                BoxWithConstraints(offset) {
-                                                    val spotlightHeight = (maxHeight * 0.28f).coerceIn(
-                                                        minOf(maxHeight * 0.36f, 78.dp), 160.dp,
-                                                    )
-                                                    Column(Modifier.fillMaxSize()) {
-                                                        PosterArtwork(
-                                                            request, if (current) shown else ({ 0f }),
-                                                            Modifier.fillMaxWidth().weight(1f), drag.takeIf { current },
-                                                            onScrubFinished, onScrubCanceled, durationMs.takeIf { current } ?: 0L,
-                                                            reduceAnimation,
-                                                        )
-                                                        Box(
-                                                            Modifier.fillMaxWidth().height(spotlightHeight)
-                                                                .padding(horizontal = if (compact) 20.dp else 24.dp),
-                                                        ) { if (active && current) lyrics() }
-                                                    }
-                                                }
                                             }
-                                        }
-                                        if (vinyl) {
                                             VinylTonearm(
                                                 shown, drag, onScrubFinished, onScrubCanceled, { seekingArm = it },
-                                                reduceAnimation, lessBlur, { swipe.offset }, Modifier.fillMaxSize(),
+                                                reduceAnimation, lessBlur, { swipe.artworkOffset(song) }, Modifier.fillMaxSize(),
                                                 durationMs = durationMs,
                                             )
+                                        } else {
+                                            BoxWithConstraints(Modifier.fillMaxSize()) {
+                                                val spotlightHeight = (maxHeight * 0.28f).coerceIn(
+                                                    minOf(maxHeight * 0.36f, 78.dp), 160.dp,
+                                                )
+                                                Column(Modifier.fillMaxSize()) {
+                                                    PosterArtwork(
+                                                        null, shown, Modifier.fillMaxWidth().weight(1f), drag,
+                                                        onScrubFinished, onScrubCanceled, durationMs, reduceAnimation,
+                                                    ) {
+                                                        for ((slot, track) in tracks) key(track.swipeIdentity) {
+                                                            val art = when (slot) {
+                                                                -1 -> prevArt
+                                                                1 -> nextArt
+                                                                else -> artworkUrl ?: artwork
+                                                            }
+                                                            LayoutArtwork(art, Modifier.fillMaxSize().graphicsLayer {
+                                                                translationX = (slot + swipe.artworkOffset(song)) * size.width
+                                                            })
+                                                        }
+                                                    }
+                                                    Box(
+                                                        Modifier.fillMaxWidth().height(spotlightHeight)
+                                                            .padding(horizontal = if (compact) 20.dp else 24.dp)
+                                                            .graphicsLayer { alpha = textOpacity },
+                                                    ) { if (active) key(song.swipeIdentity) { lyrics() } }
+                                                }
+                                            }
                                         }
                                     }
                                     if (statusScrimAlpha > 0f) {
@@ -324,26 +343,16 @@ internal fun AlternateNowPlaying(
                             ),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Box(Modifier.fillMaxWidth().clipToBounds()) {
-                                if (pane != PlayerPane.Main) {
-                                    PlayerLayoutCredits(song.title, song.artist)
-                                } else {
-                                    for ((slot, track) in tracks) key(track.swipeIdentity) {
-                                        Box(Modifier.fillMaxWidth().graphicsLayer {
-                                            translationX = (slot + swipe.offset) * size.width * 1.08f
-                                        }.then(if (slot == 0) Modifier else Modifier.clearAndSetSemantics {})) {
-                                            PlayerLayoutCredits(track.title, track.artist)
-                                        }
-                                    }
-                                }
+                            Box(Modifier.fillMaxWidth().graphicsLayer {
+                                alpha = if (pane == PlayerPane.Main) textOpacity else 1f
+                            }) {
+                                PlayerLayoutCredits(song.title, song.artist)
                             }
                             if (vinyl) {
                                 // Reserve the same placement for the credits across all three panes.
                                 Box(
                                     Modifier.fillMaxWidth().height(32.dp).clipToBounds().graphicsLayer {
-                                        // A neighboring record can reach the center before the
-                                        // playback queue commits. Fade the old strip out on the way.
-                                        alpha = (1f - kotlin.math.abs(swipe.offset) * 4f).coerceIn(0f, 1f)
+                                        alpha = textOpacity
                                     },
                                     contentAlignment = Alignment.CenterStart,
                                 ) {
@@ -394,23 +403,44 @@ internal fun AlternateNowPlaying(
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 if (!preview) {
-                    SleeveNerdStats(song, Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                    val statsVisible by PlayerSettings.showNerdStats.collectAsStateWithLifecycle()
+                    if (statsVisible) {
+                        val automix by PlayerSettings.smartFadeEnabled.collectAsStateWithLifecycle()
+                        val lineHeight = MaterialTheme.typography.labelSmall.lineHeight
+                        val minimum = with(androidx.compose.ui.platform.LocalDensity.current) {
+                            (lineHeight * if (automix) 3f else 1f).toDp()
+                        }
+                        Box(Modifier.fillMaxWidth().padding(bottom = 4.dp).heightIn(min = minimum),
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            SleeveNerdStats(song, Modifier.fillMaxWidth())
+                        }
+                    }
                 }
                 scrubber()
                 actions()
                 Spacer(Modifier.height(6.dp))
             }
         }
-        BoxWithConstraints(
+        Box(
             Modifier.fillMaxWidth()
                 .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
                 .height(44.dp).then(topHold),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(42.dp, 5.dp).clip(CircleShape).background(accent.copy(alpha = 0.75f)))
-            val menuInset = if (vinyl) maxWidth * 0.185f else 8.dp
-            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = menuInset).menuAnchor()) {
-                Icon(Icons.Rounded.MoreHoriz, stringResource(Res.string.more), tint = accent)
+            IconButton(onClick = onMenu, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).menuAnchor()) {
+                Box(
+                    Modifier.size(34.dp).clip(CircleShape).then(
+                        if (vinyl) Modifier.background(Color.Black.copy(alpha = 0.52f)) else Modifier,
+                    ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.MoreHoriz, stringResource(Res.string.more),
+                        tint = if (vinyl) lerp(accent, Color.White, 0.30f) else accent,
+                    )
+                }
             }
         }
     }
@@ -522,6 +552,7 @@ internal fun PosterArtwork(
     onCancel: () -> Unit = {},
     durationMs: Long = 0L,
     reduced: Boolean = true,
+    coverLayers: (@Composable () -> Unit)? = null,
 ) {
     val accent = LocalPlayerAccent.current
     val ink = if (accent.luminance() < 0.33f) lerp(accent, Color.White, 0.48f) else lerp(accent, Color.White, 0.25f)
@@ -544,7 +575,9 @@ internal fun PosterArtwork(
         }
     }
     Box(modifier.clipToBounds()) {
-        LayoutArtwork(artwork, Modifier.fillMaxSize().clip(mask))
+        Box(Modifier.fillMaxSize().clip(mask)) {
+            if (coverLayers == null) LayoutArtwork(artwork, Modifier.fillMaxSize()) else coverLayers()
+        }
         val rimGesture = Modifier.seekArtwork(
             shown, onScrub, onFinish, onCancel,
             accepts = { size, down, tolerance, _ ->

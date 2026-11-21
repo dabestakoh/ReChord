@@ -107,7 +107,11 @@ fun rememberFullArtworkBlurImage(
             image = it
             return@LaunchedEffect
         }
-        if (!prepare || imageUrl == null) return@LaunchedEffect
+        if (imageUrl == null) {
+            image = null
+            return@LaunchedEffect
+        }
+        if (!prepare) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
             // Same URL as the player's 1200px sleeve, so this is a small decode
             // from Coil's shared fetch/disk result rather than another download.
@@ -115,12 +119,16 @@ fun rememberFullArtworkBlurImage(
             .size(FULL_BLUR_SOURCE_PX)
             .forPixelAccess()
             .build()
-        val result = SingletonImageLoader.get(context).execute(request)
-        val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@LaunchedEffect
-        val blurred = withContext(Dispatchers.Default) { bitmap.boxBlurred(FULL_BLUR_PASSES) }
-        val ready = blurred
-        fullBlurCache[imageUrl] = ready
-        image = ready
+        repeat(MESH_ATTEMPTS) { attempt ->
+            if (attempt > 0) delay(MESH_RETRY_DELAY_MS)
+            val result = SingletonImageLoader.get(context).execute(request)
+            val bitmap = (result as? SuccessResult)?.image?.toImageBitmap() ?: return@repeat
+            val blurred = withContext(Dispatchers.Default) { bitmap.boxBlurred(FULL_BLUR_PASSES) }
+            fullBlurCache[imageUrl] = blurred
+            image = blurred
+            return@LaunchedEffect
+        }
+        image = null
     }
     return image
 }
@@ -222,7 +230,11 @@ fun rememberArtworkMesh(
     LaunchedEffect(mesh) { heldMesh.value = mesh }
 
     LaunchedEffect(imageUrl, artPx) {
-        if (imageUrl == null || meshUrl == imageUrl) return@LaunchedEffect
+        if (imageUrl == null) {
+            mesh = null
+            return@LaunchedEffect
+        }
+        if (meshUrl == imageUrl) return@LaunchedEffect
         val request = ImageRequest.Builder(context)
             .data(imageUrl.artworkAt(artPx))
             .size(MESH_PX)
@@ -242,14 +254,15 @@ fun rememberArtworkMesh(
                 val found = withContext(Dispatchers.Default) { meshOf(bitmap, imageUrl.hashCode()) }
                 if (found != null) {
                     meshCache[imageUrl] = found
-                    mesh = found
                 }
+                mesh = found
                 // A cover that decoded but had no mesh in it — see [meshOf] —
                 // is an answer, not a failure. Asking again gets the same one.
                 meshUrl = imageUrl
                 return@LaunchedEffect
             }
         }
+        mesh = null
     }
 
     LaunchedEffect(canvasFrame) {
@@ -312,16 +325,28 @@ fun ArtworkMeshBackdrop(
     // has finished with it.
     var shown by remember { mutableStateOf(mesh) }
     var incoming by remember { mutableStateOf<ArtworkMesh?>(null) }
+    var fadingToFallback by remember { mutableStateOf(false) }
     val fade = remember { Animatable(0f) }
 
     LaunchedEffect(mesh) {
-        val next = mesh ?: return@LaunchedEffect
         // A change arriving mid-fade. Whatever was fading in has been on screen
         // for a while and is what the new one should fade *from*; leaving it in
         // [incoming] would restart the fade from the mesh before it, and a clip
         // sending frames faster than the fade runs would never settle at all.
         incoming?.let { shown = it }
         incoming = null
+        if (mesh == null) {
+            if (shown != null && !reduceAnimation) {
+                fade.snapTo(0f)
+                fadingToFallback = true
+                fade.animateTo(1f, tween(MESH_FADE_MS, easing = FastOutSlowInEasing))
+            }
+            shown = null
+            fadingToFallback = false
+            return@LaunchedEffect
+        }
+        fadingToFallback = false
+        val next = mesh
         val current = shown
         if (next === current) return@LaunchedEffect
 
@@ -346,7 +371,7 @@ fun ArtworkMeshBackdrop(
             .background(fallback),
     ) {
         val seamY = seam().toPx().coerceIn(0f, size.height)
-        shown?.let { drawMesh(it, seamY, alpha = 1f) }
+        shown?.let { drawMesh(it, seamY, alpha = if (fadingToFallback) 1f - fade.value else 1f) }
         // Read here rather than in composition: an Animatable read inside a
         // draw lambda invalidates the drawing and leaves composition out of it.
         incoming?.let { drawMesh(it, seamY, alpha = fade.value) }

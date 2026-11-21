@@ -1675,13 +1675,13 @@ internal fun PosterLyricSpotlight(
                     do {
                         type = base.copy(
                             fontSize = size.sp,
-                            lineHeight = (size * if (range == null) 1.22f else 1.41f).sp,
+                            lineHeight = (size * if (range == null) 1.22f else 1.26f).sp,
                             fontWeight = FontWeight.ExtraBold,
                             lineBreak = LineBreak.Heading,
                         )
                         peak = if (range == null) AnnotatedString(active.text) else AnnotatedString(
                             active.text, spanStyles = listOf(
-                                AnnotatedString.Range(SpanStyle(fontSize = (size * 1.40f).sp), range.first, range.last + 1),
+                                AnnotatedString.Range(SpanStyle(fontSize = (size * 1.23f).sp), range.first, range.last + 1),
                             ),
                         )
                         measured = measurer.measure(
@@ -1708,7 +1708,7 @@ internal fun PosterLyricSpotlight(
                         val x0 = textLayout.getHorizontalPosition(first, true)
                         val x1 = textLayout.getHorizontalPosition(last, true)
                         if (x1 <= x0) return@remember null
-                        val peakSize = type.fontSize * 1.40f
+                        val peakSize = type.fontSize * 1.23f
                         val label = measurer.measure(
                             active.text.substring(first, last), type.copy(fontSize = peakSize), maxLines = 1,
                         )
@@ -2125,7 +2125,7 @@ internal fun LyricsPanel(
 
     val lyricsStyle by PlayerSettings.lyricsStyle.collectAsStateWithLifecycle()
     val glowing = lyricsStyle.blooms && !reduceAnimation && !reduceDynamicBlur &&
-        (lyricsBlur || lyricsStyle == LyricsStyle.MOTION) && renderEffectBlurSupported
+        (lyricsBlur || lyricsStyle != LyricsStyle.DEFAULT) && renderEffectBlurSupported
     val shimmer = lyricsStyle.shimmers && !reduceAnimation && !reduceDynamicBlur
 
     LaunchedEffect(listState) {
@@ -2546,6 +2546,7 @@ internal fun LyricsPanel(
                     targetValue = when {
                         !isActive || !glowing -> 0f
                         lyricsStyle == LyricsStyle.MOTION -> 0.94f
+                        lyricsStyle == LyricsStyle.WAVE -> 0.58f
                         else -> GLOW_ALPHA
                     },
                     animationSpec = tween(durationMillis = 420),

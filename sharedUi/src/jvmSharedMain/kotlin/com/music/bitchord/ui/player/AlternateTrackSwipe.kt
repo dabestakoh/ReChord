@@ -36,6 +36,10 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
     private var job: Job? = null
     private var awaitingId: String? = null
 
+    // The promoted cover may already be composed before the swipe's SideEffect settles the offset.
+    fun artworkOffset(currentTrack: Song): Float =
+        if (currentTrack.swipeIdentity == awaitingId) 0f else offset
+
     fun start() {
         job?.cancel()
         awaitingId = null

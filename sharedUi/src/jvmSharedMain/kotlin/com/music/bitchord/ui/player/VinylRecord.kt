@@ -137,23 +137,28 @@ internal fun VinylDisc(
     var rotation by remember(trackKey) { mutableFloatStateOf(0f) }
     LaunchedEffect(spin, trackKey) {
         if (!spin) return@LaunchedEffect
-        var last = withFrameNanos { it }
+        val start = withFrameNanos { it }
+        var last = start
         while (true) {
             val frame = withFrameNanos { it }
-            rotation = (rotation + (frame - last).coerceAtMost(70_000_000L) * 0.0000002f) % 360f
+            val acceleration = ((frame - start) / 300_000_000f).coerceIn(0f, 1f)
+            val elapsed = (frame - last).coerceAtMost(70_000_000L)
+            rotation = (rotation + elapsed * 0.000000055f * acceleration) % 360f
             last = frame
         }
     }
-    val raw = when (style.colorMode) {
+    val picture = style.finish == VinylFinish.PICTURE_DISC
+    val colorMode = if (picture) VinylColorMode.BLACK else style.colorMode
+    val raw = when (colorMode) {
         VinylColorMode.BLACK -> Color(0xFF17181A)
         VinylColorMode.ALBUM -> palette
         VinylColorMode.CUSTOM -> Color(style.customColor)
     }
-    val neutral = style.colorMode == VinylColorMode.BLACK || raw == Color.Unspecified || raw == Color.White
+    val neutral = colorMode == VinylColorMode.BLACK || raw == Color.Unspecified || raw == Color.White
     val base = if (neutral) Color(0xFF17181A) else {
         lerp(raw.copy(alpha = 1f), Color(0xFF141416), if (raw.luminance() > 0.55f) 0.39f else 0.19f)
     }
-    val customTint = style.secondaryColor.takeIf { style.colorMode == VinylColorMode.CUSTOM }
+    val customTint = style.secondaryColor.takeIf { colorMode == VinylColorMode.CUSTOM }
     val tint = customTint?.let { Color(it) } ?: lerp(base, Color.White, if (neutral) 0.41f else 0.60f)
     val darkTint = lerp(base, Color.Black, 0.74f)
 
@@ -174,7 +179,7 @@ internal fun VinylDisc(
             onDrawBehind { if (g.radius > 0f) drawCircle(shadow, outer, shadowAt) }
         })
         Box(at.graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true }) {
-            if (style.finish == VinylFinish.PICTURE_DISC && artwork != null) {
+            if (picture && artwork != null) {
                 LayoutArtwork(artwork, Modifier.fillMaxSize())
             }
             Box(Modifier.fillMaxSize().drawWithCache {
@@ -184,25 +189,44 @@ internal fun VinylDisc(
                 val baseFill = when (style.finish) {
                     VinylFinish.TRANSLUCENT -> base.copy(alpha = 0.45f)
                     VinylFinish.SMOKED -> base.copy(alpha = 0.67f)
-                    VinylFinish.PICTURE_DISC -> if (artwork != null) base.copy(alpha = 0.21f) else base
+                    VinylFinish.PICTURE_DISC -> if (artwork != null) Color.Transparent else base
                     else -> base
                 }
-                val swirlPaths = List(12) { i ->
-                    val start = random.nextFloat() * 6.283f
-                    val winding = if (style.finish == VinylFinish.SWIRL) 4.8f else 0.45f + random.nextFloat() * 1.1f
-                    val inner = r * (0.43f + random.nextFloat() * 0.34f)
-                    Path().apply {
-                        for (step in 0..35) {
-                            val t = step / 35f
-                            val distance = inner + (r - inner) * t + sin((t * 12f) + i) * r * 0.079f
-                            val pt = polar(center, distance, start + winding * t)
-                            if (step == 0) moveTo(pt.x, pt.y) else lineTo(pt.x, pt.y)
+                val swirlPaths = if (style.finish == VinylFinish.MARBLED || style.finish == VinylFinish.SWIRL) {
+                    List(if (style.finish == VinylFinish.SWIRL) 11 else 19) { i ->
+                        val marble = style.finish == VinylFinish.MARBLED
+                        val phase = random.nextFloat() * 6.283f
+                        val offset = (i - 8) * r * (0.092f + random.nextFloat() * 0.038f)
+                        val amplitude = r * (0.07f + random.nextFloat() * 0.17f)
+                        val start = phase * 0.36f + offset / r.coerceAtLeast(1f)
+                        val points = List(65) { step ->
+                            val t = step / 64f
+                            if (marble) {
+                                val x = (t * 2.55f - 1.275f) * r
+                                val y = offset + sin(t * 8f + phase) * amplitude +
+                                    sin(t * 19f + phase * 1.6f) * amplitude * 0.27f
+                                val angle = 0.55f
+                                center + Offset(x * cos(angle) - y * sin(angle), x * sin(angle) + y * cos(angle))
+                            } else {
+                                val distance = r * (0.24f + t * 0.90f) +
+                                    sin(t * 9f + phase) * amplitude * 0.28f
+                                polar(center, distance, start + t * (3.2f + sin(phase) * 1.1f))
+                            }
+                        }
+                        Path().apply {
+                            moveTo(points.first().x, points.first().y)
+                            for (step in 1 until points.lastIndex) {
+                                val point = points[step]
+                                val middle = (point + points[step + 1]) * 0.5f
+                                quadraticTo(point.x, point.y, middle.x, middle.y)
+                            }
+                            lineTo(points.last().x, points.last().y)
                         }
                     }
-                }
+                } else emptyList()
                 val spots = List(120) {
-                    val radial = r * (0.54f + 0.48f * random.nextFloat())
-                    polar(center, radial, random.nextFloat() * 6.283f) to (0.18f + random.nextFloat())
+                    val radial = r * (0.50f + 0.53f * random.nextFloat())
+                    polar(center, radial, random.nextFloat() * 6.283f) to (0.12f + random.nextFloat())
                 }
                 val haze = List(9) { i ->
                     val pt = polar(center, r * (0.62f + random.nextFloat() * 0.30f), random.nextFloat() * 6.283f)
@@ -233,9 +257,11 @@ internal fun VinylDisc(
                         VinylFinish.MARBLED, VinylFinish.SWIRL -> {
                             for ((i, path) in swirlPaths.withIndex()) {
                                 val ink = if (i % 3 == 0) darkTint else tint
-                                val width = if (style.finish == VinylFinish.MARBLED) 0.018f else 0.05f
-                                drawPath(path, ink.copy(alpha = 0.43f + (i % 3) * 0.13f),
-                                    style = Stroke(r * (width + (i % 4) * width), cap = StrokeCap.Round))
+                                val width = if (style.finish == VinylFinish.MARBLED) 0.009f else 0.037f
+                                val band = r * width * (1 + i % 4)
+                                drawPath(path, ink.copy(alpha = 0.13f), style = Stroke(band * 2.3f, cap = StrokeCap.Round))
+                                drawPath(path, ink.copy(alpha = 0.30f + (i % 3) * 0.10f),
+                                    style = Stroke(band, cap = StrokeCap.Round))
                             }
                         }
                         VinylFinish.GALAXY -> {
@@ -252,16 +278,13 @@ internal fun VinylDisc(
                                     val sparkle = lerp(tint, Color.White, 0.68f).copy(alpha = amount * 0.77f)
                                     val fleck = r * 0.006f * amount
                                     drawCircle(sparkle, fleck, point)
-                                    if (amount > 1f) {
-                                        drawLine(sparkle, point - Offset(fleck * 2, 0f), point + Offset(fleck * 2, 0f), fleck * 0.5f)
-                                        drawLine(sparkle, point - Offset(0f, fleck * 2), point + Offset(0f, fleck * 2), fleck * 0.5f)
-                                    }
                                 } else {
-                                    val ink = if (amount > 0.8f) tint else darkTint
-                                    rotate(degrees(atan2(point.y - center.y, point.x - center.x)), point) {
-                                        drawOval(ink.copy(alpha = 0.80f), point,
-                                            Size(r * 0.077f * amount, r * 0.028f * amount))
-                                    }
+                                    val ink = if (amount > 0.69f) tint else darkTint
+                                    val angle = atan2(point.y - center.y, point.x - center.x)
+                                    val end = polar(point, r * 0.082f * amount * amount, angle + (amount - 0.7f) * 0.85f)
+                                    drawLine(ink.copy(alpha = 0.17f), point, end, r * 0.032f * amount, StrokeCap.Round)
+                                    drawLine(ink.copy(alpha = 0.77f), point, end, r * 0.014f * amount, StrokeCap.Round)
+                                    drawCircle(ink.copy(alpha = 0.63f), r * 0.013f * amount, point)
                                 }
                             }
                         }
@@ -335,11 +358,13 @@ internal fun VinylDisc(
                 }
             }
         })
-        LayoutArtwork(
-            artwork,
-            Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
-                .size(label * 2).graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true },
-        )
+        if (!picture || artwork == null) {
+            LayoutArtwork(
+                artwork,
+                Modifier.offset(x = maxWidth * 0.163f - label, y = radius - label)
+                    .size(label * 2).graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true },
+            )
+        }
     }
 }
 

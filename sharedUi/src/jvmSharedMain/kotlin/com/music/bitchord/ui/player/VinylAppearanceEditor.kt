@@ -65,61 +65,63 @@ fun VinylAppearanceEditor(
                 )
             }
         }
-        Text(
-            stringResource(Res.string.vinyl_color),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (mode in VinylColorMode.entries) {
-                val label = when (mode) {
-                    VinylColorMode.BLACK -> Res.string.vinyl_black
-                    VinylColorMode.ALBUM -> Res.string.vinyl_album
-                    VinylColorMode.CUSTOM -> Res.string.vinyl_custom
-                }
-                FilterChip(value.colorMode == mode, { onChange(value.copy(colorMode = mode)) }, {
-                    Text(stringResource(label))
-                })
-            }
-        }
-        if (value.colorMode == VinylColorMode.CUSTOM) {
-            val colors = remember(palette) {
-                listOfNotNull(palette?.toArgb(), 0xFF111418.toInt(), 0xFFC53C54.toInt(), 0xFFD39433.toInt(),
-                    0xFF278170.toInt(), 0xFF33668D.toInt(), 0xFF704D99.toInt(), 0xFFE3D8BE.toInt()).distinct()
-            }
-            var colorInput by remember { mutableStateOf(hex(value.customColor)) }
-            var accentInput by remember { mutableStateOf(value.secondaryColor?.let(::hex).orEmpty()) }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                colors.forEach { color ->
-                    val label = "#${hex(color)}"
-                    val selected = value.customColor == color
-                    Box(
-                        Modifier.size(48.dp)
-                            .clip(CircleShape)
-                            .semantics { contentDescription = label }
-                            .clickable(role = Role.Button) {
-                                colorInput = hex(color)
-                                onChange(value.copy(customColor = color))
-                            }
-                            .padding(6.dp)
-                            .background(Color(color), CircleShape)
-                            .border(if (selected) 3.dp else 1.dp, MaterialTheme.colorScheme.onSurface, CircleShape),
-                    )
+        if (value.finish != VinylFinish.PICTURE_DISC) {
+            Text(
+                stringResource(Res.string.vinyl_color),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (mode in VinylColorMode.entries) {
+                    val label = when (mode) {
+                        VinylColorMode.BLACK -> Res.string.vinyl_black
+                        VinylColorMode.ALBUM -> Res.string.vinyl_album
+                        VinylColorMode.CUSTOM -> Res.string.vinyl_custom
+                    }
+                    FilterChip(value.colorMode == mode, { onChange(value.copy(colorMode = mode)) }, {
+                        Text(stringResource(label))
+                    })
                 }
             }
-            VinylHexField(colorInput, stringResource(Res.string.vinyl_custom_hex)) { input, color ->
-                colorInput = input
-                if (color != null) onChange(value.copy(customColor = color))
-            }
-            if (value.finish != VinylFinish.PLAIN && value.finish != VinylFinish.PICTURE_DISC && value.finish != VinylFinish.TRANSLUCENT) {
-                VinylHexField(accentInput, stringResource(Res.string.vinyl_secondary_hex)) { input, color ->
-                    accentInput = input
-                    if (input.isEmpty() || color != null) onChange(value.copy(secondaryColor = color))
+            if (value.colorMode == VinylColorMode.CUSTOM) {
+                val colors = remember(palette) {
+                    listOfNotNull(palette?.toArgb(), 0xFF111418.toInt(), 0xFFC53C54.toInt(), 0xFFD39433.toInt(),
+                        0xFF278170.toInt(), 0xFF33668D.toInt(), 0xFF704D99.toInt(), 0xFFE3D8BE.toInt()).distinct()
                 }
-                TextButton(onClick = {
-                    accentInput = ""
-                    onChange(value.copy(secondaryColor = null))
-                }) { Text(stringResource(Res.string.vinyl_automatic)) }
+                var colorInput by remember { mutableStateOf(hex(value.customColor)) }
+                var accentInput by remember { mutableStateOf(value.secondaryColor?.let(::hex).orEmpty()) }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    colors.forEach { color ->
+                        val label = "#${hex(color)}"
+                        val selected = value.customColor == color
+                        Box(
+                            Modifier.size(48.dp)
+                                .clip(CircleShape)
+                                .semantics { contentDescription = label }
+                                .clickable(role = Role.Button) {
+                                    colorInput = hex(color)
+                                    onChange(value.copy(customColor = color))
+                                }
+                                .padding(6.dp)
+                                .background(Color(color), CircleShape)
+                                .border(if (selected) 3.dp else 1.dp, MaterialTheme.colorScheme.onSurface, CircleShape),
+                        )
+                    }
+                }
+                VinylHexField(colorInput, stringResource(Res.string.vinyl_custom_hex)) { input, color ->
+                    colorInput = input
+                    if (color != null) onChange(value.copy(customColor = color))
+                }
+                if (value.finish != VinylFinish.PLAIN && value.finish != VinylFinish.TRANSLUCENT) {
+                    VinylHexField(accentInput, stringResource(Res.string.vinyl_secondary_hex)) { input, color ->
+                        accentInput = input
+                        if (input.isEmpty() || color != null) onChange(value.copy(secondaryColor = color))
+                    }
+                    TextButton(onClick = {
+                        accentInput = ""
+                        onChange(value.copy(secondaryColor = null))
+                    }) { Text(stringResource(Res.string.vinyl_automatic)) }
+                }
             }
         }
         Text(
