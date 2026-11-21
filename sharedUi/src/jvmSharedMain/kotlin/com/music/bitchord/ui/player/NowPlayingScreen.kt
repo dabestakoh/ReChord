@@ -1009,11 +1009,11 @@ fun NowPlayingScreen(
         val lineHeight = MaterialTheme.typography.titleLarge.lineHeight
         maxOf(HEADER_HEIGHT, (lineHeight.takeIf { it.isSpecified }?.toDp() ?: 28.dp) * 2)
     }
-    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !fullVideoMode
+    val alternateLayout = layout != NowPlayingLayout.DEFAULT
     val pictureId = companionVideoId ?: song.videoId
-    val videoAllowed = !layoutPreview
+    val videoAllowed = layout == NowPlayingLayout.DEFAULT && !layoutPreview
     val videoMode = videoAllowed && (companionVideoId != null || showsMusicVideo(song))
-    val videoPresentation = videoMode || fullVideoMode
+    val videoPresentation = videoAllowed && (videoMode || fullVideoMode)
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
     // to it, in place of the full-width box at the video's shape.
     val squareVideo = videoMode && VideoThumbnails.square
@@ -2225,7 +2225,10 @@ fun NowPlayingScreen(
                     artRequest = art.request,
                     rendered = videoRendered,
                     onRenderedChanged = { videoRendered = it },
-                    onExitFullscreen = exitFullscreen,
+                    onExitFullscreen = {
+                        exitFullscreen()
+                        if (fullVideoMode) onExitVideoMode()
+                    },
                     onOpenQuality = { showVideoQuality = true },
                     scrubber = {
                         PlayerScrubber(
@@ -3815,11 +3818,18 @@ fun NowPlayingScreen(
                                 ) {
                                     // Black with a spinner under the picture until
                                     // its first frame lands.
-                                    if (!videoRendered) {
+                                    if (!videoRendered && (videoMode || fullVideoSearching)) {
                                         VideoLoadingBackdrop(
                                             Modifier
                                                 .fillMaxSize()
                                                 .clip(RoundedCornerShape(10.dp)),
+                                        )
+                                    } else if (!videoRendered) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxSize()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color.Black),
                                         )
                                     }
                                     if (videoMode) {

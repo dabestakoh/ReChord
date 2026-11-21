@@ -592,6 +592,10 @@ private fun BitChordApp(
             fullVideoMode = false
             playerOrientationOverride = 0
         }
+        if (nowPlayingLayout != NowPlayingLayout.DEFAULT) {
+            fullVideoMode = false
+            MusicVideoEngine.clearCompanion()
+        }
         val active = showNowPlaying && nowPlayingLayout != NowPlayingLayout.DEFAULT
         hostActivity?.requestedOrientation = when {
             !active || playerOrientationOverride == 0 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -1591,7 +1595,14 @@ private fun BitChordApp(
             val video = if (current.isVideo) current else resolvePicture(
                 current, convertedFromVideo?.takeIf { convertedAudioId == current.videoId },
             )
-            if (video == null || !isCurrent()) return@LaunchedEffect
+            if (video == null) {
+                if (isCurrent()) {
+                    fullVideoMode = false
+                    showQueueNotice(versionContext.getString(R.string.no_video_version))
+                }
+                return@LaunchedEffect
+            }
+            if (!isCurrent()) return@LaunchedEffect
             val shown = MusicVideoEngine.showCompanion(
                 versionContext, current, video, tapAt, ::isCurrent,
                 allowApproximate = true,
@@ -1601,7 +1612,12 @@ private fun BitChordApp(
                     fullVideoSearching = false
                 },
             )
-            if (shown) awaitCancellation()
+            if (shown) {
+                awaitCancellation()
+            } else if (isCurrent()) {
+                fullVideoMode = false
+                showQueueNotice(versionContext.getString(R.string.no_video_version))
+            }
         } finally {
             ownedPicture?.let { MusicVideoEngine.clearCompanion(current, it) }
             fullVideoSearching = false
@@ -4516,12 +4532,16 @@ private fun BitChordApp(
 
                     TrackLog.d("Player", "version menu action=$action", current.videoId)
                     when (action) {
-                        VersionDisplayAction.HIDE_PICTURE -> MusicVideoEngine.clearCompanion()
+                        VersionDisplayAction.HIDE_PICTURE -> {
+                            fullVideoMode = false
+                            MusicVideoEngine.clearCompanion()
+                        }
                         VersionDisplayAction.SHOW_PICTURE -> {
                             val original = convertedFromVideo?.takeIf { convertedAudioId == current.videoId }
                             scope.launch { switchToVideo(current, original) }
                         }
                         VersionDisplayAction.PLAY_AUDIO_VERSION -> {
+                            fullVideoMode = false
                             val cached = YtMusicRepository.cachedAudioVersion(current.videoId)
                             if (cached != null && cached.videoId != current.videoId && !cached.isVideo &&
                                 (!AppSettings.smartVersionAlignment.value ||
@@ -4720,11 +4740,14 @@ private fun BitChordApp(
                     null
                 },
                 upgradeQualityInProgress = fromPlayer && song.videoId in qualityUpgradesInFlight,
-                onToggleAudioVersion = onToggleVersion,
+                onToggleAudioVersion = onToggleVersion.takeUnless {
+                    fromPlayer && nowPlayingLayout != NowPlayingLayout.DEFAULT &&
+                        versionMenuAction != VersionDisplayAction.PLAY_AUDIO_VERSION
+                },
                 onNowPlayingLayout = if (fromPlayer) {
                     { songActions = null; showPlayerLayouts = true }
                 } else null,
-                onVideoMode = if (fromPlayer && !fullVideoMode) {
+                onVideoMode = if (fromPlayer && !fullVideoMode && nowPlayingLayout == NowPlayingLayout.DEFAULT) {
                     {
                         songActions = null
                         fullVideoSearching = true

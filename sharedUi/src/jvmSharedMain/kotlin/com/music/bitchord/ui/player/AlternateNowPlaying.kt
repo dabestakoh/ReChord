@@ -480,13 +480,13 @@ internal fun AlternateNowPlaying(
                                     .fillMaxSize()
                                     .then(
                                         if (vinyl && !preview) {
-                                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 10.dp, bottom = 10.dp)
+                                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 2.dp, bottom = 2.dp)
                                         } else {
                                             Modifier
                                         },
                                     ),
                             ) {
-                                val leftWidth = if (vinyl) stageMaxWidth * 0.48f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
+                                val leftWidth = if (vinyl) stageMaxWidth * 0.50f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
                                 Box(
                                     Modifier
                                         .width(leftWidth)
@@ -602,7 +602,7 @@ internal fun AlternateNowPlaying(
                                                 Modifier
                                             },
                                         )
-                                        .padding(start = 16.dp, end = 18.dp),
+                                        .padding(start = 14.dp, end = 18.dp),
                                     transitionSpec = {
                                         if (reduceAnimation) {
                                             fadeIn(snap()) togetherWith fadeOut(snap())
@@ -621,7 +621,7 @@ internal fun AlternateNowPlaying(
                                             if (!vinyl) {
                                                 Row(
                                                     Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.End,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                 ) {
                                                     rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
@@ -661,16 +661,15 @@ internal fun AlternateNowPlaying(
                                                     Box(
                                                         Modifier
                                                             .fillMaxWidth()
-                                                            .height(28.dp)
-                                                            .clipToBounds()
+                                                            .height(38.dp)
                                                             .graphicsLayer { alpha = textOpacity },
                                                         contentAlignment = Alignment.CenterStart,
                                                     ) {
                                                         if (active) lyrics()
                                                     }
                                                     Row(
-                                                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                                         verticalAlignment = Alignment.CenterVertically,
                                                     ) {
                                                         previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
@@ -678,7 +677,9 @@ internal fun AlternateNowPlaying(
                                                 }
                                                 if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
                                                 volume?.invoke()
-                                                quality()
+                                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                                    quality()
+                                                }
                                                 actions()
                                             }
                                         }

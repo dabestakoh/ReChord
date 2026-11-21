@@ -90,7 +90,7 @@ internal class RecordGeometry(
     landscape: Boolean = false,
 ) {
     val radius = if (landscape) {
-        minOf(size.height * 0.43f, size.width * 0.36f)
+        minOf(size.height * 0.48f, size.width * 0.405f)
     } else {
         val base = minOf(size.width * RECORD_WIDTH_FRACTION, size.height * RECORD_HEIGHT_FRACTION)
         if (maxDiscBottom != null && maxDiscBottom > 0f) minOf(base, maxDiscBottom / 2f) else base
@@ -104,10 +104,10 @@ internal class RecordGeometry(
 
     init {
         if (landscape) {
-            center = Offset(radius + size.width * 0.045f, size.height * 0.50f)
+            center = Offset(radius + size.width * 0.025f, size.height * 0.50f)
             pivot = Offset(
-                (center.x + radius * 1.12f).coerceAtMost(size.width - unit * 0.10f),
-                (center.y - radius * 0.62f).coerceAtLeast(unit * 0.14f),
+                (center.x + radius * 1.11f).coerceAtMost(size.width - unit * 0.09f),
+                (center.y - radius * 0.62f).coerceAtLeast(unit * 0.13f),
             )
         } else {
             pivot = Offset(
