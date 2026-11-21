@@ -1507,4 +1507,6 @@
     <string name="lyrics_style_scope">S’applique aux paroles en plein écran. Le mode Affiche utilise son propre effet.</string>
     <string name="video_mode">Mode vidéo</string>
     <string name="vinyl_appearance">Apparence du vinyle</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

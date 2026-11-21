@@ -287,14 +287,7 @@ internal fun VinylDisc(
                     val lc = Offset(size.width / 2f, size.height / 2f)
                     drawCircle(Color.Black.copy(alpha = 0.28f), lr - 0.8f, lc, style = Stroke(1.6f))
                     drawCircle(Color.White.copy(alpha = 0.14f), lr * 0.94f, lc, style = Stroke(1f))
-                    drawSpindleHole(lc, lr * 0.115f)
                 }
-            }
-        } else {
-            Canvas(labelModifier) {
-                val lr = size.minDimension / 2f
-                val lc = Offset(size.width / 2f, size.height / 2f)
-                drawSpindleHole(lc, lr * 0.115f)
             }
         }
     }
@@ -653,12 +646,6 @@ private fun DrawScope.drawGrooveOverlay(
     drawCircle(cache.rimSheen, r * 0.985f, c, style = Stroke(r * 0.014f))
 }
 
-private fun DrawScope.drawSpindleHole(center: Offset, radius: Float) {
-    val hole = radius.coerceAtLeast(2f)
-    drawCircle(Color(0xFF0A0B0D), hole, center)
-    drawCircle(Color.White.copy(alpha = 0.22f), hole, center, style = Stroke((hole * 0.22f).coerceAtLeast(1f)))
-}
-
 /** Mini circular vinyl preview used in the revamped Vinyl Appearance Studio. */
 @Composable
 internal fun VinylFinishSwatch(
@@ -695,7 +682,6 @@ internal fun VinylFinishSwatch(
                 drawCircle(lerp(palette, Color(0xFF2B2D33), 0.35f), labelR, c)
                 drawCircle(Color.Black.copy(alpha = 0.3f), labelR, c, style = Stroke(1f))
             }
-            drawSpindleHole(c, r * 0.08f)
         }
     }
 }
@@ -717,12 +703,18 @@ internal fun VinylTonearm(
     trackKey: String? = null,
     mountTopInset: Int = 0,
     maxDiscBottom: Float? = null,
+    isPlaying: Boolean = true,
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
     var seeking by remember { mutableStateOf(false) }
     val lift by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else spring(), label = "tonearmLift",
+    )
+    val pauseLift by animateFloatAsState(
+        if (!isPlaying && !seeking) 0.42f else 0f,
+        animationSpec = if (reduced) snap() else spring(dampingRatio = 0.82f, stiffness = 240f),
+        label = "tonearmPauseLift",
     )
     val seekArcAlpha by animateFloatAsState(
         if (seeking) 1f else 0f, animationSpec = if (reduced) snap() else tween(220), label = "tonearmSeekArc",
@@ -796,20 +788,47 @@ internal fun VinylTonearm(
         val g = RecordGeometry(size, mountTopInset, maxDiscBottom)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
-        val mountSize = Size(u * 0.143f, u * 0.245f)
+        val mountSize = Size(u * 0.148f, u * 0.248f)
         val mount = g.pivot - Offset(mountSize.width * 0.5f, mountSize.height * 0.34f)
-        val round = CornerRadius(mountSize.width * 0.45f)
+        val round = CornerRadius(mountSize.width * 0.46f)
         for (i in 1..5) {
             val spread = i * u * 0.003f
-            drawRoundRect(Color.Black.copy(alpha = 0.085f), mount + Offset(u * 0.011f - spread, u * 0.017f - spread),
-                Size(mountSize.width + spread * 2f, mountSize.height + spread * 2f), round)
+            drawRoundRect(
+                Color.Black.copy(alpha = 0.088f),
+                mount + Offset(u * 0.011f - spread, u * 0.017f - spread),
+                Size(mountSize.width + spread * 2f, mountSize.height + spread * 2f),
+                round,
+            )
         }
+        // Machined plinth mount housing with metallic rim bevel.
         drawRoundRect(
-            Brush.verticalGradient(listOf(Color(0xFF27292D), Color(0xFF0D0E11)), mount.y, mount.y + mountSize.height),
+            Brush.verticalGradient(listOf(Color(0xFF2D3138), Color(0xFF15181E), Color(0xFF0A0B0E)), mount.y, mount.y + mountSize.height),
             mount, mountSize, round,
         )
-        drawCircle(Color(0xFF101217), u * 0.050f, g.pivot)
-        drawCircle(Color(0xFF454953), u * 0.043f, g.pivot, style = Stroke(u * 0.002f))
+        drawRoundRect(
+            Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.22f), Color.Transparent, Color.Black.copy(alpha = 0.45f)),
+                mount.y, mount.y + mountSize.height,
+            ),
+            mount, mountSize, round, style = Stroke(u * 0.0024f),
+        )
+        // Subtle cueing lever tucked beside the lower mount base.
+        val cueBase = g.pivot + Offset(u * 0.044f, u * 0.095f)
+        drawLine(Color(0xFF8C94A0), cueBase, cueBase + Offset(u * 0.022f, u * 0.014f), u * 0.006f, StrokeCap.Round)
+        drawCircle(Color(0xFFCCD2DC), u * 0.007f, cueBase + Offset(u * 0.024f, u * 0.015f))
+        // Layered concentric machined gimbal base rings.
+        drawCircle(
+            Brush.radialGradient(
+                listOf(Color(0xFF3E444F), Color(0xFF1A1D24), Color(0xFF0C0E12)),
+                center = g.pivot - Offset(u * 0.012f, u * 0.012f),
+                radius = u * 0.068f,
+            ),
+            u * 0.058f,
+            g.pivot,
+        )
+        drawCircle(Color(0xFF6A717E).copy(alpha = 0.65f), u * 0.056f, g.pivot, style = Stroke(u * 0.0022f))
+        drawCircle(Color(0xFF101217), u * 0.045f, g.pivot)
+        drawCircle(Color(0xFF535966), u * 0.041f, g.pivot, style = Stroke(u * 0.0018f))
         val phase = trip.value
         val travelLift = when {
             seeking || reduced -> 0f
@@ -818,16 +837,16 @@ internal fun VinylTonearm(
             landedTrack != trackKey -> lastDrawn.lift
             else -> 0f
         }
-        val raised = if (reduced) 0f else maxOf(lift, travelLift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
+        val raised = if (reduced) 0f else maxOf(lift, travelLift, pauseLift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
         val arm = armPosition()
         lastDrawn.progress = arm
         lastDrawn.lift = raised
         val swing = degrees(g.angle(arm))
         val dim = if (blurReduced) 0.34f else 0.52f
-        val shift = u * (0.010f + 0.014f * raised)
+        val shift = u * (0.010f + 0.016f * raised)
         if (shadowLayer != null && size.width > 1f && size.height > 1f) {
             val res = 0.5f
-            val blurRadius = (u * (0.012f + 0.020f * raised) * res).coerceAtLeast(1f)
+            val blurRadius = (u * (0.012f + 0.022f * raised) * res).coerceAtLeast(1f)
             shadowLayer.renderEffect = BlurEffect(blurRadius, blurRadius, TileMode.Decal)
             val box = IntSize(
                 (size.width * res).roundToInt().coerceAtLeast(1),
@@ -851,7 +870,7 @@ internal fun VinylTonearm(
             }
         }
         rotate(swing, g.pivot) {
-            val liftScale = 1f + raised * 0.018f
+            val liftScale = 1f + raised * 0.022f
             scale(liftScale, liftScale, g.pivot) { drawArm(g.pivot, g.reach, u, null) }
         }
         val arcAlpha = maxOf(seekArcAlpha, peekAlpha.value).coerceIn(0f, 1f)
@@ -883,11 +902,69 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     val tip = pivot + Offset(length, 0f)
     val bend = 13f
     val radians = bend * (PI / 180).toFloat()
-    val headLength = unit * 0.094f
+    val headLength = unit * 0.096f
     val socket = polar(tip, -unit * 0.128f, radians)
     val tangent = polar(socket, -unit * 0.047f, radians)
-    val shaftWidth = unit * 0.020f
+    val shaftWidth = unit * 0.021f
     val shaftAt = pivot.y - unit * 0.045f
+
+    // Rear counterweight stub & brushed cylindrical counterweight behind the pivot.
+    val stubEnd = pivot.x - unit * 0.125f
+    drawLine(
+        shadow ?: Color(0xFF474D57),
+        Offset(stubEnd, shaftAt),
+        Offset(pivot.x, shaftAt),
+        shaftWidth * 0.85f,
+        StrokeCap.Round,
+    )
+    if (shadow == null) {
+        drawLine(
+            Color(0xFFC4CCD6),
+            Offset(stubEnd + unit * 0.004f, shaftAt - shaftWidth * 0.18f),
+            Offset(pivot.x, shaftAt - shaftWidth * 0.18f),
+            shaftWidth * 0.24f,
+            StrokeCap.Round,
+        )
+    }
+    val cwWidth = unit * 0.068f
+    val cwHeight = unit * 0.052f
+    val cwPos = Offset(pivot.x - unit * 0.118f, shaftAt - cwHeight * 0.5f)
+    val cwCorner = CornerRadius(unit * 0.011f)
+    drawRoundRect(
+        shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
+            listOf(Color(0xFFBFC6D0), Color(0xFF777E89), Color(0xFF393E47), Color(0xFF20242B)),
+            cwPos.y,
+            cwPos.y + cwHeight,
+        ),
+        cwPos,
+        Size(cwWidth, cwHeight),
+        cwCorner,
+    )
+    if (shadow == null) {
+        // Tracking-force calibration ring on front edge of counterweight.
+        val dialX = cwPos.x + cwWidth * 0.72f
+        drawRect(
+            Color(0xFF181B21),
+            Offset(dialX, cwPos.y + cwHeight * 0.05f),
+            Size(cwWidth * 0.18f, cwHeight * 0.90f),
+        )
+        drawLine(
+            Color.White.copy(alpha = 0.65f),
+            Offset(dialX + cwWidth * 0.09f, cwPos.y + cwHeight * 0.22f),
+            Offset(dialX + cwWidth * 0.09f, cwPos.y + cwHeight * 0.44f),
+            unit * 0.0022f,
+            StrokeCap.Round,
+        )
+        drawRoundRect(
+            Color.White.copy(alpha = 0.24f),
+            cwPos,
+            Size(cwWidth, cwHeight),
+            cwCorner,
+            style = Stroke(unit * 0.0018f),
+        )
+    }
+
+    // 3D brushed-aluminum arm tube with cylindrical metallic shading.
     val tube = Path().apply {
         moveTo(pivot.x, shaftAt)
         lineTo(tangent.x - unit * 0.02f, shaftAt)
@@ -897,37 +974,78 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
     if (shadow != null) {
         drawPath(tube, shadow, style = tubeStroke)
     } else {
-        drawPath(tube, Color(0xFF343941), style = tubeStroke)
-        drawPath(tube, Color(0xFF848C95), style = Stroke(shaftWidth * 0.79f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        translate(top = -shaftWidth * 0.18f) {
-            drawPath(tube, Color(0xFFE5EBF0), style = Stroke(shaftWidth * 0.26f, cap = StrokeCap.Round))
+        drawPath(tube, Color(0xFF262A32), style = tubeStroke)
+        drawPath(tube, Color(0xFF7B838E), style = Stroke(shaftWidth * 0.80f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        translate(top = -shaftWidth * 0.14f) {
+            drawPath(tube, Color(0xFFC2CAD4), style = Stroke(shaftWidth * 0.44f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+        translate(top = -shaftWidth * 0.24f) {
+            drawPath(tube, Color(0xFFF3F7FB), style = Stroke(shaftWidth * 0.18f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }
-    val bearing = Size(unit * 0.105f, unit * 0.086f)
-    val bearingAt = pivot - Offset(bearing.width * 0.5f, bearing.height * 0.65f)
+
+    // Machined gimbal yoke & pivot cap.
+    val bearing = Size(unit * 0.108f, unit * 0.088f)
+    val bearingAt = pivot - Offset(bearing.width * 0.5f, bearing.height * 0.64f)
     drawRoundRect(
         shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
-            listOf(Color(0xFF676D78), Color(0xFF30343C), Color(0xFF171A20)),
+            listOf(Color(0xFF78808C), Color(0xFF3E434D), Color(0xFF1D2128), Color(0xFF121419)),
             bearingAt.y, bearingAt.y + bearing.height,
-        ), bearingAt, bearing, CornerRadius(unit * 0.017f),
+        ), bearingAt, bearing, CornerRadius(unit * 0.018f),
     )
     if (shadow == null) {
-        drawCircle(Color(0xFF80848D), unit * 0.010f, pivot - Offset(unit * 0.017f, unit * 0.009f))
-        drawCircle(Color(0xFF242830), unit * 0.005f, pivot - Offset(unit * 0.017f, unit * 0.009f))
-    }
-    rotate(bend, tip) {
-        val collarAt = tip - Offset(unit * 0.135f, unit * 0.014f)
         drawRoundRect(
-            shadow ?: Color(0xFF292F37), collarAt, Size(unit * 0.038f, unit * 0.028f),
-            CornerRadius(unit * 0.004f),
+            Color.White.copy(alpha = 0.24f),
+            bearingAt,
+            bearing,
+            CornerRadius(unit * 0.018f),
+            style = Stroke(unit * 0.0018f),
+        )
+        drawCircle(Color(0xFF9EA5B0), unit * 0.012f, pivot - Offset(unit * 0.017f, unit * 0.009f))
+        drawCircle(Color(0xFF23272F), unit * 0.006f, pivot - Offset(unit * 0.017f, unit * 0.009f))
+        drawCircle(Color(0xFF7E8591), unit * 0.008f, pivot + Offset(unit * 0.022f, -unit * 0.009f))
+    }
+
+    rotate(bend, tip) {
+        // Knurled metallic locking collar joining arm tube to headshell.
+        val collarAt = tip - Offset(unit * 0.138f, unit * 0.015f)
+        val collarSize = Size(unit * 0.040f, unit * 0.030f)
+        drawRoundRect(
+            shadow?.let { Brush.linearGradient(listOf(it, it)) } ?: Brush.verticalGradient(
+                listOf(Color(0xFF6B727E), Color(0xFF2B3038), Color(0xFF14171D)),
+                collarAt.y, collarAt.y + collarSize.height,
+            ),
+            collarAt, collarSize, CornerRadius(unit * 0.004f),
         )
         if (shadow == null) {
-            val ringAt = collarAt + Offset(unit * 0.012f, 0f)
-            drawRect(Color(0xFF9399A2), ringAt, Size(unit * 0.007f, unit * 0.028f))
+            for (k in 0..2) {
+                val rx = collarAt.x + unit * (0.008f + k * 0.009f)
+                drawRect(Color(0xFFB2B9C3), Offset(rx, collarAt.y + unit * 0.002f), Size(unit * 0.0035f, collarSize.height - unit * 0.004f))
+            }
         }
+
         val left = tip - Offset(unit * 0.109f, unit * 0.024f)
         val height = unit * 0.048f
         val nose = left + Offset(headLength, height * 0.14f)
+
+        // Iconic curved chrome finger lift jutting out from the outer side of the headshell.
+        val liftPath = Path().apply {
+            moveTo(left.x + headLength * 0.56f, left.y + height * 0.85f)
+            quadraticTo(
+                left.x + headLength * 0.78f,
+                left.y + height * 1.48f,
+                left.x + headLength * 1.12f,
+                left.y + height * 1.38f,
+            )
+        }
+        val liftStroke = Stroke(unit * 0.0075f, cap = StrokeCap.Round)
+        if (shadow != null) {
+            drawPath(liftPath, shadow, style = liftStroke)
+        } else {
+            drawPath(liftPath, Color(0xFF474E58), style = liftStroke)
+            drawPath(liftPath, Color(0xFFE2E8F0), style = Stroke(unit * 0.0042f, cap = StrokeCap.Round))
+        }
+
         val shell = Path().apply {
             moveTo(left.x + unit * 0.01f, left.y)
             lineTo(nose.x - unit * 0.012f, left.y)
@@ -940,23 +1058,35 @@ private fun DrawScope.drawArm(pivot: Offset, length: Float, unit: Float, shadow:
             quadraticTo(left.x, left.y, left.x + unit * 0.01f, left.y)
             close()
         }
+        // Stylus cantilever + metallic tip glint at the groove contact point.
         drawLine(
-            shadow ?: Color(0xFFBFC7CD), tip - Offset(unit * 0.024f, -unit * 0.005f), tip,
+            shadow ?: Color(0xFFD5DCE4), tip - Offset(unit * 0.024f, -unit * 0.005f), tip,
             unit * 0.0055f, StrokeCap.Round,
         )
+        if (shadow == null) {
+            drawCircle(Color(0xFFF8FAFC), unit * 0.0042f, tip)
+        }
+        // Cartridge body beneath headshell.
         drawRoundRect(
             shadow ?: Color(0xFF171B21), tip - Offset(unit * 0.075f, unit * 0.014f),
             Size(unit * 0.064f, unit * 0.033f), CornerRadius(unit * 0.005f),
         )
         if (shadow != null) drawPath(shell, shadow) else {
             drawPath(shell, Brush.verticalGradient(
-                listOf(Color(0xFF676E79), Color(0xFF3C424B), Color(0xFF232831)), left.y, left.y + height,
+                listOf(Color(0xFF7B8390), Color(0xFF434A55), Color(0xFF232831)), left.y, left.y + height,
             ))
-            drawPath(shell, Color(0xFF868B95).copy(alpha = 0.65f), style = Stroke(unit * 0.002f))
-            val fastener = left + Offset(headLength * 0.42f, height * 0.39f)
-            drawCircle(Color(0xFFACB2BC), unit * 0.0038f, fastener)
-            drawLine(Color(0xFF2E333A), fastener - Offset(unit * 0.0026f, 0f),
-                fastener + Offset(unit * 0.0026f, 0f), unit * 0.0013f)
+            drawPath(shell, Color(0xFF9EA5B2).copy(alpha = 0.7f), style = Stroke(unit * 0.0022f))
+            // Dual parallel slotted cartridge mounting screws.
+            for (row in listOf(0.30f, 0.62f)) {
+                val fastener = left + Offset(headLength * 0.44f, height * row)
+                drawCircle(Color(0xFFC5CCD6), unit * 0.0042f, fastener)
+                drawLine(
+                    Color(0xFF272C34),
+                    fastener - Offset(unit * 0.0028f, 0f),
+                    fastener + Offset(unit * 0.0028f, 0f),
+                    unit * 0.0014f,
+                )
+            }
         }
     }
 }

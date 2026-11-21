@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">Zweitfarbe (Hex)</string>
     <string name="vinyl_automatic">Automatisch</string>
     <string name="vinyl_hex_error">Sechs Hex-Zeichen eingeben</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

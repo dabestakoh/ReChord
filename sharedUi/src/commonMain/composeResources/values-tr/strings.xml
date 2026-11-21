@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">İkincil renk (hex)</string>
     <string name="vinyl_automatic">Otomatik</string>
     <string name="vinyl_hex_error">Altı onaltılık rakam girin</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

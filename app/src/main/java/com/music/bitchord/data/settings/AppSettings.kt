@@ -443,6 +443,7 @@ object AppSettings {
     val hideVolumeBar = MutableStateFlow(false)
     val hideVinylVolumeBar = MutableStateFlow(false)
     val hidePosterVolumeBar = MutableStateFlow(false)
+    val posterVisualizer = MutableStateFlow(false)
 
     /** Hides the device status bar (clock, battery, notifications) while the main player is open. */
     val hideStatusBarInPlayer = MutableStateFlow(false)
@@ -1026,6 +1027,7 @@ object AppSettings {
         hideVolumeBar.value = prefs.getBoolean(KEY_HIDE_VOLUME_BAR, false)
         hideVinylVolumeBar.value = prefs.getBoolean(KEY_HIDE_VINYL_VOLUME_BAR, false)
         hidePosterVolumeBar.value = prefs.getBoolean(KEY_HIDE_POSTER_VOLUME_BAR, false)
+        posterVisualizer.value = prefs.getBoolean(KEY_POSTER_VISUALIZER, false)
         hideStatusBarInPlayer.value = prefs.getBoolean(KEY_HIDE_STATUS_BAR_IN_PLAYER, false)
         hideSongStatus.value = prefs.getBoolean(KEY_HIDE_SONG_STATUS, false)
         showQueueHistory.value = prefs.getBoolean(KEY_SHOW_QUEUE_HISTORY, false)
@@ -1805,6 +1807,12 @@ object AppSettings {
         prefs.edit().putString(KEY_NOW_PLAYING_LAYOUT, value.name).apply()
     }
 
+    fun setPosterVisualizer(enabled: Boolean) {
+        if (posterVisualizer.value == enabled) return
+        posterVisualizer.value = enabled
+        prefs.edit().putBoolean(KEY_POSTER_VISUALIZER, enabled).apply()
+    }
+
     fun setVinylAppearance(value: VinylAppearance) {
         if (vinylAppearance.value == value) return
         vinylAppearance.value = value
@@ -2412,6 +2420,7 @@ object AppSettings {
     private const val KEY_HIDE_VOLUME_BAR = "hide_volume_bar"
     private const val KEY_HIDE_VINYL_VOLUME_BAR = "hide_vinyl_volume_bar"
     private const val KEY_HIDE_POSTER_VOLUME_BAR = "hide_poster_volume_bar"
+    private const val KEY_POSTER_VISUALIZER = "poster_visualizer"
     private const val KEY_HIDE_STATUS_BAR_IN_PLAYER = "hide_status_bar_in_player"
     private const val KEY_HIDE_SONG_STATUS = "hide_song_status"
     private const val KEY_SHOW_QUEUE_HISTORY = "show_queue_history"

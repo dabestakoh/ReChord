@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">Warna sekunder (heks)</string>
     <string name="vinyl_automatic">Otomatis</string>
     <string name="vinyl_hex_error">Masukkan enam digit heksadesimal</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

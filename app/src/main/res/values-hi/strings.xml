@@ -1506,4 +1506,6 @@
     <string name="lyrics_style_scope">यह विस्तृत गीत दृश्य पर लागू होता है। पोस्टर का अपना प्रभाव है।</string>
     <string name="video_mode">वीडियो मोड</string>
     <string name="vinyl_appearance">विनाइल का रूप</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

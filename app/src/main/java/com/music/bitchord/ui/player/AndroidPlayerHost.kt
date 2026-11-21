@@ -65,6 +65,13 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val main = Handler(Looper.getMainLooper())
 
+    override fun setVisualizerActive(active: Boolean) {
+        com.music.bitchord.playback.audio.PosterSpectrumTap.active = active
+    }
+
+    override fun readVisualizerSpectrum(out: FloatArray): Boolean =
+        com.music.bitchord.playback.audio.PosterSpectrumTap.read(out)
+
     override val settings: PlayerSettingsSource = object : PlayerSettingsSource {
         override val animatedCanvas get() = AppSettings.animatedCanvas
         override val audioQualityCellular get() = AppSettings.audioQualityCellular
@@ -83,6 +90,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val lastPlayerScreen get() = AppSettings.lastPlayerScreen
         override val lyricsStyle get() = AppSettings.lyricsStyle
         override val vinylAppearance get() = AppSettings.vinylAppearance
+        override val posterVisualizer get() = AppSettings.posterVisualizer
         override val playerTheme get() = AppSettings.playerTheme
         override val lyricsBlur get() = AppSettings.lyricsBlur
         override val lyricsOffsetMs get() = AppSettings.lyricsOffsetMs

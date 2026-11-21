@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">辅助颜色（十六进制）</string>
     <string name="vinyl_automatic">自动</string>
     <string name="vinyl_hex_error">请输入六位十六进制数</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

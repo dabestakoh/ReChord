@@ -1538,4 +1538,6 @@
     <string name="lyrics_style_scope">Применяется в расширенном режиме текста. У постера свой эффект.</string>
     <string name="video_mode">Режим видео</string>
     <string name="vinyl_appearance">Внешний вид винила</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

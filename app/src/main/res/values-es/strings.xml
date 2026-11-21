@@ -1478,4 +1478,6 @@
     <string name="lyrics_style_scope">Se aplica a la vista de letras ampliada. Póster usa su propio efecto.</string>
     <string name="video_mode">Modo de vídeo</string>
     <string name="vinyl_appearance">Aspecto del vinilo</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

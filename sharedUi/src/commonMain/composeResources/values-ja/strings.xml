@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">セカンダリ色 (HEX)</string>
     <string name="vinyl_automatic">自動</string>
     <string name="vinyl_hex_error">16進数を6桁入力</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

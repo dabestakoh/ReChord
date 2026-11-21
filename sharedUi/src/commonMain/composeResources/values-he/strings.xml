@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">צבע משני (הקס)</string>
     <string name="vinyl_automatic">אוטומטי</string>
     <string name="vinyl_hex_error">יש להזין שש ספרות הקסדצימליות</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

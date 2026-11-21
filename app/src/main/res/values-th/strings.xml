@@ -1489,4 +1489,6 @@
     <string name="lyrics_style_scope">ใช้กับหน้าจอเนื้อเพลงแบบขยาย โปสเตอร์ใช้เอฟเฟกต์ของตัวเอง</string>
     <string name="video_mode">โหมดวิดีโอ</string>
     <string name="vinyl_appearance">รูปลักษณ์แผ่นเสียง</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

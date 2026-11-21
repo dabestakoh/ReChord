@@ -1356,4 +1356,6 @@
     <string name="lyrics_style_scope">확장 가사 화면에 적용됩니다. 포스터는 전용 효과를 사용합니다.</string>
     <string name="video_mode">동영상 모드</string>
     <string name="vinyl_appearance">바이닐 모양</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

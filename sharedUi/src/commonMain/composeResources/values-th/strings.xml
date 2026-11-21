@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">สีรอง (hex)</string>
     <string name="vinyl_automatic">อัตโนมัติ</string>
     <string name="vinyl_hex_error">ป้อนเลขฐานสิบหกหกหลัก</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

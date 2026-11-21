@@ -1484,4 +1484,6 @@
     <string name="lyrics_style_scope">拡大した歌詞画面に適用されます。ポスターは専用のエフェクトを使います。</string>
     <string name="video_mode">ビデオモード</string>
     <string name="vinyl_appearance">レコードの外観</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

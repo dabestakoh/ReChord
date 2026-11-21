@@ -1511,4 +1511,6 @@
     <string name="lyrics_style_scope">חל על תצוגת המילים המורחבת. לפוסטר יש אפקט משלו.</string>
     <string name="video_mode">מצב וידאו</string>
     <string name="vinyl_appearance">מראה התקליט</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

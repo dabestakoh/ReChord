@@ -583,11 +583,20 @@ private fun BitChordApp(
     var showPlayerLayouts by remember { mutableStateOf(false) }
     var fullVideoMode by remember { mutableStateOf(false) }
     var fullVideoSearching by remember { mutableStateOf(false) }
+    var playerOrientationOverride by remember { mutableIntStateOf(0) }
+    val hostActivity = LocalContext.current as? android.app.Activity
     val nowPlayingLayout by AppSettings.nowPlayingLayout.collectAsStateWithLifecycle()
-    LaunchedEffect(showNowPlaying) {
+    LaunchedEffect(showNowPlaying, nowPlayingLayout, playerOrientationOverride) {
         if (!showNowPlaying) {
             showPlayerLayouts = false
             fullVideoMode = false
+            playerOrientationOverride = 0
+        }
+        val active = showNowPlaying && nowPlayingLayout != NowPlayingLayout.DEFAULT
+        hostActivity?.requestedOrientation = when {
+            !active || playerOrientationOverride == 0 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            playerOrientationOverride > 0 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
     }
     // The DAC's own volume while direct USB output owns it; the full player
@@ -2612,6 +2621,12 @@ private fun BitChordApp(
             companionVideoId = companionVideoId?.takeIf { displayedSong.videoId == player.song?.videoId },
             layout = nowPlayingLayout,
             onOpenLayoutPicker = { showPlayerLayouts = true },
+            onToggleRotate = if (hostActivity != null) {
+                {
+                    val currentlyLandscape = windowWidth > windowHeight
+                    playerOrientationOverride = if (currentlyLandscape) -1 else 1
+                }
+            } else null,
             fullVideoMode = fullVideoMode,
             fullVideoSearching = fullVideoSearching,
             onExitVideoMode = { fullVideoMode = false },

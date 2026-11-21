@@ -1478,4 +1478,6 @@
     <string name="lyrics_style_scope">適用於展開的歌詞頁面。海報使用專屬歌詞效果。</string>
     <string name="video_mode">影片模式</string>
     <string name="vinyl_appearance">黑膠外觀</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

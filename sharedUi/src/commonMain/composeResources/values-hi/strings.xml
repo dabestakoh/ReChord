@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">दूसरा रंग (हेक्स)</string>
     <string name="vinyl_automatic">स्वचालित</string>
     <string name="vinyl_hex_error">छह हेक्स अंक डालें</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

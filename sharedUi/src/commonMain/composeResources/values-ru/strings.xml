@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">Дополнительный цвет (HEX)</string>
     <string name="vinyl_automatic">Автоматически</string>
     <string name="vinyl_hex_error">Введите шесть шестнадцатеричных цифр</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

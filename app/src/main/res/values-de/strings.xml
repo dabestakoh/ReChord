@@ -1506,4 +1506,6 @@
     <string name="lyrics_style_scope">Gilt für die erweiterte Liedtextansicht. Poster verwendet einen eigenen Effekt.</string>
     <string name="video_mode">Videomodus</string>
     <string name="vinyl_appearance">Vinyl-Darstellung</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

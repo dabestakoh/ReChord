@@ -888,6 +888,7 @@ fun NowPlayingScreen(
     companionVideoId: String? = null,
     layout: NowPlayingLayout = NowPlayingLayout.DEFAULT,
     onOpenLayoutPicker: (() -> Unit)? = null,
+    onToggleRotate: (() -> Unit)? = null,
     fullVideoMode: Boolean = false,
     fullVideoSearching: Boolean = false,
     onExitVideoMode: () -> Unit = {},
@@ -1007,9 +1008,9 @@ fun NowPlayingScreen(
         val lineHeight = MaterialTheme.typography.titleLarge.lineHeight
         maxOf(HEADER_HEIGHT, (lineHeight.takeIf { it.isSpecified }?.toDp() ?: 28.dp) * 2)
     }
-    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !sideways && !fullVideoMode
+    val alternateLayout = layout != NowPlayingLayout.DEFAULT && !fullVideoMode
     val pictureId = companionVideoId ?: song.videoId
-    val videoAllowed = fullVideoMode || !alternateLayout
+    val videoAllowed = !layoutPreview
     val videoMode = videoAllowed && (companionVideoId != null || showsMusicVideo(song))
     val videoPresentation = videoMode || fullVideoMode
     // Square video thumbnails: the picture takes the sleeve's own slot, cropped
@@ -2171,9 +2172,9 @@ fun NowPlayingScreen(
                         isPlaying = isPlaying && position.advancing,
                         active = active,
                         onSeekToLine = seekToLyric,
-                        controlsOpen = if (alternateLayout) lyricsControlsOpen else true,
-                        onRevealControls = { if (alternateLayout) lyricsControlsOpen = true },
-                        onHideControls = { if (alternateLayout) lyricsControlsOpen = false },
+                        controlsOpen = if (alternateLayout && !sideways) lyricsControlsOpen else true,
+                        onRevealControls = { if (alternateLayout && !sideways) lyricsControlsOpen = true },
+                        onHideControls = { if (alternateLayout && !sideways) lyricsControlsOpen = false },
                         translationProgress = particleProgress,
                         canPick = lyricsShareEnabled,
                         picking = lyricPicker.picking,
@@ -2198,7 +2199,7 @@ fun NowPlayingScreen(
                 onMove = onMoveInQueue,
                 onClear = onClearQueue,
                 onDragActiveChange = onQueueDragActiveChange,
-                collapsePlayerOnScroll = alternateLayout && active,
+                collapsePlayerOnScroll = alternateLayout && !sideways && active,
                 onRevealPlayer = { queueControlsOpen = true },
                 onHidePlayer = { queueControlsOpen = false },
                 onScrollingChange = onScroll,
@@ -2347,6 +2348,7 @@ fun NowPlayingScreen(
                     quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
                     actions = { playerActions(false) },
                     landscape = sideways,
+                    onToggleRotate = onToggleRotate,
                     videoAspect = videoAspectState.value,
                     video = if (videoPresentation) {
                         {

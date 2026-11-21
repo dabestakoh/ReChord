@@ -1376,4 +1376,6 @@
     <string name="lyrics_style_scope">Applies to expanded Lyrics. Poster uses its own lyric effect.</string>
     <string name="video_mode">Video mode</string>
     <string name="vinyl_appearance">Vinyl appearance</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

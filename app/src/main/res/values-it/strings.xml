@@ -1445,4 +1445,6 @@
     <string name="lyrics_style_scope">Si applica alla vista dei testi estesa. Poster usa un effetto proprio.</string>
     <string name="video_mode">Modalità video</string>
     <string name="vinyl_appearance">Aspetto del vinile</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

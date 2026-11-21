@@ -1483,4 +1483,6 @@
     <string name="lyrics_style_scope">Berlaku untuk tampilan lirik yang diperluas. Poster memakai efeknya sendiri.</string>
     <string name="video_mode">Mode video</string>
     <string name="vinyl_appearance">Tampilan vinil</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

@@ -1423,4 +1423,6 @@
     <string name="lyrics_style_scope">Áp dụng cho màn hình lời bài hát mở rộng. Áp phích dùng hiệu ứng riêng.</string>
     <string name="video_mode">Chế độ video</string>
     <string name="vinyl_appearance">Giao diện đĩa than</string>
+    <string name="poster_visualizer">Curved rim visualizer</string>
+    <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
 </resources>

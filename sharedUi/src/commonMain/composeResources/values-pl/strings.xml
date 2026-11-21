@@ -244,4 +244,5 @@
     <string name="vinyl_secondary_hex">Kolor dodatkowy (hex)</string>
     <string name="vinyl_automatic">Automatycznie</string>
     <string name="vinyl_hex_error">Wpisz sześć cyfr szesnastkowych</string>
+    <string name="rotate_player">Rotate player</string>
 </resources>

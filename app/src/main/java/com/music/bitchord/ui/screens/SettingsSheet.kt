@@ -1241,6 +1241,15 @@ fun SettingsScreen(
                             onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
                         )
                     }
+                    val posterVisTitle = stringResource(R.string.poster_visualizer)
+                    row(posterVisTitle, "poster", "visualizer", "bars", "equalizer", "spectrum") {
+                        SettingsRow(
+                            icon = SfIcons.Appearance,
+                            title = posterVisTitle,
+                            subtitle = nowPlayingLayoutLabel(NowPlayingLayout.POSTER),
+                            onClick = { onOpenChoice(SettingsChoiceKind.POSTER_LAYOUT_SETTINGS) },
+                        )
+                    }
                     for ((layout, page) in listOf(
                         NowPlayingLayout.DEFAULT to SettingsChoiceKind.DEFAULT_LAYOUT_SETTINGS,
                         NowPlayingLayout.VINYL to SettingsChoiceKind.VINYL_LAYOUT_SETTINGS,
@@ -3027,6 +3036,7 @@ fun SettingsChoicePage(
                 var autoHide by rememberSaveable { mutableStateOf(AppSettings.spotifyCanvasAutoHide.value) }
                 val coversEnabled by AppSettings.animatedCanvas.collectAsStateWithLifecycle()
                 val syncedLyrics by AppSettings.syncedLyrics.collectAsStateWithLifecycle()
+                val posterVisualizer by AppSettings.posterVisualizer.collectAsStateWithLifecycle()
                 val hideVolume: (NowPlayingLayout) -> Boolean = { skin ->
                     when (skin) {
                         NowPlayingLayout.DEFAULT -> defaultHide
@@ -3077,6 +3087,12 @@ fun SettingsChoicePage(
                                 },
                             )
                             if (skin == NowPlayingLayout.POSTER) {
+                                SettingsSubRow(
+                                    stringResource(R.string.poster_visualizer),
+                                    checked = posterVisualizer,
+                                    onCheckedChange = AppSettings::setPosterVisualizer,
+                                    subtitle = stringResource(R.string.poster_visualizer_subtitle),
+                                )
                                 SettingsSubRow(
                                     stringResource(R.string.synced_lyrics),
                                     checked = syncedLyrics,
