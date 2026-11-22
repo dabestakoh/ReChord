@@ -35,9 +35,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
@@ -48,6 +50,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
@@ -210,14 +213,10 @@ internal fun VinylDisc(
     LaunchedEffect(spin, coastOnPause, foreground, trackKey) {
         if (!foreground || (!spin && !coastOnPause)) return@LaunchedEffect
         var previousFrame = withFrameNanos { it }
-        var lastPublishFrame = previousFrame
-        val minStepNanos = 15_500_000L // ~60 FPS cap: identical smoothness on 90/120Hz screens with half the GPU wakeups.
         while (spin || spinRate.value > 0f) {
             val frame = withFrameNanos { it }
-            if (frame - lastPublishFrame < minStepNanos) continue
-            val seconds = (frame - previousFrame) / 1_000_000_000f
+            val seconds = ((frame - previousFrame) / 1_000_000_000f).coerceIn(0f, 0.05f)
             previousFrame = frame
-            lastPublishFrame = frame
             rotation = (rotation + spinRate.value * seconds) % 360f
         }
     }
@@ -228,6 +227,7 @@ internal fun VinylDisc(
     val darkTint = colors.darkTint
     val accentColor = colors.accent
     val waxLayer = rememberGraphicsLayer()
+    val grooveLayer = rememberGraphicsLayer()
 
     BoxWithConstraints(modifier) {
         val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -255,15 +255,15 @@ internal fun VinylDisc(
             Box(at.then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
                 labelPlacement(it, coverAngle)
             })) {
-                LayoutArtwork(artwork, Modifier.fillMaxSize().graphicsLayer {
+                Box(Modifier.fillMaxSize().graphicsLayer {
                     rotationZ = rotation
-                    shape = CircleShape
-                    clip = true
                     alpha = coverAlpha()
-                })
+                }) {
+                    LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
+                }
             }
         }
-        Box(at.graphicsLayer { rotationZ = rotation; shape = CircleShape; clip = true }) {
+        Box(at.graphicsLayer { rotationZ = rotation }) {
             Box(Modifier.fillMaxSize().drawWithCache {
                 val r = size.minDimension / 2f
                 val center = Offset(size.width / 2f, size.height / 2f)
@@ -271,12 +271,17 @@ internal fun VinylDisc(
                 val finish = style.finish
                 val hasArt = artwork != null
                 val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+                val discClip = Path().apply {
+                    if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
+                }
                 var baked = false
                 onDrawBehind {
                     if (r <= 0f) return@onDrawBehind
                     if (!baked) {
                         waxLayer.record(layerSize) {
-                            drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
+                            clipPath(discClip) {
+                                drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
+                            }
                         }
                         baked = true
                     }
@@ -289,6 +294,9 @@ internal fun VinylDisc(
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
             val grooveCache = buildGrooveOverlayCache(c, r, 1.2.dp.toPx(), 2.2.dp.toPx())
+            val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+            val isPicture = pictureCover
+            var groovesBaked = false
             val idleLight = Brush.sweepGradient(
                 0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
                 0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
@@ -301,7 +309,13 @@ internal fun VinylDisc(
             val seekingStroke = Stroke(2.dp.toPx())
             onDrawBehind {
                 if (g.radius <= 0f) return@onDrawBehind
-                drawGrooveOverlay(c, r, pictureCover, grooveCache)
+                if (!groovesBaked) {
+                    grooveLayer.record(layerSize) {
+                        drawGrooveOverlay(c, r, isPicture, grooveCache)
+                    }
+                    groovesBaked = true
+                }
+                drawLayer(grooveLayer)
                 val p = shown().coerceIn(0f, 1f)
                 val tip = g.tip(p)
                 val activeRadius = (tip - c).getDistance()
@@ -314,19 +328,19 @@ internal fun VinylDisc(
                 }
             }
         })
-        val labelModifier = Modifier.offset(x = left + radius - label, y = radius - label)
+        val labelModifier = Modifier.offset(x = left + radius - label, y = top + radius - label)
             .size(label * 2)
             .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
                 labelPlacement(it, coverAngle)
             })
         if (!pictureCover) {
             Box(labelModifier) {
-                LayoutArtwork(artwork, Modifier.fillMaxSize().graphicsLayer {
+                Box(Modifier.fillMaxSize().graphicsLayer {
                     rotationZ = rotation
-                    shape = CircleShape
-                    clip = true
                     alpha = coverAlpha()
-                })
+                }) {
+                    LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
+                }
                 Canvas(Modifier.fillMaxSize()) {
                     val lr = size.minDimension / 2f
                     val lc = Offset(size.width / 2f, size.height / 2f)
@@ -777,6 +791,15 @@ internal fun VinylTonearm(
     }
     val useGpuShadow = renderEffectBlurSupported && !blurReduced
     val shadowLayer = if (useGpuShadow) rememberGraphicsLayer() else null
+    val plinthLayer = rememberGraphicsLayer()
+    val plinthCache = remember {
+        object {
+            var box: IntSize = IntSize.Zero
+            var mountTopInset: Int = Int.MIN_VALUE
+            var maxDiscBottom: Float? = null
+            var landscape: Boolean = false
+        }
+    }
     val shadowCache = remember {
         object {
             var box: IntSize = IntSize.Zero
@@ -843,47 +866,61 @@ internal fun VinylTonearm(
         val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
         if (g.radius <= 1f) return@Canvas
         val u = g.unit
-        val mountSize = Size(u * 0.148f, u * 0.248f)
-        val mount = g.pivot - Offset(mountSize.width * 0.5f, mountSize.height * 0.34f)
-        val round = CornerRadius(mountSize.width * 0.46f)
-        for (i in 1..5) {
-            val spread = i * u * 0.003f
-            drawRoundRect(
-                Color.Black.copy(alpha = 0.068f),
-                mount + Offset(u * 0.011f - spread, u * 0.017f - spread),
-                Size(mountSize.width + spread * 2f, mountSize.height + spread * 2f),
-                round,
-            )
+        val fullBox = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+        if (plinthCache.box != fullBox ||
+            plinthCache.mountTopInset != mountTopInset ||
+            plinthCache.maxDiscBottom != maxDiscBottom ||
+            plinthCache.landscape != landscape
+        ) {
+            val mountSize = Size(u * 0.148f, u * 0.248f)
+            val mount = g.pivot - Offset(mountSize.width * 0.5f, mountSize.height * 0.34f)
+            val round = CornerRadius(mountSize.width * 0.46f)
+            val cueBase = g.pivot + Offset(u * 0.044f, u * 0.095f)
+            plinthLayer.record(fullBox) {
+                for (i in 1..5) {
+                    val spread = i * u * 0.003f
+                    drawRoundRect(
+                        Color.Black.copy(alpha = 0.068f),
+                        mount + Offset(u * 0.011f - spread, u * 0.017f - spread),
+                        Size(mountSize.width + spread * 2f, mountSize.height + spread * 2f),
+                        round,
+                    )
+                }
+                // Machined plinth mount housing with metallic rim bevel.
+                drawRoundRect(
+                    Brush.verticalGradient(listOf(Color(0xFF2D3138), Color(0xFF15181E), Color(0xFF0A0B0E)), mount.y, mount.y + mountSize.height),
+                    mount, mountSize, round,
+                )
+                drawRoundRect(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.22f), Color.Transparent, Color.Black.copy(alpha = 0.45f)),
+                        mount.y, mount.y + mountSize.height,
+                    ),
+                    mount, mountSize, round, style = Stroke(u * 0.0024f),
+                )
+                // Subtle cueing lever tucked beside the lower mount base.
+                drawLine(Color(0xFF8C94A0), cueBase, cueBase + Offset(u * 0.022f, u * 0.014f), u * 0.006f, StrokeCap.Round)
+                drawCircle(Color(0xFFCCD2DC), u * 0.007f, cueBase + Offset(u * 0.024f, u * 0.015f))
+                // Layered concentric machined gimbal base rings.
+                drawCircle(
+                    Brush.radialGradient(
+                        listOf(Color(0xFF3E444F), Color(0xFF1A1D24), Color(0xFF0C0E12)),
+                        center = g.pivot - Offset(u * 0.012f, u * 0.012f),
+                        radius = u * 0.068f,
+                    ),
+                    u * 0.058f,
+                    g.pivot,
+                )
+                drawCircle(Color(0xFF6A717E).copy(alpha = 0.65f), u * 0.056f, g.pivot, style = Stroke(u * 0.0022f))
+                drawCircle(Color(0xFF101217), u * 0.045f, g.pivot)
+                drawCircle(Color(0xFF535966), u * 0.041f, g.pivot, style = Stroke(u * 0.0018f))
+            }
+            plinthCache.box = fullBox
+            plinthCache.mountTopInset = mountTopInset
+            plinthCache.maxDiscBottom = maxDiscBottom
+            plinthCache.landscape = landscape
         }
-        // Machined plinth mount housing with metallic rim bevel.
-        drawRoundRect(
-            Brush.verticalGradient(listOf(Color(0xFF2D3138), Color(0xFF15181E), Color(0xFF0A0B0E)), mount.y, mount.y + mountSize.height),
-            mount, mountSize, round,
-        )
-        drawRoundRect(
-            Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.22f), Color.Transparent, Color.Black.copy(alpha = 0.45f)),
-                mount.y, mount.y + mountSize.height,
-            ),
-            mount, mountSize, round, style = Stroke(u * 0.0024f),
-        )
-        // Subtle cueing lever tucked beside the lower mount base.
-        val cueBase = g.pivot + Offset(u * 0.044f, u * 0.095f)
-        drawLine(Color(0xFF8C94A0), cueBase, cueBase + Offset(u * 0.022f, u * 0.014f), u * 0.006f, StrokeCap.Round)
-        drawCircle(Color(0xFFCCD2DC), u * 0.007f, cueBase + Offset(u * 0.024f, u * 0.015f))
-        // Layered concentric machined gimbal base rings.
-        drawCircle(
-            Brush.radialGradient(
-                listOf(Color(0xFF3E444F), Color(0xFF1A1D24), Color(0xFF0C0E12)),
-                center = g.pivot - Offset(u * 0.012f, u * 0.012f),
-                radius = u * 0.068f,
-            ),
-            u * 0.058f,
-            g.pivot,
-        )
-        drawCircle(Color(0xFF6A717E).copy(alpha = 0.65f), u * 0.056f, g.pivot, style = Stroke(u * 0.0022f))
-        drawCircle(Color(0xFF101217), u * 0.045f, g.pivot)
-        drawCircle(Color(0xFF535966), u * 0.041f, g.pivot, style = Stroke(u * 0.0018f))
+        drawLayer(plinthLayer)
         val phase = trip.value
         val travelLift = when {
             seeking || reduced -> 0f

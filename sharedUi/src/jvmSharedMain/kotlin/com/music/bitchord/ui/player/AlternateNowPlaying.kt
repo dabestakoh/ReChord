@@ -641,7 +641,7 @@ internal fun AlternateNowPlaying(
                                                     Modifier
                                                         .fillMaxWidth()
                                                         .weight(1f)
-                                                        .padding(vertical = 8.dp)
+                                                        .padding(vertical = 2.dp)
                                                         .graphicsLayer {
                                                             alpha = textOpacity
                                                             translationX = posterSidewaysSeekExpand * 14.dp.toPx()

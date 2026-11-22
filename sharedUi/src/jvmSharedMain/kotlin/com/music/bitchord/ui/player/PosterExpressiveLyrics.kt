@@ -781,12 +781,13 @@ private fun measurePosterLine(
         PosterSubCell(layout, alpha, with(density) { 14.dp.toPx() })
     }
     val subsHeight = subs.sumOf { it.layout.size.height } + subs.size * subGap
-    val lineHeightBudget = (maxHeight - subsHeight).coerceAtLeast(maxHeight * 0.45f)
+    val lineHeightBudget = (maxHeight - subsHeight).coerceAtLeast(maxHeight * 0.60f)
 
     val scales = posterWordScales(words.map { it.text })
     fun style(i: Int, base: Float) =
         posterExpressiveType(with(density) { (base * scales[i]).toSp() }, fontFamily, FontWeight.Bold).copy(color = color)
 
+    val minBasePx = minOf(basePx, with(density) { 18.sp.toPx() })
     var base = basePx
     var attempt = 0
     while (true) {
@@ -814,7 +815,8 @@ private fun measurePosterLine(
             widest = max(widest, ww)
         }
         total += rowHeight
-        if ((widest <= maxWidth && total <= lineHeightBudget) || attempt >= 10) {
+        val atFloor = base <= minBasePx + 0.5f
+        if ((widest <= maxWidth && total <= lineHeightBudget) || (widest <= maxWidth && atFloor) || attempt >= 10) {
             var charStart = 0
             val graphemes = BreakIterator.getCharacterInstance()
             val cells = words.mapIndexed { i, w ->
@@ -852,7 +854,7 @@ private fun measurePosterLine(
             }
             return PosterLineCells(cells, space, maxWidth, side, subs, subGap, visualOrder(words, rows))
         }
-        base *= 0.88f
+        base = (base * 0.88f).coerceAtLeast(minBasePx)
         attempt++
     }
 }
