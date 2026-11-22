@@ -299,12 +299,10 @@ internal fun AlternateNowPlaying(
         val next = nextSong
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             if (prev != null) {
-                val prevKey = prev.albumId ?: prev.albumName ?: prev.thumbnailUrl ?: prev.videoId
-                prebakeVinylWax(vinylStyle, prevKey, prevColor, prevArt != null)
+                prebakeVinylWax(vinylStyle, prev.videoId, prevColor, prevArt != null)
             }
             if (next != null) {
-                val nextKey = next.albumId ?: next.albumName ?: next.thumbnailUrl ?: next.videoId
-                prebakeVinylWax(vinylStyle, nextKey, nextColor, nextArt != null)
+                prebakeVinylWax(vinylStyle, next.videoId, nextColor, nextArt != null)
             }
         }
     }
@@ -563,7 +561,7 @@ internal fun AlternateNowPlaying(
                                                         Modifier.fillMaxSize().graphicsLayer {
                                                             translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
                                                         },
-                                                        albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                        albumKey = track.videoId,
                                                         labelPlacement = if (pane == PlayerPane.Main && current) ({ coordinates, angle ->
                                                             artworkAngle = angle
                                                             reportArtwork(coordinates)
@@ -803,7 +801,7 @@ internal fun AlternateNowPlaying(
                                                     Modifier.fillMaxSize().graphicsLayer {
                                                         translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
                                                     },
-                                                    albumKey = track.albumId ?: track.albumName ?: track.thumbnailUrl ?: track.videoId,
+                                                    albumKey = track.videoId,
                                                     labelPlacement = if (vinylMain && current) ({ coordinates, angle ->
                                                         artworkAngle = angle
                                                         reportArtwork(coordinates)
@@ -1243,7 +1241,7 @@ private fun PlayerLayoutCredits(
     Column {
         MarqueeText(
             text = song.title.orEmpty(),
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
             color = LocalPlayerAccent.current,
             enabled = true,
             modifier = Modifier.opensPage(song.albumId, onOpenAlbum),

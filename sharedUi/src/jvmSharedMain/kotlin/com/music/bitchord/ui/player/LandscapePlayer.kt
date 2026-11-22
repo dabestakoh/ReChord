@@ -444,7 +444,7 @@ internal fun LandscapeCredits(
                 val artistColor = chromeWhite(0.55f)
                 MarqueeText(
                     text = song.title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = Color.White,
                     onOverflowChange = { titleOverflowing = it },
                     // Before the title, in the artist line's colour.
