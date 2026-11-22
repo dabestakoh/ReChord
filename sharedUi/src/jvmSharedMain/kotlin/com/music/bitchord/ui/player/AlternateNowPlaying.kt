@@ -333,10 +333,10 @@ internal fun AlternateNowPlaying(
     if (dock != null && dockRestOrigin != null && artworkSource?.isAttached == true) {
         SideEffect { if (!dock.attached) dock.attached = true }
     }
-    // Share the last few frames with the actual cover, which has the same crop and clip.
+    // Share only the final sub-pixel frames with the actual cover once the flying cover is locked.
     fun liveCoverAlpha(): Float {
         if (dock == null || !dock.hasMiniArt() || artworkSource?.isAttached != true) return 1f
-        return ((dock.openFraction() - 0.94f) / 0.06f).coerceIn(0f, 1f)
+        return ((dock.openFraction() - 0.96f) / 0.04f).coerceIn(0f, 1f)
     }
     Box(modifier.fillMaxSize().onGloballyPositioned { coordinates ->
         val offset = dock?.offset()?.toInt()?.toFloat() ?: return@onGloballyPositioned
@@ -673,16 +673,38 @@ internal fun AlternateNowPlaying(
                                             verticalArrangement = if (vinyl) {
                                                 Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp, Alignment.CenterVertically)
                                             } else {
-                                                Arrangement.SpaceBetween
+                                                Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp)
                                             },
                                         ) {
-                                            if (!vinyl) {
-                                                AdaptivePlaybackPillRow(
-                                                    buttonCount = pillCount,
-                                                    modifier = Modifier.fillMaxWidth(),
+                                            Column(
+                                                Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp),
+                                            ) {
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .onGloballyPositioned { creditsTitleCoords = it }
+                                                        .graphicsLayer { alpha = textOpacity },
                                                 ) {
-                                                    rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
+                                                    PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
                                                 }
+                                                if (playbackOrigin != null) {
+                                                    PlaybackOriginCaption(
+                                                        playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                                    )
+                                                }
+                                            }
+                                            if (vinyl) {
+                                                Box(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .height(if (shortLandscape) 28.dp else 38.dp)
+                                                        .graphicsLayer { alpha = textOpacity },
+                                                    contentAlignment = Alignment.CenterStart,
+                                                ) {
+                                                    if (active) lyrics()
+                                                }
+                                            } else {
                                                 Box(
                                                     Modifier
                                                         .fillMaxWidth()
@@ -701,35 +723,11 @@ internal fun AlternateNowPlaying(
                                                 Modifier.fillMaxWidth(),
                                                 verticalArrangement = Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp),
                                             ) {
-                                                Box(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .onGloballyPositioned { creditsTitleCoords = it }
-                                                        .graphicsLayer { alpha = textOpacity },
+                                                AdaptivePlaybackPillRow(
+                                                    buttonCount = pillCount,
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
                                                 ) {
-                                                    PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
-                                                }
-                                                if (playbackOrigin != null) {
-                                                    PlaybackOriginCaption(
-                                                        playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
-                                                    )
-                                                }
-                                                if (vinyl) {
-                                                    Box(
-                                                        Modifier
-                                                            .fillMaxWidth()
-                                                            .height(if (shortLandscape) 28.dp else 38.dp)
-                                                            .graphicsLayer { alpha = textOpacity },
-                                                        contentAlignment = Alignment.CenterStart,
-                                                    ) {
-                                                        if (active) lyrics()
-                                                    }
-                                                    AdaptivePlaybackPillRow(
-                                                        buttonCount = pillCount,
-                                                        modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
-                                                    ) {
-                                                        previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
-                                                    }
+                                                    previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
                                                 }
                                                 if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
                                                 volume?.invoke()
@@ -1146,7 +1144,8 @@ internal fun AlternateNowPlaying(
                 label = "alternateHandlePosition",
             )
             Box(
-                Modifier.fillMaxWidth()
+                Modifier
+                    .then(if (landscape) Modifier.align(Alignment.TopCenter).width(96.dp) else Modifier.fillMaxWidth())
                     .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
                     .height(44.dp).then(topHold),
             ) {
@@ -1156,7 +1155,7 @@ internal fun AlternateNowPlaying(
                     .size(38.dp, 5.dp)
                     .shadow(2.dp, handleShape, clip = false)
                     .background(accent.copy(alpha = 0.75f), handleShape))
-                if (pane == PlayerPane.Lyrics) {
+                if (!landscape && pane == PlayerPane.Lyrics) {
                     LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
                         .clickable(onClick = onDismissPane).graphicsLayer { alpha = liveCoverAlpha() })
@@ -1206,13 +1205,13 @@ internal fun AlternateNowPlaying(
                         curved -> 0.dp
                         else -> 7.dp
                     }
-                    shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(dock.miniArtCorner(), round, dock.openFraction()))
+                    shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(dock.miniArtCorner(), round, fraction))
                     clip = true
                     alpha = 1f - liveCoverAlpha()
                 }.then(if (!curved) Modifier else Modifier.drawWithCache {
-                    val fraction = dock.openFraction()
+                    val curveFraction = (dock.openFraction() / 0.85f).coerceIn(0f, 1f)
                     val mask = Path().apply {
-                        addPosterMask(size, posterSeekFooter.toPx(), fraction, posterCurveHeight?.toPx())
+                        addPosterMask(size, posterSeekFooter.toPx(), curveFraction, posterCurveHeight?.toPx())
                     }
                     onDrawWithContent { clipPath(mask) { this@onDrawWithContent.drawContent() } }
                 }), placeholder = dock.miniPainterFor(song.videoId))

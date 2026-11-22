@@ -1190,6 +1190,7 @@ fun SettingsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            Spacer(Modifier.width(16.dp))
                             Chevron()
                         }
                     }
@@ -2598,10 +2599,11 @@ internal fun SettingsRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
         if (trailing != null) {
             trailing()
         } else if (value != null || onClick != null) {
@@ -2639,7 +2641,8 @@ internal fun SettingsSubRow(
             .fillMaxWidth()
             .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .alpha(if (enabled) 1f else 0.45f)
-            .padding(start = startInset, end = ROW_INSET, top = 0.dp, bottom = 10.dp),
+            .heightIn(min = 48.dp)
+            .padding(start = startInset, end = ROW_INSET, top = 6.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -2662,9 +2665,11 @@ internal fun SettingsSubRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
+        Spacer(Modifier.width(16.dp))
         IosSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -3149,6 +3154,7 @@ fun SettingsChoicePage(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
+                                        Spacer(Modifier.width(16.dp))
                                         Chevron()
                                     }
                                     SettingsSubRow(
