@@ -35,19 +35,63 @@ import kotlinx.coroutines.launch
 internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
     var offset by mutableFloatStateOf(0f)
         private set
+    var isDragging by mutableStateOf(false)
+        private set
+    var incomingDrop by mutableFloatStateOf(0f)
+        private set
+    var outgoingLift by mutableFloatStateOf(0f)
+        private set
+    var isButtonSwapping by mutableStateOf(false)
+        private set
+    var recordLanded by mutableStateOf(true)
+        private set
+
     private var job: Job? = null
     private var awaitingId: String? = null
     private var requestedTrack: String? = null
     private var requestedDirection = 0f
 
     // The promoted cover may already be composed before the swipe's SideEffect settles the offset.
-    fun artworkOffset(currentTrack: Song): Float =
-        if (currentTrack.swipeIdentity == awaitingId) 0f else offset
+    fun artworkOffset(currentTrack: Song): Float = when {
+        currentTrack.swipeIdentity == awaitingId -> 0f
+        currentTrack.swipeIdentity == requestedTrack && requestedDirection != 0f -> -requestedDirection
+        else -> offset
+    }
+
+    // Synchronous Frame-1 elevation for the current (slot == 0) vinyl disc so it NEVER snaps to 0f
+    // for a single frame when a swiped or button-swapped track promotes to current.
+    fun currentDropElevation(currentTrack: Song): Float = when {
+        currentTrack.swipeIdentity == awaitingId -> 1f
+        currentTrack.swipeIdentity == requestedTrack && requestedDirection != 0f -> 1f
+        isButtonSwapping -> 1f
+        else -> maxOf(incomingDrop, (kotlin.math.abs(offset) * 1.6f).coerceIn(0f, 1f))
+    }
+
+    // Synchronous elevation for neighbor (slot != 0) vinyl discs:
+    // - During button swap Beat 1, the outgoing disc starts flat on the platter (0f) and lifts smoothly to 1f.
+    // - During swipe, the incoming neighbor hovers cleanly at lifted height (1f).
+    fun neighborDropElevation(currentTrack: Song): Float = when {
+        currentTrack.swipeIdentity == requestedTrack && requestedDirection != 0f -> 0f
+        isButtonSwapping -> outgoingLift
+        else -> 1f
+    }
+
+    // True only when the current vinyl is centered on the spindle, fully dropped, and not being dragged.
+    fun isRecordLanded(currentTrack: Song): Boolean = when {
+        currentTrack.swipeIdentity == awaitingId -> false
+        currentTrack.swipeIdentity == requestedTrack && requestedDirection != 0f -> false
+        isDragging || isButtonSwapping -> false
+        else -> recordLanded && incomingDrop <= 0.001f && kotlin.math.abs(offset) <= 0.001f
+    }
 
     fun start() {
         job?.cancel()
         awaitingId = null
         requestedTrack = null
+        isButtonSwapping = false
+        outgoingLift = 0f
+        isDragging = true
+        recordLanded = false
     }
 
     fun expectTrack(target: Song?, direction: Float) {
@@ -74,7 +118,14 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
                 // change during the gesture. Recover if the intended item does not arrive.
                 delay(1000)
                 awaitingId = null
+                isDragging = false
                 settle(0f, 0f)
+                incomingDrop = 0f
+                recordLanded = true
+            } else {
+                isDragging = false
+                incomingDrop = 0f
+                recordLanded = true
             }
         }
     }
@@ -85,17 +136,91 @@ internal class AlternateTrackSwipe(private val scope: CoroutineScope) {
         val motionDirection = if (requestedTrack == song.swipeIdentity) requestedDirection else direction
         awaitingId = null
         requestedTrack = null
-        if (!animate || motionDirection == 0f || committed) {
+        isDragging = false
+        if (!animate) {
             offset = 0f
+            incomingDrop = 0f
+            outgoingLift = 0f
+            isButtonSwapping = false
+            recordLanded = true
             return
         }
-        offset = -motionDirection
-        job = scope.launch {
-            if (record) {
-                Animatable(offset).animateTo(0f, tween(520, easing = FastOutSlowInEasing)) { offset = value }
-            } else {
-                settle(0f, 0f)
+        if (!record) {
+            incomingDrop = 0f
+            outgoingLift = 0f
+            isButtonSwapping = false
+            recordLanded = true
+            if (motionDirection == 0f || committed) {
+                offset = 0f
+                return
             }
+            offset = -motionDirection
+            job = scope.launch { settle(0f, 0f) }
+            return
+        }
+        if (committed) {
+            // Swipe already cleared the tonearm and slid the incoming disc to dead center at elev = 1f.
+            // Drop straight down onto the platter with zero 1-frame snap and zero mid-air pause.
+            offset = 0f
+            isButtonSwapping = false
+            outgoingLift = 0f
+            incomingDrop = 1f
+            recordLanded = false
+            job = scope.launch {
+                Animatable(1f).animateTo(0f, spring(dampingRatio = 0.88f, stiffness = 210f)) {
+                    incomingDrop = value
+                }
+                incomingDrop = 0f
+                recordLanded = true
+            }
+            return
+        }
+        if (motionDirection == 0f) {
+            // Track changed from Queue/Search/external without a directional neighbor:
+            // Beat 1: let tonearm clear to edge, Beat 3: drop new record down.
+            offset = 0f
+            isButtonSwapping = false
+            outgoingLift = 0f
+            incomingDrop = 1f
+            recordLanded = false
+            job = scope.launch {
+                delay(110L)
+                Animatable(1f).animateTo(0f, spring(dampingRatio = 0.88f, stiffness = 210f)) {
+                    incomingDrop = value
+                }
+                incomingDrop = 0f
+                recordLanded = true
+            }
+            return
+        }
+        // Button Next/Previous (or auto-advance to next/prev):
+        // Hold offset at -motionDirection so the outgoing disc stays visually centered on the platter
+        // while Beat 1 lifts the tonearm & outgoing record smoothly off the platter.
+        offset = -motionDirection
+        isButtonSwapping = true
+        outgoingLift = 0f
+        incomingDrop = 1f
+        recordLanded = false
+        job = scope.launch {
+            // Beat 1: tonearm clears to edge (110ms) while outgoing disc lifts smoothly off platter.
+            Animatable(0f).animateTo(1f, tween(120, easing = FastOutSlowInEasing)) {
+                outgoingLift = value
+            }
+            outgoingLift = 1f
+            // Beat 2: horizontal swap at lifted height (both discs stay at elev = 1f).
+            Animatable(offset).animateTo(0f, tween(340, easing = FastOutSlowInEasing)) {
+                offset = value
+            }
+            offset = 0f
+            isButtonSwapping = false
+            outgoingLift = 0f
+            // Beat 3: now centered over the spindle, drop straight down onto the platter.
+            Animatable(1f).animateTo(0f, spring(dampingRatio = 0.88f, stiffness = 210f)) {
+                incomingDrop = value
+            }
+            incomingDrop = 0f
+            // Beat 4: signal VinylTonearm to glide from resting edge to groove & lower needle.
+            recordLanded = true
         }
     }
 

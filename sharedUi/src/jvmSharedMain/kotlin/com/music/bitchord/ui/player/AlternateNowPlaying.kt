@@ -289,27 +289,21 @@ internal fun AlternateNowPlaying(
         }
     }
     var seekingArm by remember { mutableStateOf(false) }
-    var lastVinylTrack by remember { mutableStateOf(song.swipeIdentity) }
-    val vinylDrop = remember { Animatable(0f) }
-    var vinylRecordLanded by remember { mutableStateOf(true) }
     var tonearmSeated by remember { mutableStateOf(true) }
-    LaunchedEffect(song.swipeIdentity, vinyl, reduceAnimation) {
-        if (!vinyl || reduceAnimation) {
-            lastVinylTrack = song.swipeIdentity
-            vinylDrop.snapTo(0f)
-            vinylRecordLanded = true
-            tonearmSeated = true
-            return@LaunchedEffect
-        }
-        if (song.swipeIdentity != lastVinylTrack) {
-            lastVinylTrack = song.swipeIdentity
-            vinylRecordLanded = false
-            tonearmSeated = false
-            vinylDrop.snapTo(1f)
-            // Let the tonearm lift & clear to the outer resting edge before dropping the new record.
-            delay(110L)
-            vinylDrop.animateTo(0f, spring(dampingRatio = 0.88f, stiffness = 210f))
-            vinylRecordLanded = true
+    val vinylRecordLanded = if (!vinyl || reduceAnimation) true else swipe.isRecordLanded(song)
+    LaunchedEffect(vinyl, vinylStyle, previousSong?.swipeIdentity, nextSong?.swipeIdentity, prevColor, nextColor, prevArt, nextArt) {
+        if (!vinyl) return@LaunchedEffect
+        val prev = previousSong
+        val next = nextSong
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            if (prev != null) {
+                val prevKey = prev.albumId ?: prev.albumName ?: prev.thumbnailUrl ?: prev.videoId
+                prebakeVinylWax(vinylStyle, prevKey, prevColor, prevArt != null)
+            }
+            if (next != null) {
+                val nextKey = next.albumId ?: next.albumName ?: next.thumbnailUrl ?: next.videoId
+                prebakeVinylWax(vinylStyle, nextKey, nextColor, nextArt != null)
+            }
         }
     }
     val artworkStride = if (vinyl) 1.64f else 1f
@@ -452,8 +446,8 @@ internal fun AlternateNowPlaying(
                                     prevNudge.animateTo(-4.5f, spring(dampingRatio = 0.5f, stiffness = 900f))
                                     prevNudge.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
                                 }
+                                swipe.expectTrack(previousSong, 1f)
                             }
-                            swipe.expectTrack(previousSong, 1f)
                             haptics.play(Haptic.SkipPrevious)
                             onPrevious()
                         }
@@ -483,8 +477,8 @@ internal fun AlternateNowPlaying(
                                     nextNudge.animateTo(4.5f, spring(dampingRatio = 0.5f, stiffness = 900f))
                                     nextNudge.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 460f))
                                 }
+                                swipe.expectTrack(nextSong, -1f)
                             }
-                            swipe.expectTrack(nextSong, -1f)
                             haptics.play(Haptic.SkipNext)
                             onNext()
                         }
@@ -563,7 +557,7 @@ internal fun AlternateNowPlaying(
                                                     }
                                                     VinylDisc(
                                                         request, track.swipeIdentity, vinylStyle, color,
-                                                        pane == PlayerPane.Main && spinRecord && tonearmSeated && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                        pane == PlayerPane.Main && spinRecord && tonearmSeated && vinylRecordLanded && !reduceAnimation && current,
                                                         if (current) shown else ({ 0f }),
                                                         { current && seekingArm },
                                                         Modifier.fillMaxSize().graphicsLayer {
@@ -579,9 +573,9 @@ internal fun AlternateNowPlaying(
                                                         mountTopInset = 0,
                                                         landscape = true,
                                                         dropElevation = if (current) {
-                                                            { maxOf(vinylDrop.value, (abs(swipe.artworkOffset(song)) * 1.4f).coerceIn(0f, 1f)) }
+                                                            { swipe.currentDropElevation(song) }
                                                         } else {
-                                                            { 1f }
+                                                            { swipe.neighborDropElevation(song) }
                                                         },
                                                     )
                                                 }
@@ -787,7 +781,7 @@ internal fun AlternateNowPlaying(
                                                 }
                                                 VinylDisc(
                                                     request, track.swipeIdentity, vinylStyle, color,
-                                                    vinylMain && spinRecord && tonearmSeated && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                    vinylMain && spinRecord && tonearmSeated && vinylRecordLanded && !reduceAnimation && current,
                                                     if (current) shown else ({ 0f }),
                                                     { current && seekingArm },
                                                     Modifier.fillMaxSize().graphicsLayer {
@@ -803,9 +797,9 @@ internal fun AlternateNowPlaying(
                                                     mountTopInset = mountTopInset,
                                                     maxDiscBottom = vinylMaxDiscBottom,
                                                     dropElevation = if (current) {
-                                                        { maxOf(vinylDrop.value, (abs(swipe.artworkOffset(song)) * 1.4f).coerceIn(0f, 1f)) }
+                                                        { swipe.currentDropElevation(song) }
                                                     } else {
-                                                        { 1f }
+                                                        { swipe.neighborDropElevation(song) }
                                                     },
                                                 )
                                             }

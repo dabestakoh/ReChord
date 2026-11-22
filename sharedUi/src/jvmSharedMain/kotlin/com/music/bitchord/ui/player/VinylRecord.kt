@@ -235,6 +235,28 @@ private fun bakeVinylWaxBitmap(
     return bitmap
 }
 
+internal fun prebakeVinylWax(
+    style: VinylAppearance,
+    albumKey: String,
+    palette: Color,
+    hasArtwork: Boolean,
+) {
+    if (style.finish.isRadiallySymmetric()) return
+    if (style.finish == VinylFinish.PICTURE_DISC && hasArtwork) return
+    val colors = resolveVinylColors(style, palette)
+    val key = WaxBitmapKey(
+        finish = style.finish,
+        albumKey = albumKey,
+        baseValue = colors.base.value,
+        tintValue = colors.tint.value,
+        darkTintValue = colors.darkTint.value,
+        accentValue = colors.accent.value,
+        hasArtwork = hasArtwork,
+    )
+    if (getCachedWaxBitmap(key) != null) return
+    bakeVinylWaxBitmap(key, colors.base, colors.tint, colors.darkTint, colors.accent)
+}
+
 private fun VinylFinish.isRadiallySymmetric(): Boolean = when (this) {
     VinylFinish.PLAIN,
     VinylFinish.TRANSLUCENT,
@@ -346,31 +368,28 @@ internal fun VinylDisc(
                 if (elev <= 0.001f) {
                     drawCircle(restShadow, baseOuter, baseShadowAt)
                 } else {
-                    val shift = Offset(g.radius * 0.045f * elev, g.radius * 0.085f * elev)
-                    val shadowAt = baseShadowAt + shift
-                    val outer = (baseOuter * (1f + 0.11f * elev)).coerceAtLeast(1f)
-                    val fade = (1f - 0.38f * elev).coerceIn(0.25f, 1f)
-                    val dropShadow = Brush.radialGradient(
-                        (0.84f - 0.10f * elev) to Color.Black.copy(alpha = 0.70f * fade),
-                        (0.93f - 0.04f * elev) to Color.Black.copy(alpha = 0.19f * fade),
-                        1f to Color.Transparent,
-                        center = shadowAt, radius = outer,
-                    )
-                    drawCircle(dropShadow, outer, shadowAt)
+                    val shiftX = g.radius * 0.042f * elev
+                    val shiftY = g.radius * 0.075f * elev
+                    val scaleFactor = 1f + 0.09f * elev
+                    val shadowAlpha = (1f - 0.32f * elev).coerceIn(0.45f, 1f)
+                    translate(shiftX, shiftY) {
+                        scale(scaleFactor, scaleFactor, pivot = baseShadowAt) {
+                            drawCircle(restShadow, baseOuter, baseShadowAt, alpha = shadowAlpha)
+                        }
+                    }
                 }
             }
         })
         // Single unbounded disc-sized container (2*radius x 2*radius) holds the drop-in transform
-        // and alpha directly, so Portrait discs extending past x < 0 are NEVER clipped during swipes.
+        // directly (always 100% solid alpha so the drop shadow behind it never bleeds through).
         Box(
             at.graphicsLayer {
                 val elev = dropElevation().coerceIn(0f, 1f)
                 if (elev > 0.0005f) {
-                    translationY = -elev * 44.dp.toPx()
-                    val s = 1f + elev * 0.065f
+                    translationY = -elev * 36.dp.toPx()
+                    val s = 1f + elev * 0.05f
                     scaleX = s
                     scaleY = s
-                    alpha = (1f - elev * 0.55f).coerceIn(0f, 1f)
                 }
             },
         ) {
@@ -953,34 +972,40 @@ internal fun VinylTonearm(
     }
     val lastDrawn = remember { TonearmPose(shown()) }
     val start = remember { TonearmPose(shown()) }
-    val trip = remember { Animatable(1f) }
+    val trip = remember { Animatable(if (recordLanded || reduced) 1f else 0.2f) }
     val duration by rememberUpdatedState(durationMs)
-    val currentRecordLanded by rememberUpdatedState(recordLanded)
     val reportSeated by rememberUpdatedState(onNeedleSeated)
-    var landedTrack by remember { mutableStateOf(trackKey) }
-    var traveling by remember { mutableStateOf(false) }
+    var traveling by remember { mutableStateOf(!recordLanded && !reduced) }
     val restEdge = -0.08f
-    LaunchedEffect(trackKey, seeking, reduced) {
+    LaunchedEffect(recordLanded, seeking, reduced) {
         if (reduced || seeking) {
-            landedTrack = trackKey
+            traveling = false
+            trip.snapTo(1f)
+            reportSeated(true)
+        } else if (!recordLanded) {
+            reportSeated(false)
+            if (trip.value > 0.2f) {
+                start.progress = lastDrawn.progress
+                start.lift = lastDrawn.lift
+                trip.snapTo(0f)
+                traveling = true
+                // Lift needle and clear to outer resting edge immediately.
+                trip.animateTo(0.2f, tween(110, easing = LinearEasing))
+            } else {
+                traveling = true
+            }
+        } else if (traveling || trip.value < 1f) {
+            // Record just landed on the platter: finish clearing if mid-lift, then glide to groove & lower needle.
+            if (trip.value < 0.2f) {
+                val remMs = (((0.2f - trip.value) / 0.2f) * 90f).roundToInt().coerceAtLeast(16)
+                trip.animateTo(0.2f, tween(remMs, easing = LinearEasing))
+            }
+            withTimeoutOrNull(350) { snapshotFlow { duration }.first { it > 0L } }
+            trip.animateTo(0.8f, tween(250, easing = FastOutSlowInEasing))
+            trip.animateTo(1f, tween(120, easing = LinearEasing))
             traveling = false
             reportSeated(true)
-        } else if (landedTrack != trackKey || traveling) {
-            reportSeated(false)
-            start.progress = lastDrawn.progress
-            start.lift = lastDrawn.lift
-            trip.snapTo(0f)
-            traveling = true
-            // Beat 1: lift needle and clear to outer resting edge.
-            trip.animateTo(0.2f, tween(110, easing = LinearEasing))
-            // Beat 2: stay lifted and clear until the new vinyl finishes dropping onto the platter.
-            withTimeoutOrNull(900) { snapshotFlow { currentRecordLanded }.first { it } }
-            withTimeoutOrNull(450) { snapshotFlow { duration }.first { it > 0L } }
-            // Beat 3: glide from outer resting edge to the active groove, then lower the needle.
-            trip.animateTo(0.8f, tween(260, easing = FastOutSlowInEasing))
-            trip.animateTo(1f, tween(130, easing = LinearEasing))
-            landedTrack = trackKey
-            traveling = false
+        } else {
             reportSeated(true)
         }
     }
@@ -1001,7 +1026,7 @@ internal fun VinylTonearm(
                     else -> shown()
                 }
             }
-            landedTrack != trackKey -> restEdge
+            !recordLanded -> lastDrawn.progress
             else -> shown()
         }
     }
@@ -1088,10 +1113,10 @@ internal fun VinylTonearm(
                 seeking || reduced -> 0f
                 traveling && phase < 0.2f -> start.lift + (1f - start.lift) * (phase / 0.2f)
                 traveling -> ((1f - phase) / 0.2f).coerceIn(0f, 1f)
-                landedTrack != trackKey -> lastDrawn.lift
+                !recordLanded -> lastDrawn.lift
                 else -> 0f
             }
-            val raised = if (reduced) 0f else maxOf(lift, travelLift, pauseLift, abs(moving()).coerceIn(0f, 1f) * 0.7f)
+            val raised = if (reduced) 0f else maxOf(lift, travelLift, pauseLift)
             val arm = armPosition()
             lastDrawn.progress = arm
             lastDrawn.lift = raised
