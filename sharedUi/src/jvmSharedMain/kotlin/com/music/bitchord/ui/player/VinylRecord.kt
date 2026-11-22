@@ -42,12 +42,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -55,18 +58,20 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.VinylAppearance
 import com.music.bitchord.data.settings.VinylColorMode
 import com.music.bitchord.data.settings.VinylFinish
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
 import kotlin.math.abs
@@ -179,6 +184,56 @@ internal fun VinylArtwork(
 }
 
 private const val VINYL_SPIN_DEG_PER_SEC = 28f
+private const val WAX_BITMAP_SIZE = 640
+
+private data class WaxBitmapKey(
+    val finish: VinylFinish,
+    val albumKey: String,
+    val baseValue: ULong,
+    val tintValue: ULong,
+    val darkTintValue: ULong,
+    val accentValue: ULong,
+    val hasArtwork: Boolean,
+)
+
+private val waxBitmapCache = object : LinkedHashMap<WaxBitmapKey, ImageBitmap>(6, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<WaxBitmapKey, ImageBitmap>?): Boolean = size > 6
+}
+
+private fun getCachedWaxBitmap(key: WaxBitmapKey): ImageBitmap? = synchronized(waxBitmapCache) {
+    waxBitmapCache[key]
+}
+
+private fun bakeVinylWaxBitmap(
+    key: WaxBitmapKey,
+    base: Color,
+    tint: Color,
+    darkTint: Color,
+    accent: Color,
+): ImageBitmap {
+    getCachedWaxBitmap(key)?.let { return it }
+    val size = WAX_BITMAP_SIZE
+    val bitmap = ImageBitmap(size, size)
+    val canvas = ComposeCanvas(bitmap)
+    val r = size / 2f
+    val center = Offset(r, r)
+    val cache = buildVinylWaxCache(key.finish, key.albumKey, r, center, base, tint, darkTint, accent)
+    val discClip = Path().apply { addOval(Rect(Offset.Zero, Size(size.toFloat(), size.toFloat()))) }
+    CanvasDrawScope().draw(
+        density = Density(1f),
+        layoutDirection = LayoutDirection.Ltr,
+        canvas = canvas,
+        size = Size(size.toFloat(), size.toFloat()),
+    ) {
+        clipPath(discClip) {
+            drawVinylWax(key.finish, r, center, base, tint, darkTint, accent, key.hasArtwork, cache)
+        }
+    }
+    synchronized(waxBitmapCache) {
+        waxBitmapCache[key] = bitmap
+    }
+    return bitmap
+}
 
 private fun VinylFinish.isRadiallySymmetric(): Boolean = when (this) {
     VinylFinish.PLAIN,
@@ -240,8 +295,29 @@ internal fun VinylDisc(
     val tint = colors.tint
     val darkTint = colors.darkTint
     val accentColor = colors.accent
-    val waxLayer = rememberGraphicsLayer()
     val density = androidx.compose.ui.platform.LocalDensity.current
+
+    // Flatten textured/patterned wax into a single 640x640 ImageBitmap off the UI thread so
+    // rotating a textured vinyl draws 1 single GPU quad (zero vector DisplayList replay!).
+    val waxKey = remember(style.finish, albumKey, base, tint, darkTint, accentColor, artwork != null) {
+        if (staticPlatter || (picture && artwork != null)) null else WaxBitmapKey(
+            finish = style.finish,
+            albumKey = albumKey,
+            baseValue = base.value,
+            tintValue = tint.value,
+            darkTintValue = darkTint.value,
+            accentValue = accentColor.value,
+            hasArtwork = artwork != null,
+        )
+    }
+    var bakedWax by remember(waxKey) { mutableStateOf(waxKey?.let { getCachedWaxBitmap(it) }) }
+    LaunchedEffect(waxKey) {
+        val key = waxKey ?: return@LaunchedEffect
+        if (bakedWax != null) return@LaunchedEffect
+        bakedWax = withContext(Dispatchers.Default) {
+            bakeVinylWaxBitmap(key, base, tint, darkTint, accentColor)
+        }
+    }
 
     BoxWithConstraints(modifier) {
         val geometry = with(density) {
@@ -284,9 +360,10 @@ internal fun VinylDisc(
                 }
             }
         })
-        // Apply drop-in vertical descent and gentle scale-from-above across the entire disc assembly.
+        // Single unbounded disc-sized container (2*radius x 2*radius) holds the drop-in transform
+        // and alpha directly, so Portrait discs extending past x < 0 are NEVER clipped during swipes.
         Box(
-            Modifier.fillMaxSize().graphicsLayer {
+            at.graphicsLayer {
                 val elev = dropElevation().coerceIn(0f, 1f)
                 if (elev > 0.0005f) {
                     translationY = -elev * 44.dp.toPx()
@@ -299,9 +376,13 @@ internal fun VinylDisc(
         ) {
             val pictureCover = picture && artwork != null
             if (pictureCover) {
-                Box(at.then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
-                    labelPlacement(it, coverAngle)
-                })) {
+                Box(
+                    Modifier.fillMaxSize().then(
+                        if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                            labelPlacement(it, coverAngle)
+                        },
+                    ),
+                ) {
                     Box(Modifier.fillMaxSize().graphicsLayer {
                         rotationZ = rotation
                         alpha = coverAlpha()
@@ -311,9 +392,8 @@ internal fun VinylDisc(
                 }
             }
             if (staticPlatter) {
-                // Radially symmetric finishes look identical when still: combine wax + grooves into ONE
-                // disc-sized static Offscreen layer (never rotated, never invalidated by progress ticks).
-                Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+                // Radially symmetric finishes: wax + grooves flattened into ONE static Offscreen layer.
+                Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
                     Box(Modifier.fillMaxSize().drawWithCache {
                         val r = size.minDimension / 2f
                         val center = Offset(size.width / 2f, size.height / 2f)
@@ -336,36 +416,25 @@ internal fun VinylDisc(
                     })
                 }
             } else {
-                // Patterned finishes: bake wax once into a disc-sized layer and rotate only that cached texture.
-                Box(at.graphicsLayer { rotationZ = rotation }) {
-                    Box(Modifier.fillMaxSize().drawWithCache {
-                        val r = size.minDimension / 2f
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
-                        val finish = style.finish
-                        val hasArt = artwork != null
-                        val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
-                        val discClip = Path().apply {
-                            if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
-                        }
-                        var baked = false
-                        onDrawBehind {
-                            if (r <= 0f) return@onDrawBehind
-                            if (!baked) {
-                                waxLayer.record(density, layoutDirection, layerSize) {
-                                    clipPath(discClip) {
-                                        drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
-                                    }
-                                }
-                                baked = true
+                // Patterned/textured finishes: rotate ONE flat 640x640 ImageBitmap quad!
+                if (!pictureCover) {
+                    Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation }) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val bmp = bakedWax
+                            if (bmp != null) {
+                                drawImage(
+                                    image = bmp,
+                                    dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)),
+                                )
+                            } else {
+                                val r = size.minDimension / 2f
+                                if (r > 0f) drawCircle(base, r, Offset(size.width / 2f, size.height / 2f))
                             }
-                            drawLayer(waxLayer)
                         }
-                    })
+                    }
                 }
-                // Static grooves in a disc-sized Offscreen layer above the rotating patterned wax
-                // (never invalidated by playback progress ticks).
-                Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+                // Static grooves in ONE disc-sized Offscreen layer above the rotating flat wax image.
+                Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
                     Box(Modifier.fillMaxSize().drawWithCache {
                         val r = size.minDimension / 2f
                         val center = Offset(size.width / 2f, size.height / 2f)
@@ -380,43 +449,17 @@ internal fun VinylDisc(
                     })
                 }
             }
-            // Lightweight dynamic needle-tip highlight arc (decoupled from the static groove layer so
-            // 500ms progress ticks never invalidate or redraw the vinyl grooves).
-            Box(Modifier.fillMaxSize().drawWithCache {
-                val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
-                val c = g.center
-                val idleLight = Brush.sweepGradient(
-                    0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
-                    0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
-                )
-                val seekingLight = Brush.sweepGradient(
-                    0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.43f),
-                    0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
-                )
-                val idleStroke = Stroke(1.dp.toPx())
-                val seekingStroke = Stroke(2.dp.toPx())
-                onDrawBehind {
-                    if (g.radius <= 0f) return@onDrawBehind
-                    if (dropElevation() > 0.05f) return@onDrawBehind
-                    val p = shown().coerceIn(0f, 1f)
-                    val tip = g.tip(p)
-                    val activeRadius = (tip - c).getDistance()
-                    val tipAngle = degrees(atan2(tip.y - c.y, tip.x - c.x))
-                    val isSeeking = seeking()
-                    val light = if (isSeeking) seekingLight else idleLight
-                    rotate(tipAngle - 12f, c) {
-                        drawArc(light, 0f, 26f, false, c - Offset(activeRadius, activeRadius),
-                            Size(activeRadius * 2, activeRadius * 2), style = if (isSeeking) seekingStroke else idleStroke)
-                    }
-                }
-            })
-            val labelModifier = Modifier.offset(x = left + radius - label, y = top + radius - label)
-                .size(label * 2)
-                .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
-                    labelPlacement(it, coverAngle)
-                })
             if (!pictureCover) {
-                Box(labelModifier) {
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(label * 2)
+                        .then(
+                            if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                                labelPlacement(it, coverAngle)
+                            },
+                        ),
+                ) {
                     Box(Modifier.fillMaxSize().graphicsLayer {
                         rotationZ = rotation
                         alpha = coverAlpha()
@@ -432,6 +475,36 @@ internal fun VinylDisc(
                 }
             }
         }
+        // Lightweight dynamic needle-tip highlight arc (decoupled from the static groove layer so
+        // 500ms progress ticks never invalidate or redraw the vinyl grooves).
+        Box(Modifier.fillMaxSize().drawWithCache {
+            val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
+            val c = g.center
+            val idleLight = Brush.sweepGradient(
+                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
+                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+            )
+            val seekingLight = Brush.sweepGradient(
+                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.43f),
+                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+            )
+            val idleStroke = Stroke(1.dp.toPx())
+            val seekingStroke = Stroke(2.dp.toPx())
+            onDrawBehind {
+                if (g.radius <= 0f) return@onDrawBehind
+                if (dropElevation() > 0.05f) return@onDrawBehind
+                val p = shown().coerceIn(0f, 1f)
+                val tip = g.tip(p)
+                val activeRadius = (tip - c).getDistance()
+                val tipAngle = degrees(atan2(tip.y - c.y, tip.x - c.x))
+                val isSeeking = seeking()
+                val light = if (isSeeking) seekingLight else idleLight
+                rotate(tipAngle - 12f, c) {
+                    drawArc(light, 0f, 26f, false, c - Offset(activeRadius, activeRadius),
+                        Size(activeRadius * 2, activeRadius * 2), style = if (isSeeking) seekingStroke else idleStroke)
+                }
+            }
+        })
     }
 }
 
