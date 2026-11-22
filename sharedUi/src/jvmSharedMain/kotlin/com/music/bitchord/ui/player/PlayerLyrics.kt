@@ -611,9 +611,8 @@ internal fun CurrentLyricStrip(
     var stripRtl by remember { mutableStateOf(false) }
     var activeText by remember { mutableStateOf("") }
     if (isSynced) {
-        val clock = rememberLyricClock(trackKey, playhead, isPlaying)
-        val index by remember(lines, clock) {
-            derivedStateOf { lines.indexOfLast { it.timeMs <= clock.longValue } }
+        val index by remember(lines, playhead) {
+            derivedStateOf { lines.indexOfLast { it.timeMs <= playhead.positionMs } }
         }
         val current = lines.getOrNull(index)
         val instrumental = current == null || current.isGap
@@ -3149,10 +3148,14 @@ private fun CurrentLyricLine(
         return
     }
 
-    val clock = rememberLyricClock(trackKey, playhead, isPlaying)
+    val hasWordTiming = remember(lines) { lines.any { it.isWordSynced || it.sungUntilMs != null } }
+    val clock = rememberLyricClock(trackKey, playhead, isPlaying && hasWordTiming)
 
-    val index by remember(lines, clock) {
-        derivedStateOf { lines.indexOfLast { it.timeMs <= clock.longValue } }
+    val index by remember(lines, clock, playhead, hasWordTiming) {
+        derivedStateOf {
+            val nowMs = if (hasWordTiming) clock.longValue else playhead.positionMs
+            lines.indexOfLast { it.timeMs <= nowMs }
+        }
     }
     val current = lines.getOrNull(index)
     // Before the first line, and through instrumental breaks, show the note.

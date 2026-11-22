@@ -1,34 +1,80 @@
 <div align="center">
   <img src="ReChordIcon.svg" alt="ReChord app icon" width="128" />
   <h1>ReChord</h1>
-  <p>Music on your terms. An Android player for YouTube Music, local tracks and compatible custom audio sources.</p>
-  <p><a href="https://github.com/dabestakoh/ReChord/releases">Releases</a> · <a href="https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml">Preview builds</a> · <a href="https://github.com/dabestakoh/ReChord/issues">Issues</a></p>
+  <p><strong>Music on your terms.</strong> A fast, audiophile-grade Android music player for YouTube Music, local libraries, and open custom audio sources.</p>
+  <p>
+    <a href="https://github.com/dabestakoh/ReChord/releases"><img src="https://img.shields.io/github/v/release/dabestakoh/ReChord?style=flat-square&color=8B5CF6" alt="Latest Release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-F43F5E?style=flat-square" alt="License GPL-3.0" /></a>
+    <img src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026)-1F2937?style=flat-square" alt="Android 8.0+" />
+    <a href="https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml"><img src="https://img.shields.io/badge/Preview-Develop%20APK-374151?style=flat-square" alt="Develop Preview APK" /></a>
+  </p>
+  <p>
+    <a href="https://github.com/dabestakoh/ReChord/releases">Releases</a> ·
+    <a href="https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml">Preview Builds</a> ·
+    <a href="https://github.com/dabestakoh/ReChord/issues">Issues</a> ·
+    <a href="docs/RECHORD-STANDARDS.md">Engineering Standards</a>
+  </p>
 </div>
 
 ## About
 
-ReChord is an independently maintained fork of [BitChord](https://github.com/kushagrasinghx/BitChord) with its own branding and ongoing improvements to playlist handling, interface performance and audio-source flexibility.
+**ReChord** is an independently maintained fork of [BitChord](https://github.com/kushagrasinghx/BitChord) focused on expressive Now Playing skins, lossless audiophile playback, smarter lyrics timing, open custom add-on support, and smooth low-power performance.
 
-ReChord is not affiliated with or endorsed by YouTube, Google, Spotify, Qobuz or other music services.
+ReChord is not affiliated with or endorsed by YouTube, Google, Spotify, Apple, Qobuz, or other music services.
 
-## Features
+---
 
-- **Home and discovery** — Browse personalized Featured picks and choose which sections appear on Home in Settings. Explore carries the broader new-releases catalog.
-- **Music sources** — Play YouTube Music, downloads, local files, and streams from compatible add-on servers. Set streaming quality separately for Wi-Fi and mobile data.
-- **Local Music** — Browse Songs, Albums, Artists, Album Artists, Folders, Playlists, and Recently Added. Open an artist to see their albums and tracks, or use the letter rail to jump through long alphabetical lists. ReChord opens the saved index while checking for file changes in the background. Refresh on demand from the Sort/View menu. Local covers can come from embedded tags or nearby cover images.
-- **Playlists and queues** — Import public playlists by link from Apple Music, Spotify, and YouTube Music. Open previously loaded playlists from cache, sort and edit them, and resume playback from the saved position. Autoplay can continue the current radio once the playlist and manually queued tracks finish.
-- **Now Playing** — Album artwork colors the player and lyrics. Open Audio Output to select a device, adjust volume, or inspect Audio Pipeline. Playback controls are also available in the mini-player, Android media controls, and home-screen widgets.
-- **Audio and USB DACs** — Choose automatic or fixed output precision, use Direct USB or Android USB on supported devices, and check the source, app output, and active DAC format in Audio Pipeline. Compatible sources can provide lossless streams and, where supported, upgrade playback to verified FLAC.
-- **Appearance and performance** — Choose a true-black AMOLED theme. Home uses placeholders that follow its layout, and scrolling reuses the backdrop behind glass controls to reduce rendering work.
-- **Diagnostics** — In **Settings → Diagnostics**, export a redacted log or choose **Send diagnostic report** when reporting is available. Reports are sent when you select that action.
+## What's Different from BitChord
+
+ReChord has evolved well beyond upstream BitChord across UI, playback fidelity, lyrics, add-ons, and performance:
+
+| Area | ReChord Enhancements |
+| --- | --- |
+| **Now Playing Skins** | **3 dedicated skins** — **Default**, **Vinyl**, and **Poster** — each with dedicated **Portrait & Landscape** layouts, a quick **Rotate** button, bouncy spring controls, smooth background color melts, and unified full-width Queue/Lyrics. |
+| **Vinyl Studio** | **16 realistic pressed-vinyl finishes** (including *Pinwheel*, *Tri-Color*, and *Gold Record*), live spinning preview, unobstructed center artwork, and a Hi-Fi machined tonearm with soft drop shadow, 3s progress peek, and pause needle lift. |
+| **Expressive Poster** | Full-bleed edge-to-edge artwork, word-by-word expressive lyrics, curved seekbar with song-start peek, and an optional live **Curved Rim Visualizer** driven by a zero-allocation spectrum tap. |
+| **Lyrics & Auto-Sync** | **Per-song saved lyrics offset**, **one-tap Auto-sync** (live vocal alignment with Undo), expanded lyric animations (*Rise & Glow*, *Shimmer Sweep*, *Word Lift*, *Plain Sweep*), smarter multi-provider matching, and clear provider statuses (*API key required* / *Unavailable*). |
+| **Audiophile Pipeline & USB DACs** | **Fidelity Score**, detailed **Audio Pipeline** view (Source → App Output → Verified DAC Output), **Seamless Quality Upgrade** (OPUS → verified FLAC mid-track), FLAC read-ahead & cache reuse, automatic output precision, **Direct USB (`libusb 1.0.30`)** with optional software volume, and verified **PCM Preserved / Bit-Perfect** reporting. |
+| **Open Custom Add-Ons** | **No BitChord device attestation required** for compatible custom add-on servers. Supports **bulk add-on URL import** and sends structured title/artist metadata for **Qobuz** and **MusicBrainz** add-ons while staying 100% compatible with query-only add-ons. |
+| **Audio-First Video Mode** | Watch synchronized music videos in the Default skin **without downgrading your lossless FLAC audio**, with automatic fallback when no video is available. |
+| **Local Music & Playlists** | Fast background-indexed **Local Music** (Songs, Albums, Artists, Album Artists, Folders, Playlists, Recently Added + A–Z jump rail), **import public playlists by link** (Apple Music, Spotify, YouTube Music), smart incremental playlist sync, and reliable playback restoration. |
+| **Performance & Thermals** | True-black AMOLED theme, hardware-cached offscreen layers for smooth VSync-locked Vinyl spin, background-paused visualizer & throttled audio FFT, lighter scrolling glass controls, and opt-in redacted **Diagnostics** export. |
+
+---
+
+## Key Features
+
+### Now Playing & Skins
+- **Default, Vinyl, and Poster skins** — Switch anytime from **Settings → Appearance → Now Playing Skin** or by long-pressing the top handle in Now Playing.
+- **Dedicated Landscape layouts** — Rotating sideways opens tailored widescreen layouts for Vinyl (full uncropped spinning record + tucked tonearm + centered controls) and Poster (edge-to-edge artwork + rising curved progress rim + centered controls).
+- **Vinyl Studio** — Pick Black, Album-matched, or Custom dual-tone colors across 16 realistic finishes with pressed groove bands and beveled rims.
+- **Audio-first Video Mode (Default)** — Play synchronized music videos alongside your existing high-resolution audio stream.
+
+### Lyrics & Timing
+- **Expressive word-synced lyrics** — Dynamic typography, duet alignment, and selectable lyric effects across all skins.
+- **Per-song offset & one-tap Auto-sync** — Fine-tune timing per track without shifting other songs, or tap **Auto-sync** to align lyrics to live vocals with instant Undo.
+- **Multi-provider intelligence** — Prioritizes embedded lyrics, evaluates timing and language quality across providers, and supports manual provider selection.
+
+### Audiophile Playback & USB DACs
+- **Seamless Quality Upgrade & FLAC read-ahead** — Prepares eligible lossless streams ahead of time, upgrades OPUS to verified FLAC mid-track when supported, and reuses complete verified FLAC caches on repeat plays.
+- **Fidelity Score & Audio Pipeline** — Inspect exact source format, app output, active DAC format, and whether PCM is preserved bit-perfectly.
+- **Direct USB & Android 14 USB** — Built-in `libusb 1.0.30` Direct USB support, automatic output precision, hardware volume restoration, and optional software volume when hardware volume is unavailable.
+
+### Music Sources, Local Library & Playlists
+- **Open custom add-ons** — Connect compatible third-party add-on servers with separate Wi-Fi and mobile data quality preferences — no BitChord attestation gate required.
+- **Fast Local Music** — Opens your saved library immediately while scanning for changes in the background, with embedded and folder cover-art support.
+- **Playlist import & smart sync** — Import public playlists from Apple Music, Spotify, and YouTube Music by link, detect remote playlist changes efficiently, and keep Autoplay queued cleanly behind your manual queue.
+
+### Appearance, Performance & Diagnostics
+- **True-black AMOLED theme** and artwork-driven dynamic color melts across tracks.
+- **Low-power graphics** — Offscreen-baked Vinyl wax, grooves, and tonearm plinth, background-paused Poster visualizer/FFT, and lightweight scrolling glass panels.
+- **Privacy-first Diagnostics** — Export a redacted log or send a diagnostic report from **Settings → Diagnostics** only when you explicitly choose to.
 
 Available formats and output fidelity depend on the source, device, and playback path. Audio Pipeline reports bit-perfect USB output when it can verify that PCM is preserved.
 
-See [Releases](https://github.com/dabestakoh/ReChord/releases) for version-by-version changes and fixes.
+See [Releases](https://github.com/dabestakoh/ReChord/releases) for full version-by-version changelogs.
 
-### Custom add-ons
-
-Compatible third-party add-on servers can supply music search and playback streams, including their own selectable quality options. ReChord does **not** require official BitChord device attestation to use compatible custom add-ons. Each independent server may still enforce its own credentials, entitlements or request policy.
+---
 
 ## Screenshots
 
@@ -43,40 +89,39 @@ Compatible third-party add-on servers can supply music search and playback strea
   </table>
 </div>
 
+---
+
 ## Installation
 
-Download a published build from [Releases](https://github.com/dabestakoh/ReChord/releases), or a testing APK from the [Develop Preview workflow](https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml) when an artifact is available.
+Download a signed build from [Releases](https://github.com/dabestakoh/ReChord/releases), or grab a testing build from the [Develop Preview workflow](https://github.com/dabestakoh/ReChord/actions/workflows/fidelity-ui-preview.yml) when an artifact is available.
 
-| Build | Android package | Purpose |
+| Build | Android Package | Purpose |
 | --- | --- | --- |
-| Preview (dev flavor) | `com.rechord.preview` | Test upcoming changes; installs alongside Release |
-| Release (prod flavor) | `com.music.rechord` | Regular use |
+| **Release** (`prod` flavor) | `com.music.rechord` | Daily listening (signed production builds) |
+| **Preview** (`dev` flavor) | `com.rechord.preview` | Test upcoming changes; installs side-by-side with Release |
 
-Preview and Release use separate application data. APK upgrades require a matching signing certificate; do not uninstall a build containing important unbacked-up data merely to replace it.
+Preview and Release use separate application data. In-place APK upgrades require a matching signing certificate; do not uninstall a build containing unbacked-up data just to replace it.
 
-For implementation and testing conventions, see the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) and the [contributor guide](CONTRIBUTING.md).
+---
 
-## Build from source
+## Build from Source
 
 1. Clone this repository and open the Android project in Android Studio.
-2. Install the Android SDK and JDK required by the project.
-3. Configure signing for the intended build variant.
-4. Use Gradle to build `devDebug` for Preview or the appropriate `prod` variant for Release.
+2. Install the Android SDK, NDK 27, and JDK 17 required by the project.
+3. Configure signing in `keystore.properties` (see `keystore.properties.example`) for release builds.
+4. Build `:app:assembleDevDebug` for Preview or `:app:assembleProdRelease` for Release.
 
-GitHub Actions runs unit tests on feature and fix branch pushes. Pushes to `develop` normally build the arm64 Preview APK. Feature and fix branch APKs are available through manual workflow runs. Verify playback and performance on the affected devices.
+For coding, UI, playback, and release conventions, see the [ReChord Engineering Standards](docs/RECHORD-STANDARDS.md) and [Contributing Guide](CONTRIBUTING.md).
 
-## Project status
+---
 
-ReChord is under active development. Preview builds may include experimental optimizations. Large-playlist scrolling, graphics performance, and USB output compatibility require testing on real devices.
-
-## Credits and license
+## Credits & License
 
 ReChord is based on [BitChord by kushagrasinghx and contributors](https://github.com/kushagrasinghx/BitChord). Existing upstream copyrights and third-party attribution remain applicable.
 
-Thanks to [Auris](https://github.com/OreoMuncher45/Auris) for inspiring the Now Playing color treatment, startup skeletons, and smoother scrolling.
+- Thanks to [Auris](https://github.com/OreoMuncher45/Auris) for inspiring the Now Playing color treatment, startup skeletons, and smoother scrolling.
+- Thanks to [Mochy Music](https://github.com/realidkroo/Mochy-Music) for inspiring the featured Home carousel, personalized recommendations, Vinyl and Poster players, expressive timed lyrics, expanded lyric effects, and synchronized Video mode.
 
-Thanks to [Mochy Music](https://github.com/realidkroo/Mochy-Music) for inspiring the featured Home carousel, personalized recommendations, the Vinyl and Poster players, expressive timed lyrics on Poster, the expanded lyric effects and provider selection, and synchronized Video mode.
-
-Distributed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the license and source-distribution obligations.
+Distributed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for full license terms.
 
 Music and metadata are supplied by independent providers. Use the software in accordance with applicable law and service terms.
