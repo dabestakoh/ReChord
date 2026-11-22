@@ -506,23 +506,13 @@ internal fun AlternateNowPlaying(
                     var posterSidewaysSeekExpand by remember { mutableStateOf(0f) }
                     CompositionLocalProvider(LocalPosterTitleTarget provides { creditsTitleCoords }) {
                         if (landscape) {
-                            Row(
-                                Modifier
-                                    .fillMaxSize()
-                                    .then(
-                                        if (vinyl && !preview) {
-                                            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 2.dp, bottom = 2.dp)
-                                        } else {
-                                            Modifier
-                                        },
-                                    ),
-                            ) {
+                            Row(Modifier.fillMaxSize()) {
                                 val leftWidth = if (vinyl) stageMaxWidth * 0.50f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
                                 Box(
                                     Modifier
                                         .width(leftWidth)
                                         .fillMaxHeight()
-                                        .clipToBounds()
+                                        .then(if (vinyl && !videoActive) Modifier else Modifier.clipToBounds())
                                         .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -638,8 +628,9 @@ internal fun AlternateNowPlaying(
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .then(
-                                            if (!vinyl && !preview) {
-                                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = 10.dp, bottom = 10.dp)
+                                            if (!preview) {
+                                                val vPad = if (vinyl) 2.dp else 10.dp
+                                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = vPad, bottom = vPad)
                                             } else {
                                                 Modifier
                                             },
