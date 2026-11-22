@@ -3983,6 +3983,7 @@ fun NowPlayingScreen(
                                         MarqueeText(
                                             text = song.title,
                                             style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.Bold,
                                                 fontSize = 20.sp,
                                                 shadow = Shadow(Color.Black.copy(alpha = 0.35f), Offset(0f, 1f), 4f),
                                             ),

@@ -1177,7 +1177,7 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(onClick = onEditSignatureApi)
-                                .padding(start = ROW_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
+                                .padding(start = TEXT_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
@@ -1190,6 +1190,7 @@ fun SettingsScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            Spacer(Modifier.width(16.dp))
                             Chevron()
                         }
                     }
@@ -2511,9 +2512,9 @@ internal fun SettingsGroup(
 }
 
 @Composable
-internal fun RowDivider() {
+internal fun RowDivider(startInset: Dp = TEXT_INSET) {
     HorizontalDivider(
-        modifier = Modifier.padding(start = TEXT_INSET),
+        modifier = Modifier.padding(start = startInset),
         thickness = 0.5.dp,
         color = MaterialTheme.colorScheme.outline,
     )
@@ -2546,6 +2547,7 @@ internal fun SettingsRow(
     titleMaxLines: Int = 1,
     trailing: (@Composable () -> Unit)? = null,
 ) {
+    val hasLeadingIcon = iconContent != null || iconPainter != null || icon != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2572,7 +2574,9 @@ internal fun SettingsRow(
                 modifier = Modifier.size(ICON_SIZE),
             )
         }
-        Spacer(Modifier.width(ICON_GAP))
+        if (hasLeadingIcon) {
+            Spacer(Modifier.width(ICON_GAP))
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -2595,10 +2599,11 @@ internal fun SettingsRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
         if (trailing != null) {
             trailing()
         } else if (value != null || onClick != null) {
@@ -2629,13 +2634,15 @@ internal fun SettingsSubRow(
     badge: String? = null,
     subtitle: String? = null,
     enabled: Boolean = true,
+    startInset: Dp = TEXT_INSET,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .alpha(if (enabled) 1f else 0.45f)
-            .padding(start = ROW_INSET, end = ROW_INSET, top = 0.dp, bottom = 10.dp),
+            .heightIn(min = 48.dp)
+            .padding(start = startInset, end = ROW_INSET, top = 6.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -2658,9 +2665,11 @@ internal fun SettingsSubRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
+        Spacer(Modifier.width(16.dp))
         IosSwitch(
             checked = checked,
             onCheckedChange = onCheckedChange,
@@ -2882,7 +2891,7 @@ private fun HomeSectionSettings() {
 private fun HomeSectionSwitches(title: String, sections: Map<String, String>, overrides: Map<String, Boolean>) {
     SettingsGroup(header = title) {
         sections.entries.forEachIndexed { index, (key, label) ->
-            if (index > 0) RowDivider()
+            if (index > 0) RowDivider(startInset = ROW_INSET)
             val checked = HomeSections.visible(key, overrides)
             SettingsRow(
                 title = label,
@@ -2925,6 +2934,7 @@ fun SettingsChoicePage(
     modifier: Modifier = Modifier,
     currentArtwork: String? = null,
     windowWidth: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp,
+    windowHeight: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp,
     onOpenChoice: (SettingsChoiceKind) -> Unit = {},
     onSpotifyCanvasAuth: () -> Unit = {},
 ) {
@@ -3059,8 +3069,9 @@ fun SettingsChoicePage(
                     hideVolumeFor = hideVolume,
                     defaultArtworkFullBleed = fullBleed,
                     defaultPlayerTheme = theme,
+                    availableHeight = windowHeight,
                     options = { skin ->
-                        Column(Modifier.fillMaxWidth().padding(horizontal = ROW_INSET)) {
+                        Column(Modifier.fillMaxWidth()) {
                             if (skin == NowPlayingLayout.VINYL) {
                                 SettingsRow(
                                     icon = SfIcons.Appearance,
@@ -3069,38 +3080,44 @@ fun SettingsChoicePage(
                                     onClick = { onOpenChoice(SettingsChoiceKind.VINYL_APPEARANCE) },
                                 )
                             }
-                            SettingsSubRow(
-                                stringResource(R.string.hide_volume_bar),
-                                checked = hideVolume(skin),
-                                onCheckedChange = { hidden ->
-                                    when (skin) {
-                                        NowPlayingLayout.DEFAULT -> defaultHide = hidden
-                                        NowPlayingLayout.VINYL -> vinylHide = hidden
-                                        NowPlayingLayout.POSTER -> posterHide = hidden
-                                    }
-                                },
+                            val volumeHidden = hideVolume(skin)
+                            val setVolumeHidden: (Boolean) -> Unit = { hidden ->
+                                when (skin) {
+                                    NowPlayingLayout.DEFAULT -> defaultHide = hidden
+                                    NowPlayingLayout.VINYL -> vinylHide = hidden
+                                    NowPlayingLayout.POSTER -> posterHide = hidden
+                                }
+                            }
+                            SettingsRow(
+                                icon = SfIcons.VolumeOff,
+                                title = stringResource(R.string.hide_volume_bar),
+                                trailing = { IosSwitch(checked = volumeHidden, onCheckedChange = setVolumeHidden) },
+                                onClick = { setVolumeHidden(!volumeHidden) },
                             )
                             if (skin == NowPlayingLayout.POSTER) {
-                                SettingsSubRow(
-                                    stringResource(R.string.poster_visualizer),
-                                    checked = posterVisualizer,
-                                    onCheckedChange = AppSettings::setPosterVisualizer,
+                                SettingsRow(
+                                    icon = SfIcons.GraphicEq,
+                                    title = stringResource(R.string.poster_visualizer),
                                     subtitle = stringResource(R.string.poster_visualizer_subtitle),
+                                    trailing = { IosSwitch(checked = posterVisualizer, onCheckedChange = AppSettings::setPosterVisualizer) },
+                                    onClick = { AppSettings.setPosterVisualizer(!posterVisualizer) },
                                 )
-                                SettingsSubRow(
-                                    stringResource(R.string.synced_lyrics),
-                                    checked = syncedLyrics,
-                                    onCheckedChange = AppSettings::setSyncedLyrics,
+                                SettingsRow(
+                                    icon = SfIcons.Notes,
+                                    title = stringResource(R.string.synced_lyrics),
                                     subtitle = stringResource(R.string.poster_live_lyrics_subtitle),
+                                    trailing = { IosSwitch(checked = syncedLyrics, onCheckedChange = AppSettings::setSyncedLyrics) },
+                                    onClick = { AppSettings.setSyncedLyrics(!syncedLyrics) },
                                 )
                             }
                             if (skin == NowPlayingLayout.DEFAULT) {
                                 if (fullBleedArtworkAvailable(windowWidth)) {
-                                    SettingsSubRow(
-                                        stringResource(R.string.full_screen_cover_art),
-                                        checked = fullBleed,
-                                        onCheckedChange = { fullBleed = it },
+                                    SettingsRow(
+                                        icon = SfIcons.Fullscreen,
+                                        title = stringResource(R.string.full_screen_cover_art),
                                         subtitle = stringResource(R.string.full_screen_cover_art_subtitle),
+                                        trailing = { IosSwitch(checked = fullBleed, onCheckedChange = { fullBleed = it }) },
+                                        onClick = { fullBleed = !fullBleed },
                                     )
                                 }
                                 SettingsRow(
@@ -3112,20 +3129,21 @@ fun SettingsChoicePage(
                                     options = PlayerTheme.entries.map { it.localizedLabel() },
                                     selectedIndex = theme.ordinal,
                                     onSelect = { theme = PlayerTheme.entries[it] },
-                                    modifier = Modifier.padding(horizontal = ROW_INSET, vertical = 8.dp),
+                                    modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, top = 4.dp, bottom = 8.dp),
                                 )
-                                SettingsSubRow(
-                                    stringResource(R.string.animated_cover_art),
-                                    checked = coversEnabled,
-                                    onCheckedChange = AppSettings::setAnimatedCanvas,
+                                SettingsRow(
+                                    icon = SfIcons.AutoAwesome,
+                                    title = stringResource(R.string.animated_cover_art),
                                     subtitle = stringResource(R.string.animated_cover_art_subtitle),
+                                    trailing = { IosSwitch(checked = coversEnabled, onCheckedChange = AppSettings::setAnimatedCanvas) },
+                                    onClick = { AppSettings.setAnimatedCanvas(!coversEnabled) },
                                 )
                                 if (coversEnabled) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable(onClick = onSpotifyCanvasAuth)
-                                            .padding(start = ROW_INSET, end = ROW_INSET, top = 8.dp, bottom = 10.dp),
+                                            .padding(start = TEXT_INSET, end = ROW_INSET, top = 4.dp, bottom = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
@@ -3136,6 +3154,7 @@ fun SettingsChoicePage(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
+                                        Spacer(Modifier.width(16.dp))
                                         Chevron()
                                     }
                                     SettingsSubRow(
@@ -3160,6 +3179,7 @@ fun SettingsChoicePage(
                 VinylAppearanceEditor(
                     appearance, AppSettings::setVinylAppearance, currentArtwork,
                     Modifier.fillMaxWidth().padding(horizontal = ROW_INSET),
+                    availableHeight = windowHeight,
                 )
             }
             SettingsChoiceKind.LYRICS_STYLE -> {

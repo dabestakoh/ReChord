@@ -60,6 +60,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -3217,6 +3218,7 @@ private fun BitChordApp(
                             SettingsChoicePage(
                                 choice = pageRoute.choice,
                                 windowWidth = windowWidth,
+                                windowHeight = windowHeight,
                                 onChosen = { navigator.pop() },
                                 onConfirmBitPerfect = { confirmBitPerfect = it },
                                 contentPadding = listPadding,
@@ -4380,52 +4382,92 @@ private fun BitChordApp(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                } else Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        // Capped and centred rather than run to the page's edges
-                        // — see [FLOATING_BAR_MAX_WIDTH]. It sits on the Column
-                        // rather than on each bar so the two are held to the same
-                        // width and keep the shared left and right edge they have
-                        // on a phone. Before fillMaxWidth, so the fill has
-                        // already been bounded by the time it is applied.
-                        .widthIn(max = FLOATING_BAR_MAX_WIDTH)
-                        .fillMaxWidth()
-                        .onSizeChanged { floatingBarsHeight.intValue = it.height },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Isolated {
-                        QueueActionNoticeHost(queueNotice)
-                        player.song?.let { song ->
-                            MiniPlayer(
-                                song = song,
-                                isPlaying = player.isPlaying,
-                                isLoading = playPauseBusy,
-                                hazeState = hazeState,
-                                onPlayPause = {
-                                    togglePlayPause()
-                                },
-                                onNext = { controller?.seekToNextMediaItem() },
-                                onPrevious = { controller?.seekToPrevious() },
-                                onExpand = if (reducePlayerMotion) {
-                                    { showNowPlaying = true }
-                                } else {
-                                    playerSheetMotion::open
-                                },
-                                controlsLocked = controlsLocked,
-                                onBlockedControl = showHostOnlyNotice,
-                                dock = activeDock,
-                                pull = playerSheetMotion.takeIf { !reducePlayerMotion },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Spacer(Modifier.height(8.dp))
+                } else {
+                    val sideBySideChrome = windowWidth >= 700.dp && windowHeight < 500.dp && player.song != null
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            // Capped and centred rather than run to the page's edges
+                            // — see [FLOATING_BAR_MAX_WIDTH]. On wide, short landscape
+                            // screens (e.g. car head-units), widen the cap so tabs and
+                            // mini-player sit side-by-side in one compact row.
+                            .widthIn(max = if (sideBySideChrome) 880.dp else FLOATING_BAR_MAX_WIDTH)
+                            .fillMaxWidth()
+                            .onSizeChanged { floatingBarsHeight.intValue = it.height },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Isolated {
+                            QueueActionNoticeHost(queueNotice)
+                            if (sideBySideChrome) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
+                                    FloatingBottomBar(
+                                        tabs = tabs,
+                                        selectedIndex = selectedTab,
+                                        hazeState = hazeState,
+                                        onTabSelected = onTabSelected,
+                                        modifier = Modifier.weight(1.08f),
+                                    )
+                                    player.song?.let { song ->
+                                        MiniPlayer(
+                                            song = song,
+                                            isPlaying = player.isPlaying,
+                                            isLoading = playPauseBusy,
+                                            hazeState = hazeState,
+                                            onPlayPause = { togglePlayPause() },
+                                            onNext = { controller?.seekToNextMediaItem() },
+                                            onPrevious = { controller?.seekToPrevious() },
+                                            onExpand = if (reducePlayerMotion) {
+                                                { showNowPlaying = true }
+                                            } else {
+                                                playerSheetMotion::open
+                                            },
+                                            controlsLocked = controlsLocked,
+                                            onBlockedControl = showHostOnlyNotice,
+                                            dock = activeDock,
+                                            pull = playerSheetMotion.takeIf { !reducePlayerMotion },
+                                            modifier = Modifier
+                                                .weight(0.92f)
+                                                .windowInsetsPadding(com.music.bitchord.ui.components.floatingBarInsets)
+                                                .padding(bottom = com.music.bitchord.ui.components.NAV_BAR_LIFT),
+                                        )
+                                    }
+                                }
+                            } else {
+                                player.song?.let { song ->
+                                    MiniPlayer(
+                                        song = song,
+                                        isPlaying = player.isPlaying,
+                                        isLoading = playPauseBusy,
+                                        hazeState = hazeState,
+                                        onPlayPause = {
+                                            togglePlayPause()
+                                        },
+                                        onNext = { controller?.seekToNextMediaItem() },
+                                        onPrevious = { controller?.seekToPrevious() },
+                                        onExpand = if (reducePlayerMotion) {
+                                            { showNowPlaying = true }
+                                        } else {
+                                            playerSheetMotion::open
+                                        },
+                                        controlsLocked = controlsLocked,
+                                        onBlockedControl = showHostOnlyNotice,
+                                        dock = activeDock,
+                                        pull = playerSheetMotion.takeIf { !reducePlayerMotion },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                FloatingBottomBar(
+                                    tabs = tabs,
+                                    selectedIndex = selectedTab,
+                                    hazeState = hazeState,
+                                    onTabSelected = onTabSelected,
+                                )
+                            }
                         }
-                        FloatingBottomBar(
-                            tabs = tabs,
-                            selectedIndex = selectedTab,
-                            hazeState = hazeState,
-                            onTabSelected = onTabSelected,
-                        )
                     }
                 }
             }
@@ -4853,8 +4895,13 @@ private fun BitChordApp(
                     onDismissRequest = { showPlayerLayouts = false },
                     properties = DialogProperties(usePlatformDefaultWidth = false),
                 ) {
+                    val dialogMaxWidth = if (windowWidth > windowHeight) 740.dp else 460.dp
+                    val dialogMaxHeight = (windowHeight - 24.dp).coerceAtLeast(240.dp)
                     Surface(
-                        modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 460.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .widthIn(max = dialogMaxWidth)
+                            .heightIn(max = dialogMaxHeight),
                         shape = MaterialTheme.shapes.extraLarge,
                     ) {
                         NowPlayingLayoutPicker(
@@ -4866,6 +4913,7 @@ private fun BitChordApp(
                             onDismiss = { showPlayerLayouts = false },
                             modifier = Modifier.verticalScroll(rememberScrollState()),
                             artwork = player.song?.thumbnailUrl,
+                            availableHeight = dialogMaxHeight,
                         )
                     }
                 }

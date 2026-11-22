@@ -1,16 +1,12 @@
 # Additional Documentation
 
-Additional BitChord project and development information will be maintained here.
+Additional ReChord project and development documentation is indexed here.
 
-## Project
+## Engineering & Standards
+- [ReChord Engineering Standards](docs/RECHORD-STANDARDS.md): Canonical guide for coding, UI, Compose performance, playback logic, diagnostics, and release delivery.
+- [Agent Instructions](AGENTS.md): Branch, planning, verification, and CI rules for coding agents.
+
+## Features & Architecture
 - [Listen Together Server Documentation](backend/README.md): Architecture, synchronization protocol, and deployment instructions for the party server.
 - [Lyrics Translation](docs/LYRICS_TRANSLATION.md): Pipeline documentation for on-demand lyrics translation, timing projection, and UI transitions.
-
-## Development
-Placeholder for project development notes and environment guides.
-
-## Technical Notes
-Placeholder for component-specific technical documentation and implementation notes.
-
-## Future Documentation
-Placeholder for future project and technical documentation.
+- [Audio Fidelity & Navigation Glass Freeze](docs/features/audio-fidelity-ui-optimization.md): Source-to-DAC fidelity policy, glass freeze design, and regression matrix.

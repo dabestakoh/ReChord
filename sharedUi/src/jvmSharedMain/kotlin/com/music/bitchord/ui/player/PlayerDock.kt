@@ -100,11 +100,14 @@ class PlayerDock {
     internal fun artworkInFlight(expandedOnScreen: Rect): Rect? {
         val mini = miniArtOnScreen() ?: return null
         val offset = offset()?.toInt()?.toFloat() ?: return null
-        val travel = sheetTravel.takeIf { it > 0f } ?: return null
-        val ride = ((mini.top - expandedOnScreen.top) / travel).coerceIn(0f, 1f)
-        return androidx.compose.ui.geometry.lerp(
-            mini, expandedOnScreen.translate(0f, offset * ride), openFraction(),
-        )
+        if (sheetTravel <= 0f) return null
+        val f = openFraction()
+        // Ease-out toward the live rising sheet position so the flying cover catches up
+        // quickly and locks dead-center onto the vinyl label / poster frame before handoff.
+        val inv = 1f - f
+        val t = 1f - inv * inv * inv
+        val liveTarget = expandedOnScreen.translate(0f, offset)
+        return androidx.compose.ui.geometry.lerp(mini, liveTarget, t)
     }
 
     internal fun miniArtCorner(): Dp = miniArtCorner

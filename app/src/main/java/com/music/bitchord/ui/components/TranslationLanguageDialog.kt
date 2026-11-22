@@ -165,7 +165,11 @@ fun TranslationLanguageDialog(
             SearchField(query = query, onQueryChange = { query = it })
             AlertRule()
 
-            LazyColumn(modifier = Modifier.heightIn(max = LIST_MAX_HEIGHT)) {
+            val maxListHeight = minOf(
+                LIST_MAX_HEIGHT,
+                (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.42f).coerceAtLeast(110.dp),
+            )
+            LazyColumn(modifier = Modifier.heightIn(max = maxListHeight)) {
                 // Only with an empty field: it is the default rather than a
                 // language, so it has no name to match and filtering it in on a
                 // near-miss would be noise.

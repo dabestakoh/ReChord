@@ -30,7 +30,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -384,7 +386,8 @@ internal fun LandscapeMainPane(
     Column(
         modifier = modifier
             .widthIn(max = PLAYER_MAX_WIDTH)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
     ) {
         if (caption != null) {
             PlaybackOriginCaption(
@@ -441,7 +444,7 @@ internal fun LandscapeCredits(
                 val artistColor = chromeWhite(0.55f)
                 MarqueeText(
                     text = song.title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = Color.White,
                     onOverflowChange = { titleOverflowing = it },
                     // Before the title, in the artist line's colour.
