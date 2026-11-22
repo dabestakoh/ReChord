@@ -91,8 +91,11 @@ jobs:
           for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD RELEASE_KEY_ALIAS; do
             if [ -z "${!name}" ]; then echo "::error::Missing secret $name"; exit 1; fi
           done
-          printf 'LASTFM_API_KEY=%s\nLASTFM_SECRET=%s\nLISTEN_TOGETHER_SERVER=%s\n' \
-            "$LASTFM_API_KEY" "$LASTFM_SECRET" "$LISTEN_TOGETHER_SERVER" > local.properties
+          printf 'LASTFM_API_KEY=%s\nLASTFM_SECRET=%s\n' \
+            "$LASTFM_API_KEY" "$LASTFM_SECRET" > local.properties
+          if [ -n "$LISTEN_TOGETHER_SERVER" ]; then
+            printf 'LISTEN_TOGETHER_SERVER=%s\n' "$LISTEN_TOGETHER_SERVER" >> local.properties
+          fi
           umask 077
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > bitchord-release.p12
           test -s bitchord-release.p12
