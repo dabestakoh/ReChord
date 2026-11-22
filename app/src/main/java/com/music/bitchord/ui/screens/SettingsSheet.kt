@@ -1018,7 +1018,7 @@ fun SettingsScreen(
         }
 
         if (shows(SettingsCategory.APPEARANCE)) {
-            SearchableSettingsGroup(search, header = stringResource(R.string.settings_app_appearance)) {
+            SearchableSettingsGroup(search, header = stringResource(R.string.appearance)) {
                 val homeTitle = stringResource(R.string.home)
                 row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
                     SettingsRow(
@@ -1194,9 +1194,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-
-            SearchableSettingsGroup(search, header = stringResource(R.string.settings_now_playing_skin)) {
                 val layoutTitle = stringResource(R.string.now_playing_layout)
                 row(layoutTitle, "player", "skin", "vinyl", "poster", "default") {
                     SettingsRow(
@@ -1267,9 +1264,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-
-            SearchableSettingsGroup(search, header = stringResource(R.string.settings_lyrics_all_skins)) {
                 val syncedLyricsTitle = stringResource(R.string.synced_lyrics)
                 // Carries the keywords of the rows that only appear once it is on,
                 // so searching "lrclib" or "translation" while off still finds the toggle.

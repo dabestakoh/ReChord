@@ -578,7 +578,11 @@ internal fun AlternateNowPlaying(
                                                         coverAlpha = { if (pane == PlayerPane.Main && current) liveCoverAlpha() else 1f },
                                                         mountTopInset = 0,
                                                         landscape = true,
-                                                        dropElevation = if (current) ({ vinylDrop.value }) else ({ 0f }),
+                                                        dropElevation = if (current) {
+                                                            { maxOf(vinylDrop.value, (abs(swipe.artworkOffset(song)) * 1.4f).coerceIn(0f, 1f)) }
+                                                        } else {
+                                                            { 1f }
+                                                        },
                                                     )
                                                 }
                                             }
@@ -798,7 +802,11 @@ internal fun AlternateNowPlaying(
                                                     coverAlpha = { if (vinylMain && current) liveCoverAlpha() else 1f },
                                                     mountTopInset = mountTopInset,
                                                     maxDiscBottom = vinylMaxDiscBottom,
-                                                    dropElevation = if (current) ({ vinylDrop.value }) else ({ 0f }),
+                                                    dropElevation = if (current) {
+                                                        { maxOf(vinylDrop.value, (abs(swipe.artworkOffset(song)) * 1.4f).coerceIn(0f, 1f)) }
+                                                    } else {
+                                                        { 1f }
+                                                    },
                                                 )
                                             }
                                         }
