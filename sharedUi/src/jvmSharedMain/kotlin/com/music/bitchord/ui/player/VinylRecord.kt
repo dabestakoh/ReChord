@@ -228,14 +228,15 @@ internal fun VinylDisc(
     val accentColor = colors.accent
     val waxLayer = rememberGraphicsLayer()
     val grooveLayer = rememberGraphicsLayer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     BoxWithConstraints(modifier) {
-        val geometry = with(androidx.compose.ui.platform.LocalDensity.current) {
+        val geometry = with(density) {
             RecordGeometry(Size(maxWidth.toPx(), maxHeight.toPx()), mountTopInset, maxDiscBottom, landscape)
         }
-        val radius = with(androidx.compose.ui.platform.LocalDensity.current) { geometry.radius.toDp() }
-        val left = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.x - geometry.radius).toDp() }
-        val top = with(androidx.compose.ui.platform.LocalDensity.current) { (geometry.center.y - geometry.radius).toDp() }
+        val radius = with(density) { geometry.radius.toDp() }
+        val left = with(density) { (geometry.center.x - geometry.radius).toDp() }
+        val top = with(density) { (geometry.center.y - geometry.radius).toDp() }
         val at = Modifier.offset(x = left, y = top)
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
@@ -278,7 +279,7 @@ internal fun VinylDisc(
                 onDrawBehind {
                     if (r <= 0f) return@onDrawBehind
                     if (!baked) {
-                        waxLayer.record(layerSize) {
+                        waxLayer.record(density, layoutDirection, layerSize) {
                             clipPath(discClip) {
                                 drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
                             }
@@ -294,6 +295,8 @@ internal fun VinylDisc(
             val r = g.radius.coerceAtLeast(1f)
             val c = g.center
             val grooveCache = buildGrooveOverlayCache(c, r, 1.2.dp.toPx(), 2.2.dp.toPx())
+            val gapStrokePx = 1.dp.toPx()
+            val sheenStrokePx = 1.3.dp.toPx()
             val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
             val isPicture = pictureCover
             var groovesBaked = false
@@ -310,8 +313,8 @@ internal fun VinylDisc(
             onDrawBehind {
                 if (g.radius <= 0f) return@onDrawBehind
                 if (!groovesBaked) {
-                    grooveLayer.record(layerSize) {
-                        drawGrooveOverlay(c, r, isPicture, grooveCache)
+                    grooveLayer.record(density, layoutDirection, layerSize) {
+                        drawGrooveOverlay(c, r, isPicture, grooveCache, gapStrokePx, sheenStrokePx)
                     }
                     groovesBaked = true
                 }
@@ -689,16 +692,20 @@ private fun DrawScope.drawGrooveOverlay(
     r: Float,
     pictureCover: Boolean,
     cache: GrooveOverlayCache,
+    gapStrokePx: Float = 1.dp.toPx(),
+    sheenStrokePx: Float = 1.3.dp.toPx(),
 ) {
     val grooveAlpha = if (pictureCover) 0.58f else 1f
     val band = Stroke(r * 0.415f)
     drawCircle(cache.sheen, r * 0.755f, c, alpha = grooveAlpha, style = band)
     drawCircle(cache.bands, r * 0.755f, c, alpha = grooveAlpha, style = band)
     drawCircle(cache.fine, r * 0.755f, c, alpha = grooveAlpha, style = band)
+    val gapStroke = Stroke(gapStrokePx)
+    val sheenStroke = Stroke(sheenStrokePx)
     for (i in 0..5) {
         val gap = 0.585f + i * 0.064f
-        drawCircle(Color.Black.copy(alpha = 0.30f * grooveAlpha), r * gap, c, style = Stroke(1.dp.toPx()))
-        drawCircle(cache.sheen, r * (gap + 0.004f), c, alpha = grooveAlpha, style = Stroke(1.3.dp.toPx()))
+        drawCircle(Color.Black.copy(alpha = 0.30f * grooveAlpha), r * gap, c, style = gapStroke)
+        drawCircle(cache.sheen, r * (gap + 0.004f), c, alpha = grooveAlpha, style = sheenStroke)
     }
     drawCircle(Color.Black.copy(alpha = 0.42f * grooveAlpha), r * 0.534f, c, style = Stroke(r * 0.042f))
     drawCircle(Color.Black.copy(alpha = 0.72f), r * 0.992f, c, style = Stroke(r * 0.015f))
@@ -792,6 +799,7 @@ internal fun VinylTonearm(
     val useGpuShadow = renderEffectBlurSupported && !blurReduced
     val shadowLayer = if (useGpuShadow) rememberGraphicsLayer() else null
     val plinthLayer = rememberGraphicsLayer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val plinthCache = remember {
         object {
             var box: IntSize = IntSize.Zero
@@ -876,7 +884,7 @@ internal fun VinylTonearm(
             val mount = g.pivot - Offset(mountSize.width * 0.5f, mountSize.height * 0.34f)
             val round = CornerRadius(mountSize.width * 0.46f)
             val cueBase = g.pivot + Offset(u * 0.044f, u * 0.095f)
-            plinthLayer.record(fullBox) {
+            plinthLayer.record(density, layoutDirection, fullBox) {
                 for (i in 1..5) {
                     val spread = i * u * 0.003f
                     drawRoundRect(
@@ -955,7 +963,7 @@ internal fun VinylTonearm(
             }
             if (needsRecord) {
                 val p = g.pivot + Offset(shift, shift * 1.45f)
-                shadowLayer.record(box) {
+                shadowLayer.record(density, layoutDirection, box) {
                     scale(res, res, pivot = Offset.Zero) {
                         rotate(swing, p) {
                             drawArm(p, g.reach, u, Color.Black.copy(alpha = (dim - raised * 0.06f).coerceIn(0.10f, 0.32f)))
