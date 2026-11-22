@@ -128,7 +128,7 @@ internal class RecordGeometry(
     private val towardCenter = atan2(center.y - pivot.y, center.x - pivot.x)
 
     fun angle(progress: Float): Float {
-        val groove = outer + (inner - outer) * progress.coerceIn(0f, 1f)
+        val groove = outer + (inner - outer) * progress.coerceIn(-0.10f, 1f)
         val cosine = (reach * reach + distance * distance - groove * groove) /
             (2f * reach * distance).coerceAtLeast(1f)
         return towardCenter - acos(cosine.coerceIn(-1f, 1f))
@@ -206,6 +206,7 @@ internal fun VinylDisc(
     mountTopInset: Int = 0,
     maxDiscBottom: Float? = null,
     landscape: Boolean = false,
+    dropElevation: () -> Float = { 0f },
 ) {
     var rotation by remember(trackKey) { mutableFloatStateOf(lastRecordPhases[trackKey] ?: 0f) }
     val foreground = com.music.bitchord.ui.rememberIsForeground()
@@ -216,6 +217,7 @@ internal fun VinylDisc(
     }
     LaunchedEffect(spin, coastOnPause, foreground, trackKey) {
         when {
+            spin && foreground -> spinRate.animateTo(VINYL_SPIN_DEG_PER_SEC, tween(260, easing = FastOutSlowInEasing))
             spin -> spinRate.snapTo(VINYL_SPIN_DEG_PER_SEC)
             foreground && coastOnPause -> spinRate.animateTo(0f, tween(230))
             else -> spinRate.snapTo(0f)
@@ -251,148 +253,182 @@ internal fun VinylDisc(
         val at = Modifier.offset(x = left, y = top)
             .wrapContentSize(Alignment.TopStart, unbounded = true).requiredSize(radius * 2)
         val label = radius * 0.516f
-        // Soft drop shadow behind the disc (kept outside offscreen disc bounds so it is never clipped).
+        // Soft drop shadow behind the disc: dynamically softens, widens, and offsets while the
+        // vinyl is dropping down onto the platter, then tightens right underneath as it lands.
         Box(Modifier.fillMaxSize().drawWithCache {
             val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
-            val shadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
-            val outer = (g.radius * 1.16f).coerceAtLeast(1f)
-            val shadow = Brush.radialGradient(
+            val baseShadowAt = g.center + Offset(g.radius * 0.024f, g.radius * 0.057f)
+            val baseOuter = (g.radius * 1.16f).coerceAtLeast(1f)
+            val restShadow = Brush.radialGradient(
                 0.84f to Color.Black.copy(alpha = 0.70f),
                 0.93f to Color.Black.copy(alpha = 0.19f), 1f to Color.Transparent,
-                center = shadowAt, radius = outer,
+                center = baseShadowAt, radius = baseOuter,
             )
-            onDrawBehind { if (g.radius > 0f) drawCircle(shadow, outer, shadowAt) }
-        })
-        val pictureCover = picture && artwork != null
-        if (pictureCover) {
-            Box(at.then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
-                labelPlacement(it, coverAngle)
-            })) {
-                Box(Modifier.fillMaxSize().graphicsLayer {
-                    rotationZ = rotation
-                    alpha = coverAlpha()
-                }) {
-                    LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
-                }
-            }
-        }
-        if (staticPlatter) {
-            // Radially symmetric finishes look identical when still: combine wax + grooves into ONE
-            // disc-sized static Offscreen layer (never rotated, never invalidated by progress ticks).
-            Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
-                Box(Modifier.fillMaxSize().drawWithCache {
-                    val r = size.minDimension / 2f
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
-                    val grooveCache = buildGrooveOverlayCache(center, r.coerceAtLeast(1f), 1.2.dp.toPx(), 2.2.dp.toPx())
-                    val gapStrokePx = 1.dp.toPx()
-                    val sheenStrokePx = 1.3.dp.toPx()
-                    val finish = style.finish
-                    val hasArt = artwork != null
-                    val discClip = Path().apply {
-                        if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
-                    }
-                    onDrawBehind {
-                        if (r <= 0f) return@onDrawBehind
-                        clipPath(discClip) {
-                            drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
-                        }
-                        drawGrooveOverlay(center, r, false, grooveCache, gapStrokePx, sheenStrokePx)
-                    }
-                })
-            }
-        } else {
-            // Patterned finishes: bake wax once into a disc-sized layer and rotate only that cached texture.
-            Box(at.graphicsLayer { rotationZ = rotation }) {
-                Box(Modifier.fillMaxSize().drawWithCache {
-                    val r = size.minDimension / 2f
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
-                    val finish = style.finish
-                    val hasArt = artwork != null
-                    val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
-                    val discClip = Path().apply {
-                        if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
-                    }
-                    var baked = false
-                    onDrawBehind {
-                        if (r <= 0f) return@onDrawBehind
-                        if (!baked) {
-                            waxLayer.record(density, layoutDirection, layerSize) {
-                                clipPath(discClip) {
-                                    drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
-                                }
-                            }
-                            baked = true
-                        }
-                        drawLayer(waxLayer)
-                    }
-                })
-            }
-            // Static grooves in a disc-sized Offscreen layer above the rotating patterned wax
-            // (never invalidated by playback progress ticks).
-            Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
-                Box(Modifier.fillMaxSize().drawWithCache {
-                    val r = size.minDimension / 2f
-                    val center = Offset(size.width / 2f, size.height / 2f)
-                    val grooveCache = buildGrooveOverlayCache(center, r.coerceAtLeast(1f), 1.2.dp.toPx(), 2.2.dp.toPx())
-                    val gapStrokePx = 1.dp.toPx()
-                    val sheenStrokePx = 1.3.dp.toPx()
-                    val isPicture = pictureCover
-                    onDrawBehind {
-                        if (r <= 0f) return@onDrawBehind
-                        drawGrooveOverlay(center, r, isPicture, grooveCache, gapStrokePx, sheenStrokePx)
-                    }
-                })
-            }
-        }
-        // Lightweight dynamic needle-tip highlight arc (decoupled from the static groove layer so
-        // 500ms progress ticks never invalidate or redraw the vinyl grooves).
-        Box(Modifier.fillMaxSize().drawWithCache {
-            val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
-            val c = g.center
-            val idleLight = Brush.sweepGradient(
-                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
-                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
-            )
-            val seekingLight = Brush.sweepGradient(
-                0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.43f),
-                0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
-            )
-            val idleStroke = Stroke(1.dp.toPx())
-            val seekingStroke = Stroke(2.dp.toPx())
             onDrawBehind {
                 if (g.radius <= 0f) return@onDrawBehind
-                val p = shown().coerceIn(0f, 1f)
-                val tip = g.tip(p)
-                val activeRadius = (tip - c).getDistance()
-                val tipAngle = degrees(atan2(tip.y - c.y, tip.x - c.x))
-                val isSeeking = seeking()
-                val light = if (isSeeking) seekingLight else idleLight
-                rotate(tipAngle - 12f, c) {
-                    drawArc(light, 0f, 26f, false, c - Offset(activeRadius, activeRadius),
-                        Size(activeRadius * 2, activeRadius * 2), style = if (isSeeking) seekingStroke else idleStroke)
+                val elev = dropElevation().coerceIn(0f, 1f)
+                if (elev <= 0.001f) {
+                    drawCircle(restShadow, baseOuter, baseShadowAt)
+                } else {
+                    val shift = Offset(g.radius * 0.045f * elev, g.radius * 0.085f * elev)
+                    val shadowAt = baseShadowAt + shift
+                    val outer = (baseOuter * (1f + 0.11f * elev)).coerceAtLeast(1f)
+                    val fade = (1f - 0.38f * elev).coerceIn(0.25f, 1f)
+                    val dropShadow = Brush.radialGradient(
+                        (0.84f - 0.10f * elev) to Color.Black.copy(alpha = 0.70f * fade),
+                        (0.93f - 0.04f * elev) to Color.Black.copy(alpha = 0.19f * fade),
+                        1f to Color.Transparent,
+                        center = shadowAt, radius = outer,
+                    )
+                    drawCircle(dropShadow, outer, shadowAt)
                 }
             }
         })
-        val labelModifier = Modifier.offset(x = left + radius - label, y = top + radius - label)
-            .size(label * 2)
-            .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
-                labelPlacement(it, coverAngle)
-            })
-        if (!pictureCover) {
-            Box(labelModifier) {
-                Box(Modifier.fillMaxSize().graphicsLayer {
-                    rotationZ = rotation
-                    alpha = coverAlpha()
-                }) {
-                    LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
+        // Apply drop-in vertical descent and gentle scale-from-above across the entire disc assembly.
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                val elev = dropElevation().coerceIn(0f, 1f)
+                if (elev > 0.0005f) {
+                    translationY = -elev * 44.dp.toPx()
+                    val s = 1f + elev * 0.065f
+                    scaleX = s
+                    scaleY = s
+                    alpha = (1f - elev * 0.55f).coerceIn(0f, 1f)
                 }
-                Canvas(Modifier.fillMaxSize()) {
-                    val lr = size.minDimension / 2f
-                    val lc = Offset(size.width / 2f, size.height / 2f)
-                    drawCircle(Color.Black.copy(alpha = 0.28f), lr - 0.8f, lc, style = Stroke(1.6f))
-                    drawCircle(Color.White.copy(alpha = 0.14f), lr * 0.94f, lc, style = Stroke(1f))
+            },
+        ) {
+            val pictureCover = picture && artwork != null
+            if (pictureCover) {
+                Box(at.then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                    labelPlacement(it, coverAngle)
+                })) {
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        rotationZ = rotation
+                        alpha = coverAlpha()
+                    }) {
+                        LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
+                    }
+                }
+            }
+            if (staticPlatter) {
+                // Radially symmetric finishes look identical when still: combine wax + grooves into ONE
+                // disc-sized static Offscreen layer (never rotated, never invalidated by progress ticks).
+                Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+                    Box(Modifier.fillMaxSize().drawWithCache {
+                        val r = size.minDimension / 2f
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
+                        val grooveCache = buildGrooveOverlayCache(center, r.coerceAtLeast(1f), 1.2.dp.toPx(), 2.2.dp.toPx())
+                        val gapStrokePx = 1.dp.toPx()
+                        val sheenStrokePx = 1.3.dp.toPx()
+                        val finish = style.finish
+                        val hasArt = artwork != null
+                        val discClip = Path().apply {
+                            if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
+                        }
+                        onDrawBehind {
+                            if (r <= 0f) return@onDrawBehind
+                            clipPath(discClip) {
+                                drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
+                            }
+                            drawGrooveOverlay(center, r, false, grooveCache, gapStrokePx, sheenStrokePx)
+                        }
+                    })
+                }
+            } else {
+                // Patterned finishes: bake wax once into a disc-sized layer and rotate only that cached texture.
+                Box(at.graphicsLayer { rotationZ = rotation }) {
+                    Box(Modifier.fillMaxSize().drawWithCache {
+                        val r = size.minDimension / 2f
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val cache = buildVinylWaxCache(style.finish, albumKey, r, center, base, tint, darkTint, accentColor)
+                        val finish = style.finish
+                        val hasArt = artwork != null
+                        val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+                        val discClip = Path().apply {
+                            if (r > 0f) addOval(Rect(center - Offset(r, r), Size(r * 2f, r * 2f)))
+                        }
+                        var baked = false
+                        onDrawBehind {
+                            if (r <= 0f) return@onDrawBehind
+                            if (!baked) {
+                                waxLayer.record(density, layoutDirection, layerSize) {
+                                    clipPath(discClip) {
+                                        drawVinylWax(finish, r, center, base, tint, darkTint, accentColor, hasArt, cache)
+                                    }
+                                }
+                                baked = true
+                            }
+                            drawLayer(waxLayer)
+                        }
+                    })
+                }
+                // Static grooves in a disc-sized Offscreen layer above the rotating patterned wax
+                // (never invalidated by playback progress ticks).
+                Box(at.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+                    Box(Modifier.fillMaxSize().drawWithCache {
+                        val r = size.minDimension / 2f
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val grooveCache = buildGrooveOverlayCache(center, r.coerceAtLeast(1f), 1.2.dp.toPx(), 2.2.dp.toPx())
+                        val gapStrokePx = 1.dp.toPx()
+                        val sheenStrokePx = 1.3.dp.toPx()
+                        val isPicture = pictureCover
+                        onDrawBehind {
+                            if (r <= 0f) return@onDrawBehind
+                            drawGrooveOverlay(center, r, isPicture, grooveCache, gapStrokePx, sheenStrokePx)
+                        }
+                    })
+                }
+            }
+            // Lightweight dynamic needle-tip highlight arc (decoupled from the static groove layer so
+            // 500ms progress ticks never invalidate or redraw the vinyl grooves).
+            Box(Modifier.fillMaxSize().drawWithCache {
+                val g = RecordGeometry(size, mountTopInset, maxDiscBottom, landscape)
+                val c = g.center
+                val idleLight = Brush.sweepGradient(
+                    0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.16f),
+                    0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+                )
+                val seekingLight = Brush.sweepGradient(
+                    0f to Color.Transparent, 0.034f to Color.White.copy(alpha = 0.43f),
+                    0.073f to Color.Transparent, 1f to Color.Transparent, center = c,
+                )
+                val idleStroke = Stroke(1.dp.toPx())
+                val seekingStroke = Stroke(2.dp.toPx())
+                onDrawBehind {
+                    if (g.radius <= 0f) return@onDrawBehind
+                    if (dropElevation() > 0.05f) return@onDrawBehind
+                    val p = shown().coerceIn(0f, 1f)
+                    val tip = g.tip(p)
+                    val activeRadius = (tip - c).getDistance()
+                    val tipAngle = degrees(atan2(tip.y - c.y, tip.x - c.x))
+                    val isSeeking = seeking()
+                    val light = if (isSeeking) seekingLight else idleLight
+                    rotate(tipAngle - 12f, c) {
+                        drawArc(light, 0f, 26f, false, c - Offset(activeRadius, activeRadius),
+                            Size(activeRadius * 2, activeRadius * 2), style = if (isSeeking) seekingStroke else idleStroke)
+                    }
+                }
+            })
+            val labelModifier = Modifier.offset(x = left + radius - label, y = top + radius - label)
+                .size(label * 2)
+                .then(if (labelPlacement == null) Modifier else Modifier.onGloballyPositioned {
+                    labelPlacement(it, coverAngle)
+                })
+            if (!pictureCover) {
+                Box(labelModifier) {
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        rotationZ = rotation
+                        alpha = coverAlpha()
+                    }) {
+                        LayoutArtwork(artwork, Modifier.fillMaxSize().clip(CircleShape))
+                    }
+                    Canvas(Modifier.fillMaxSize()) {
+                        val lr = size.minDimension / 2f
+                        val lc = Offset(size.width / 2f, size.height / 2f)
+                        drawCircle(Color.Black.copy(alpha = 0.28f), lr - 0.8f, lc, style = Stroke(1.6f))
+                        drawCircle(Color.White.copy(alpha = 0.14f), lr * 0.94f, lc, style = Stroke(1f))
+                    }
                 }
             }
         }
@@ -815,6 +851,8 @@ internal fun VinylTonearm(
     maxDiscBottom: Float? = null,
     isPlaying: Boolean = true,
     landscape: Boolean = false,
+    recordLanded: Boolean = true,
+    onNeedleSeated: (Boolean) -> Unit = {},
 ) {
     val measurer = rememberTextMeasurer()
     val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -844,33 +882,53 @@ internal fun VinylTonearm(
     val start = remember { TonearmPose(shown()) }
     val trip = remember { Animatable(1f) }
     val duration by rememberUpdatedState(durationMs)
+    val currentRecordLanded by rememberUpdatedState(recordLanded)
+    val reportSeated by rememberUpdatedState(onNeedleSeated)
     var landedTrack by remember { mutableStateOf(trackKey) }
     var traveling by remember { mutableStateOf(false) }
+    val restEdge = -0.08f
     LaunchedEffect(trackKey, seeking, reduced) {
         if (reduced || seeking) {
             landedTrack = trackKey
             traveling = false
+            reportSeated(true)
         } else if (landedTrack != trackKey || traveling) {
+            reportSeated(false)
             start.progress = lastDrawn.progress
             start.lift = lastDrawn.lift
             trip.snapTo(0f)
             traveling = true
-            trip.animateTo(0.2f, tween(100, easing = LinearEasing))
-            withTimeoutOrNull(600) { snapshotFlow { duration }.first { it > 0L } }
-            trip.animateTo(0.8f, tween(285, easing = LinearEasing))
-            trip.animateTo(1f, tween(135, easing = LinearEasing))
+            // Beat 1: lift needle and clear to outer resting edge.
+            trip.animateTo(0.2f, tween(110, easing = LinearEasing))
+            // Beat 2: stay lifted and clear until the new vinyl finishes dropping onto the platter.
+            withTimeoutOrNull(900) { snapshotFlow { currentRecordLanded }.first { it } }
+            withTimeoutOrNull(450) { snapshotFlow { duration }.first { it > 0L } }
+            // Beat 3: glide from outer resting edge to the active groove, then lower the needle.
+            trip.animateTo(0.8f, tween(260, easing = FastOutSlowInEasing))
+            trip.animateTo(1f, tween(130, easing = LinearEasing))
             landedTrack = trackKey
             traveling = false
+            reportSeated(true)
         }
     }
     val armPosition: () -> Float = {
         when {
             seeking || reduced -> shown()
             traveling -> {
-                val sweep = FastOutSlowInEasing.transform(((trip.value - 0.2f) / 0.6f).coerceIn(0f, 1f))
-                start.progress + (shown() - start.progress) * sweep
+                val p = trip.value
+                when {
+                    p < 0.2f -> {
+                        val clearT = (p / 0.2f).coerceIn(0f, 1f)
+                        start.progress + (restEdge - start.progress) * clearT
+                    }
+                    p < 0.8f -> {
+                        val glideT = ((p - 0.2f) / 0.6f).coerceIn(0f, 1f)
+                        restEdge + (shown() - restEdge) * glideT
+                    }
+                    else -> shown()
+                }
             }
-            landedTrack != trackKey -> lastDrawn.progress
+            landedTrack != trackKey -> restEdge
             else -> shown()
         }
     }
@@ -878,10 +936,16 @@ internal fun VinylTonearm(
         armPosition, onScrub, onFinish, onCancel, claimDown = true,
         accepts = { bounds, down, tolerance, fraction ->
             val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom, landscape)
-            val arm = g.tip(fraction) - g.pivot
-            val delta = down - g.pivot
-            val projection = ((arm.x * delta.x + arm.y * delta.y) / (arm.x * arm.x + arm.y * arm.y)).coerceIn(0f, 1f)
-            (delta - arm * projection).getDistance() <= tolerance
+            val tip = g.tip(fraction)
+            val armDir = tip - g.pivot
+            // Restrict touch hitbox to the headshell/cartridge head (last ~16% of the arm)
+            // plus a generous outer halo (~38dp) so track swipes across the vinyl or shaft never mistouch.
+            val headStart = g.pivot + armDir * 0.84f
+            val head = tip - headStart
+            val delta = down - headStart
+            val headLenSq = (head.x * head.x + head.y * head.y).coerceAtLeast(1f)
+            val projection = ((head.x * delta.x + head.y * delta.y) / headLenSq).coerceIn(0f, 1f)
+            (delta - head * projection).getDistance() <= tolerance * 1.65f
         },
         along = { _, _, _ -> true },
         fraction = { bounds, down, current, initial ->

@@ -163,6 +163,12 @@ internal fun Modifier.openLayoutOnHold(action: (() -> Unit)?): Modifier {
 
 internal val LocalPosterTitleTarget = compositionLocalOf<(() -> LayoutCoordinates?)?> { null }
 
+// Remember the last measured portrait vinyl clearance per stage size so maximizing from
+// the mini player starts at the exact final radius on Frame 1 with zero mid-open texture redraw.
+private val lastVinylMaxDiscBottom = object : LinkedHashMap<Long, Float>(4, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Float>?): Boolean = size > 4
+}
+
 @Composable
 internal fun AlternateNowPlaying(
     layout: NowPlayingLayout,
@@ -283,6 +289,29 @@ internal fun AlternateNowPlaying(
         }
     }
     var seekingArm by remember { mutableStateOf(false) }
+    var lastVinylTrack by remember { mutableStateOf(song.swipeIdentity) }
+    val vinylDrop = remember { Animatable(0f) }
+    var vinylRecordLanded by remember { mutableStateOf(true) }
+    var tonearmSeated by remember { mutableStateOf(true) }
+    LaunchedEffect(song.swipeIdentity, vinyl, reduceAnimation) {
+        if (!vinyl || reduceAnimation) {
+            lastVinylTrack = song.swipeIdentity
+            vinylDrop.snapTo(0f)
+            vinylRecordLanded = true
+            tonearmSeated = true
+            return@LaunchedEffect
+        }
+        if (song.swipeIdentity != lastVinylTrack) {
+            lastVinylTrack = song.swipeIdentity
+            vinylRecordLanded = false
+            tonearmSeated = false
+            vinylDrop.snapTo(1f)
+            // Let the tonearm lift & clear to the outer resting edge before dropping the new record.
+            delay(110L)
+            vinylDrop.animateTo(0f, spring(dampingRatio = 0.88f, stiffness = 210f))
+            vinylRecordLanded = true
+        }
+    }
     val artworkStride = if (vinyl) 1.64f else 1f
     val gesture = if (preview) Modifier else Modifier.alternateTrackGesture(
         swipe, previousSong, nextSong, artworkStride, reduceAnimation, onSwipePrevious, onNext,
@@ -472,7 +501,8 @@ internal fun AlternateNowPlaying(
                     } else null
                     var stageCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
                     var creditsTitleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-                    var vinylMaxDiscBottom by remember { mutableStateOf<Float?>(null) }
+                    val stageSizeKey = (maxWidth.value.roundToInt().toLong() shl 32) or (maxHeight.value.roundToInt().toLong() and 0xFFFFFFFFL)
+                    var vinylMaxDiscBottom by remember(stageSizeKey) { mutableStateOf(lastVinylMaxDiscBottom[stageSizeKey]) }
                     val vinylClearancePx = with(density) { 8.dp.toPx() }
                     val videoRatio = videoAspect.coerceIn(1.2f, 2.4f)
                     val videoActive = video != null
@@ -533,7 +563,7 @@ internal fun AlternateNowPlaying(
                                                     }
                                                     VinylDisc(
                                                         request, track.swipeIdentity, vinylStyle, color,
-                                                        pane == PlayerPane.Main && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                        pane == PlayerPane.Main && spinRecord && tonearmSeated && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
                                                         if (current) shown else ({ 0f }),
                                                         { current && seekingArm },
                                                         Modifier.fillMaxSize().graphicsLayer {
@@ -548,6 +578,7 @@ internal fun AlternateNowPlaying(
                                                         coverAlpha = { if (pane == PlayerPane.Main && current) liveCoverAlpha() else 1f },
                                                         mountTopInset = 0,
                                                         landscape = true,
+                                                        dropElevation = if (current) ({ vinylDrop.value }) else ({ 0f }),
                                                     )
                                                 }
                                             }
@@ -559,6 +590,8 @@ internal fun AlternateNowPlaying(
                                                 mountTopInset = 0,
                                                 isPlaying = isPlaying,
                                                 landscape = true,
+                                                recordLanded = vinylRecordLanded,
+                                                onNeedleSeated = { tonearmSeated = it },
                                             )
                                         }
                                     } else {
@@ -750,7 +783,7 @@ internal fun AlternateNowPlaying(
                                                 }
                                                 VinylDisc(
                                                     request, track.swipeIdentity, vinylStyle, color,
-                                                    vinylMain && spinRecord && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
+                                                    vinylMain && spinRecord && tonearmSeated && !reduceAnimation && (current || abs(swipe.artworkOffset(song)) > 0.16f),
                                                     if (current) shown else ({ 0f }),
                                                     { current && seekingArm },
                                                     Modifier.fillMaxSize().graphicsLayer {
@@ -765,6 +798,7 @@ internal fun AlternateNowPlaying(
                                                     coverAlpha = { if (vinylMain && current) liveCoverAlpha() else 1f },
                                                     mountTopInset = mountTopInset,
                                                     maxDiscBottom = vinylMaxDiscBottom,
+                                                    dropElevation = if (current) ({ vinylDrop.value }) else ({ 0f }),
                                                 )
                                             }
                                         }
@@ -776,6 +810,8 @@ internal fun AlternateNowPlaying(
                                             mountTopInset = mountTopInset,
                                             maxDiscBottom = vinylMaxDiscBottom,
                                             isPlaying = isPlaying,
+                                            recordLanded = vinylRecordLanded,
+                                            onNeedleSeated = { tonearmSeated = it },
                                         )
                                         if (statusScrimAlpha > 0f) {
                                             Box(
@@ -999,7 +1035,12 @@ internal fun AlternateNowPlaying(
                                                                 val root = stageCoords
                                                                 if (vinyl && root != null && root.isAttached && coords.isAttached) {
                                                                     val topY = root.localPositionOf(coords, Offset.Zero).y
-                                                                    vinylMaxDiscBottom = (topY - vinylClearancePx).coerceAtLeast(1f)
+                                                                    val measured = (topY - vinylClearancePx).coerceAtLeast(1f)
+                                                                    val prev = vinylMaxDiscBottom
+                                                                    if (prev == null || abs(measured - prev) > 1.5f) {
+                                                                        vinylMaxDiscBottom = measured
+                                                                        lastVinylMaxDiscBottom[stageSizeKey] = measured
+                                                                    }
                                                                 }
                                                             },
                                                         verticalArrangement = Arrangement.spacedBy(6.dp),
