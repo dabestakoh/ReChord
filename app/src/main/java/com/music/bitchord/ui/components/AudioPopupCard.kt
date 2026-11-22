@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -65,7 +67,7 @@ internal fun AudioPopupCard(
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val frost = LocalPlayerFrost.current
 
-    Box(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .containSheetGestures()
@@ -74,12 +76,16 @@ internal fun AudioPopupCard(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onDismiss,
-            ),
+            )
+            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing)
+            .padding(vertical = 12.dp, horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
+        val compactHeight = maxHeight < 460.dp
+        val bodyMaxHeight = (maxHeight - if (compactHeight) 136.dp else 172.dp).coerceIn(110.dp, POPUP_CONTENT_MAX_HEIGHT)
         Column(
             modifier = Modifier
-                .width(POPUP_WIDTH)
+                .width(minOf(POPUP_WIDTH, maxWidth))
                 .clip(POPUP_CARD_SHAPE)
                 .then(
                     // The ⋯ menu's frost — see [PlayerDrawer], whose drawers
@@ -103,7 +109,7 @@ internal fun AudioPopupCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 19.dp),
+                    .padding(horizontal = 16.dp, vertical = if (compactHeight) 12.dp else 19.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -129,7 +135,7 @@ internal fun AudioPopupCard(
 
             Box(
                 modifier = Modifier
-                    .heightIn(max = POPUP_CONTENT_MAX_HEIGHT)
+                    .heightIn(max = bodyMaxHeight)
                     .verticalScroll(rememberScrollState()),
                 content = content,
             )

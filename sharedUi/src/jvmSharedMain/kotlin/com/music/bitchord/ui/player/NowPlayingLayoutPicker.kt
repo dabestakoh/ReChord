@@ -82,38 +82,13 @@ fun NowPlayingLayoutPicker(
     options: @Composable (NowPlayingLayout) -> Unit = {},
     defaultArtworkFullBleed: Boolean? = null,
     defaultPlayerTheme: PlayerTheme? = null,
+    availableHeight: androidx.compose.ui.unit.Dp? = null,
 ) {
     val layouts = NowPlayingLayout.entries
     val pages = rememberPagerState(initialPage = initialPage.ordinal) { layouts.size }
     val scope = rememberCoroutineScope()
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        if (showTitle) {
-            Text(
-                stringResource(Res.string.now_playing_layout),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(top = 20.dp, bottom = 12.dp),
-            )
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val cardHeight = (maxWidth * 0.87f).coerceIn(240.dp, 355.dp)
-            val cardWidth = cardHeight * 0.56f
-            HorizontalPager(
-                state = pages,
-                pageSize = PageSize.Fixed(cardWidth),
-                contentPadding = PaddingValues(horizontal = ((maxWidth - cardWidth) / 2).coerceAtLeast(0.dp)),
-                pageSpacing = 12.dp,
-                modifier = Modifier.fillMaxWidth(),
-            ) { page ->
-                LayoutPreview(
-                    layout = layouts[page],
-                    artwork = artwork,
-                    hideVolume = hideVolumeFor?.invoke(layouts[page]),
-                    fullBleed = defaultArtworkFullBleed,
-                    playerTheme = defaultPlayerTheme,
-                    modifier = Modifier.fillMaxWidth().height(cardHeight),
-                )
-            }
-        }
+
+    val layoutTabs: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             layouts.forEach { layout ->
                 val focused = pages.currentPage == layout.ordinal
@@ -131,9 +106,11 @@ fun NowPlayingLayoutPicker(
                 }
             }
         }
-        options(layouts[pages.currentPage])
+    }
+
+    val actionButtons: @Composable (Modifier) -> Unit = { rowModifier ->
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            modifier = rowModifier,
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
         ) {
             TextButton(onClick = onDismiss) { Text(stringResource(Res.string.cancel)) }
@@ -141,6 +118,96 @@ fun NowPlayingLayoutPicker(
                 onClick = { onApply(layouts[pages.settledPage]) },
                 enabled = !pages.isScrollInProgress,
             ) { Text(stringResource(Res.string.apply_layout)) }
+        }
+    }
+
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val viewportHeight = availableHeight ?: if (maxHeight != androidx.compose.ui.unit.Dp.Infinity) maxHeight else null
+        val useWideLandscape = maxWidth >= 520.dp && (viewportHeight == null || maxWidth > viewportHeight || viewportHeight < 520.dp)
+
+        if (useWideLandscape) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (showTitle) {
+                    Text(
+                        stringResource(Res.string.now_playing_layout),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    BoxWithConstraints(Modifier.weight(0.42f)) {
+                        val targetHeight = ((viewportHeight ?: 420.dp) * 0.56f).coerceIn(168.dp, 270.dp)
+                        val cardWidth = (targetHeight * 0.56f).coerceAtMost((maxWidth - 16.dp).coerceAtLeast(100.dp))
+                        val cardHeight = cardWidth / 0.56f
+                        HorizontalPager(
+                            state = pages,
+                            pageSize = PageSize.Fixed(cardWidth),
+                            contentPadding = PaddingValues(horizontal = ((maxWidth - cardWidth) / 2).coerceAtLeast(0.dp)),
+                            pageSpacing = 12.dp,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { page ->
+                            LayoutPreview(
+                                layout = layouts[page],
+                                artwork = artwork,
+                                hideVolume = hideVolumeFor?.invoke(layouts[page]),
+                                fullBleed = defaultArtworkFullBleed,
+                                playerTheme = defaultPlayerTheme,
+                                modifier = Modifier.fillMaxWidth().height(cardHeight),
+                            )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.weight(0.58f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        layoutTabs()
+                        actionButtons(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp))
+                        options(layouts[pages.currentPage])
+                    }
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (showTitle) {
+                    Text(
+                        stringResource(Res.string.now_playing_layout),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(top = 20.dp, bottom = 12.dp),
+                    )
+                }
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val widthBasedHeight = (maxWidth * 0.87f).coerceIn(200.dp, 355.dp)
+                    val cardHeight = if (viewportHeight != null) {
+                        minOf(widthBasedHeight, (viewportHeight * 0.44f).coerceAtLeast(180.dp))
+                    } else {
+                        widthBasedHeight
+                    }
+                    val cardWidth = (cardHeight * 0.56f).coerceAtMost((maxWidth - 24.dp).coerceAtLeast(120.dp))
+                    HorizontalPager(
+                        state = pages,
+                        pageSize = PageSize.Fixed(cardWidth),
+                        contentPadding = PaddingValues(horizontal = ((maxWidth - cardWidth) / 2).coerceAtLeast(0.dp)),
+                        pageSpacing = 12.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { page ->
+                        LayoutPreview(
+                            layout = layouts[page],
+                            artwork = artwork,
+                            hideVolume = hideVolumeFor?.invoke(layouts[page]),
+                            fullBleed = defaultArtworkFullBleed,
+                            playerTheme = defaultPlayerTheme,
+                            modifier = Modifier.fillMaxWidth().height(cardHeight),
+                        )
+                    }
+                }
+                layoutTabs()
+                options(layouts[pages.currentPage])
+                actionButtons(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp))
+            }
         }
     }
 }

@@ -171,7 +171,11 @@ fun AppLanguageDialog(
             // [TranslationLanguageDialog] — sixteen rows is short enough not
             // to need that dialog's filter field, but still taller than the
             // card should get to stay centred on a phone.
-            LazyColumn(modifier = Modifier.heightIn(max = LANGUAGE_LIST_MAX_HEIGHT)) {
+            val maxListHeight = minOf(
+                LANGUAGE_LIST_MAX_HEIGHT,
+                (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.48f).coerceAtLeast(120.dp),
+            )
+            LazyColumn(modifier = Modifier.heightIn(max = maxListHeight)) {
                 items(SUPPORTED_LANGUAGES, key = { it.tag }) { language ->
                     AlertRule()
                     LanguageRow(

@@ -2925,6 +2925,7 @@ fun SettingsChoicePage(
     modifier: Modifier = Modifier,
     currentArtwork: String? = null,
     windowWidth: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp,
+    windowHeight: Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp,
     onOpenChoice: (SettingsChoiceKind) -> Unit = {},
     onSpotifyCanvasAuth: () -> Unit = {},
 ) {
@@ -3059,6 +3060,7 @@ fun SettingsChoicePage(
                     hideVolumeFor = hideVolume,
                     defaultArtworkFullBleed = fullBleed,
                     defaultPlayerTheme = theme,
+                    availableHeight = windowHeight,
                     options = { skin ->
                         Column(Modifier.fillMaxWidth().padding(horizontal = ROW_INSET)) {
                             if (skin == NowPlayingLayout.VINYL) {
@@ -3160,6 +3162,7 @@ fun SettingsChoicePage(
                 VinylAppearanceEditor(
                     appearance, AppSettings::setVinylAppearance, currentArtwork,
                     Modifier.fillMaxWidth().padding(horizontal = ROW_INSET),
+                    availableHeight = windowHeight,
                 )
             }
             SettingsChoiceKind.LYRICS_STYLE -> {

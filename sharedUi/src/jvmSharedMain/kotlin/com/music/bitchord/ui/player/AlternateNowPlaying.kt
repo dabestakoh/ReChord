@@ -62,7 +62,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -454,7 +456,9 @@ internal fun AlternateNowPlaying(
                     }
                     val play: @Composable () -> Unit = {
                         if (isLoading) {
-                            Box(Modifier.size(52.dp, 48.dp), contentAlignment = Alignment.Center) {
+                            val pw = LocalPlaybackPillWidth.current
+                            val ph = (pw * 0.92f).coerceIn(38.dp, 48.dp)
+                            Box(Modifier.size(pw, ph), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(Modifier.size(21.dp), color = LocalPlayerAccent.current, strokeWidth = 2.dp)
                             }
                         } else {
@@ -507,7 +511,13 @@ internal fun AlternateNowPlaying(
                     CompositionLocalProvider(LocalPosterTitleTarget provides { creditsTitleCoords }) {
                         if (landscape) {
                             Row(Modifier.fillMaxSize()) {
-                                val leftWidth = if (vinyl) stageMaxWidth * 0.50f else minOf(stageMaxHeight * 1.04f, stageMaxWidth * 0.46f)
+                                val narrowLandscape = stageMaxWidth < 680.dp
+                                val shortLandscape = stageMaxHeight < 420.dp
+                                val leftWidth = if (vinyl) {
+                                    stageMaxWidth * if (narrowLandscape) 0.45f else 0.50f
+                                } else {
+                                    minOf(stageMaxHeight * 1.04f, stageMaxWidth * if (narrowLandscape) 0.42f else 0.46f)
+                                }
                                 Box(
                                     Modifier
                                         .width(leftWidth)
@@ -629,13 +639,16 @@ internal fun AlternateNowPlaying(
                                         .fillMaxHeight()
                                         .then(
                                             if (!preview) {
-                                                val vPad = if (vinyl) 2.dp else 10.dp
+                                                val vPad = if (vinyl || shortLandscape) 2.dp else 10.dp
                                                 Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = vPad, bottom = vPad)
                                             } else {
                                                 Modifier
                                             },
                                         )
-                                        .padding(start = 14.dp, end = 18.dp),
+                                        .padding(
+                                            start = if (narrowLandscape) 8.dp else 14.dp,
+                                            end = if (narrowLandscape) 10.dp else 18.dp,
+                                        ),
                                     transitionSpec = {
                                         if (reduceAnimation) {
                                             fadeIn(snap()) togetherWith fadeOut(snap())
@@ -646,16 +659,29 @@ internal fun AlternateNowPlaying(
                                     label = "alternateLandscapePane",
                                 ) { shownPane ->
                                     val active = shownPane == pane
+                                    val pillCount = if (rotatePill != null) 6 else 5
                                     when (shownPane) {
                                         PlayerPane.Main -> Column(
-                                            Modifier.fillMaxSize().padding(top = 4.dp),
-                                            verticalArrangement = Arrangement.SpaceBetween,
+                                            Modifier
+                                                .fillMaxSize()
+                                                .padding(top = if (shortLandscape) 0.dp else 4.dp)
+                                                .then(
+                                                    if (vinyl) {
+                                                        Modifier.verticalScroll(rememberScrollState())
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                ),
+                                            verticalArrangement = if (vinyl) {
+                                                Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp, Alignment.CenterVertically)
+                                            } else {
+                                                Arrangement.SpaceBetween
+                                            },
                                         ) {
                                             if (!vinyl) {
-                                                Row(
-                                                    Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                                                    verticalAlignment = Alignment.CenterVertically,
+                                                AdaptivePlaybackPillRow(
+                                                    buttonCount = pillCount,
+                                                    modifier = Modifier.fillMaxWidth(),
                                                 ) {
                                                     rotatePill?.invoke(); menu(); favorite(); previous(); play(); next()
                                                 }
@@ -663,7 +689,7 @@ internal fun AlternateNowPlaying(
                                                     Modifier
                                                         .fillMaxWidth()
                                                         .weight(1f)
-                                                        .padding(vertical = 2.dp)
+                                                        .padding(vertical = if (shortLandscape) 0.dp else 2.dp)
                                                         .graphicsLayer {
                                                             alpha = textOpacity
                                                             translationX = posterSidewaysSeekExpand * 14.dp.toPx()
@@ -675,7 +701,7 @@ internal fun AlternateNowPlaying(
                                             }
                                             Column(
                                                 Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalArrangement = Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp),
                                             ) {
                                                 Box(
                                                     Modifier
@@ -694,16 +720,15 @@ internal fun AlternateNowPlaying(
                                                     Box(
                                                         Modifier
                                                             .fillMaxWidth()
-                                                            .height(38.dp)
+                                                            .height(if (shortLandscape) 28.dp else 38.dp)
                                                             .graphicsLayer { alpha = textOpacity },
                                                         contentAlignment = Alignment.CenterStart,
                                                     ) {
                                                         if (active) lyrics()
                                                     }
-                                                    Row(
-                                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                                                        verticalAlignment = Alignment.CenterVertically,
+                                                    AdaptivePlaybackPillRow(
+                                                        buttonCount = pillCount,
+                                                        modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
                                                     ) {
                                                         previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
                                                     }
@@ -717,7 +742,7 @@ internal fun AlternateNowPlaying(
                                             }
                                         }
                                         PlayerPane.Lyrics, PlayerPane.Queue -> Box(
-                                            Modifier.fillMaxSize().clipToBounds().padding(top = 24.dp),
+                                            Modifier.fillMaxSize().clipToBounds().padding(top = if (shortLandscape) 8.dp else 24.dp),
                                         ) {
                                             if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
                                         }
@@ -1070,7 +1095,7 @@ internal fun AlternateNowPlaying(
                                                     } else if (compact) {
                                                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                                             Column { menu(); favorite(); previous() }
-                                                            Column(Modifier.align(Alignment.Bottom)) { play(); next() }
+                                                            Column(Modifier.align(Alignment.Bottom)) { rotatePill?.invoke(); play(); next() }
                                                         }
                                                     } else {
                                                         Column { menu(); favorite(); previous(); play(); next() }
@@ -1236,6 +1261,30 @@ private fun PlayerLayoutCredits(
     }
 }
 
+private val LocalPlaybackPillWidth = compositionLocalOf { 52.dp }
+
+@Composable
+private fun AdaptivePlaybackPillRow(
+    buttonCount: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val count = buttonCount.coerceAtLeast(1)
+        val gap = if (maxWidth < 290.dp) 2.dp else 4.dp
+        val pillWidth = ((maxWidth - gap * (count - 1)) / count).coerceIn(36.dp, 52.dp)
+        CompositionLocalProvider(LocalPlaybackPillWidth provides pillWidth) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gap, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                content()
+            }
+        }
+    }
+}
+
 @Composable
 private fun PlaybackPill(
     icon: ImageVector,
@@ -1246,8 +1295,9 @@ private fun PlaybackPill(
     extraOffsetX: Dp = 0.dp,
     onClick: () -> Unit,
 ) {
+    val iconSize = if (LocalPlaybackPillWidth.current < 44.dp) 20.dp else 23.dp
     PlaybackPillFrame(onClick, true, modifier, reduced = reduced, extraScale = extraScale, extraOffsetX = extraOffsetX) {
-        Icon(icon, description, tint = LocalPlayerAccent.current, modifier = Modifier.size(23.dp))
+        Icon(icon, description, tint = LocalPlayerAccent.current, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -1261,9 +1311,10 @@ private fun PlaybackPill(
     extraOffsetX: Dp = 0.dp,
     onClick: () -> Unit,
 ) {
+    val iconSize = if (LocalPlaybackPillWidth.current < 44.dp) 19.dp else 22.dp
     PlaybackPillFrame(onClick, enabled, reduced = reduced, extraScale = extraScale, extraOffsetX = extraOffsetX) {
         Icon(
-            painterResource(icon), description, modifier = Modifier.size(22.dp),
+            painterResource(icon), description, modifier = Modifier.size(iconSize),
             tint = LocalPlayerAccent.current.copy(alpha = if (enabled) 1f else 0.32f),
         )
     }
@@ -1279,6 +1330,10 @@ private fun PlaybackPillFrame(
     extraOffsetX: Dp = 0.dp,
     icon: @Composable () -> Unit,
 ) {
+    val pillW = LocalPlaybackPillWidth.current
+    val pillH = (pillW * 0.92f).coerceIn(38.dp, 48.dp)
+    val capsuleW = (pillW - 6.dp).coerceAtLeast(32.dp)
+    val capsuleH = (pillH - 9.dp).coerceAtLeast(31.dp)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
@@ -1290,11 +1345,11 @@ private fun PlaybackPillFrame(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interaction,
-        modifier = modifier.size(52.dp, 48.dp),
+        modifier = modifier.size(pillW, pillH),
     ) {
         Box(
             Modifier
-                .size(46.dp, 39.dp)
+                .size(capsuleW, capsuleH)
                 .graphicsLayer {
                     val s = pressScale * extraScale
                     scaleX = s

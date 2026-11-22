@@ -61,6 +61,7 @@ fun VinylAppearanceEditor(
     onChange: (VinylAppearance) -> Unit,
     artwork: String?,
     modifier: Modifier = Modifier,
+    availableHeight: androidx.compose.ui.unit.Dp? = null,
 ) {
     val palette = rememberArtworkPlayerAnalysis(artwork).accent
     val sample = MaterialTheme.colorScheme.primary
@@ -71,12 +72,12 @@ fun VinylAppearanceEditor(
     val colorEditable = value.finish != VinylFinish.PICTURE_DISC && value.finish != VinylFinish.GOLD_RECORD
     val usesAccent = value.finish != VinylFinish.PLAIN && value.finish != VinylFinish.TRANSLUCENT
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    val showcaseCard: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { cardHeight ->
         // Live spinning showcase card on an ambient dark platter backdrop.
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(232.dp)
+                .height(cardHeight)
                 .clip(RoundedCornerShape(22.dp))
                 .background(Brush.verticalGradient(listOf(backdropTint, backdropBase)))
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp)),
@@ -98,203 +99,235 @@ fun VinylAppearanceEditor(
                 )
             }
         }
+    }
 
-        if (colorEditable) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    stringResource(Res.string.vinyl_color),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                VinylSegmentedBar(
-                    options = VinylColorMode.entries.map { mode ->
-                        stringResource(
-                            when (mode) {
-                                VinylColorMode.BLACK -> Res.string.vinyl_black
-                                VinylColorMode.ALBUM -> Res.string.vinyl_album
-                                VinylColorMode.CUSTOM -> Res.string.vinyl_custom
-                            },
-                        )
-                    },
-                    selectedIndex = value.colorMode.ordinal,
-                    onSelect = { index -> onChange(value.copy(colorMode = VinylColorMode.entries[index])) },
-                )
-
-                if (value.colorMode == VinylColorMode.CUSTOM) {
-                    val primarySwatches = remember(palette) {
-                        listOfNotNull(
-                            palette?.toArgb(),
-                            0xFF14161A.toInt(),
-                            0xFFC53C54.toInt(),
-                            0xFFD39433.toInt(),
-                            0xFF278170.toInt(),
-                            0xFF33668D.toInt(),
-                            0xFF704D99.toInt(),
-                            0xFFE3D8BE.toInt(),
-                        ).distinct()
-                    }
-                    val accentSwatches = remember(palette) {
-                        listOfNotNull(
-                            palette?.toArgb(),
-                            0xFFF2ECE1.toInt(),
-                            0xFFE05A72.toInt(),
-                            0xFFE8B75B.toInt(),
-                            0xFF4BB5A0.toInt(),
-                            0xFF669FD4.toInt(),
-                            0xFFB084E6.toInt(),
-                        ).distinct()
-                    }
-                    var colorInput by remember(value.customColor) { mutableStateOf(hex(value.customColor)) }
-                    var accentInput by remember(value.secondaryColor) {
-                        mutableStateOf(value.secondaryColor?.let(::hex).orEmpty())
-                    }
-                    var showHex by remember { mutableStateOf(false) }
-
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        primarySwatches.forEach { color ->
-                            VinylColorDot(
-                                color = Color(color),
-                                label = "#${hex(color)}",
-                                selected = value.customColor == color,
-                                onClick = {
-                                    colorInput = hex(color)
-                                    onChange(value.copy(customColor = color))
+    val controlsContent: @Composable (Int) -> Unit = { finishColumns ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (colorEditable) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        stringResource(Res.string.vinyl_color),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    VinylSegmentedBar(
+                        options = VinylColorMode.entries.map { mode ->
+                            stringResource(
+                                when (mode) {
+                                    VinylColorMode.BLACK -> Res.string.vinyl_black
+                                    VinylColorMode.ALBUM -> Res.string.vinyl_album
+                                    VinylColorMode.CUSTOM -> Res.string.vinyl_custom
                                 },
                             )
-                        }
-                    }
+                        },
+                        selectedIndex = value.colorMode.ordinal,
+                        onSelect = { index -> onChange(value.copy(colorMode = VinylColorMode.entries[index])) },
+                    )
 
-                    if (usesAccent) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                stringResource(Res.string.vinyl_accent_color),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            TextButton(onClick = {
-                                accentInput = ""
-                                onChange(value.copy(secondaryColor = null))
-                            }) {
-                                Text(stringResource(Res.string.vinyl_automatic))
-                            }
+                    if (value.colorMode == VinylColorMode.CUSTOM) {
+                        val primarySwatches = remember(palette) {
+                            listOfNotNull(
+                                palette?.toArgb(),
+                                0xFF14161A.toInt(),
+                                0xFFC53C54.toInt(),
+                                0xFFD39433.toInt(),
+                                0xFF278170.toInt(),
+                                0xFF33668D.toInt(),
+                                0xFF704D99.toInt(),
+                                0xFFE3D8BE.toInt(),
+                            ).distinct()
                         }
+                        val accentSwatches = remember(palette) {
+                            listOfNotNull(
+                                palette?.toArgb(),
+                                0xFFF2ECE1.toInt(),
+                                0xFFE05A72.toInt(),
+                                0xFFE8B75B.toInt(),
+                                0xFF4BB5A0.toInt(),
+                                0xFF669FD4.toInt(),
+                                0xFFB084E6.toInt(),
+                            ).distinct()
+                        }
+                        var colorInput by remember(value.customColor) { mutableStateOf(hex(value.customColor)) }
+                        var accentInput by remember(value.secondaryColor) {
+                            mutableStateOf(value.secondaryColor?.let(::hex).orEmpty())
+                        }
+                        var showHex by remember { mutableStateOf(false) }
+
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            accentSwatches.forEach { color ->
+                            primarySwatches.forEach { color ->
                                 VinylColorDot(
                                     color = Color(color),
                                     label = "#${hex(color)}",
-                                    selected = value.secondaryColor == color,
+                                    selected = value.customColor == color,
                                     onClick = {
-                                        accentInput = hex(color)
-                                        onChange(value.copy(secondaryColor = color))
+                                        colorInput = hex(color)
+                                        onChange(value.copy(customColor = color))
                                     },
                                 )
                             }
                         }
-                    }
 
-                    TextButton(
-                        onClick = { showHex = !showHex },
-                        modifier = Modifier.align(Alignment.Start),
-                    ) {
-                        Text(stringResource(Res.string.vinyl_hex_codes))
-                    }
-                    if (showHex) {
-                        VinylHexField(colorInput, stringResource(Res.string.vinyl_custom_hex)) { input, color ->
-                            colorInput = input
-                            if (color != null) onChange(value.copy(customColor = color))
-                        }
                         if (usesAccent) {
-                            VinylHexField(accentInput, stringResource(Res.string.vinyl_secondary_hex)) { input, color ->
-                                accentInput = input
-                                if (input.isEmpty() || color != null) onChange(value.copy(secondaryColor = color))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    stringResource(Res.string.vinyl_accent_color),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                TextButton(onClick = {
+                                    accentInput = ""
+                                    onChange(value.copy(secondaryColor = null))
+                                }) {
+                                    Text(stringResource(Res.string.vinyl_automatic))
+                                }
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                accentSwatches.forEach { color ->
+                                    VinylColorDot(
+                                        color = Color(color),
+                                        label = "#${hex(color)}",
+                                        selected = value.secondaryColor == color,
+                                        onClick = {
+                                            accentInput = hex(color)
+                                            onChange(value.copy(secondaryColor = color))
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        TextButton(
+                            onClick = { showHex = !showHex },
+                            modifier = Modifier.align(Alignment.Start),
+                        ) {
+                            Text(stringResource(Res.string.vinyl_hex_codes))
+                        }
+                        if (showHex) {
+                            VinylHexField(colorInput, stringResource(Res.string.vinyl_custom_hex)) { input, color ->
+                                colorInput = input
+                                if (color != null) onChange(value.copy(customColor = color))
+                            }
+                            if (usesAccent) {
+                                VinylHexField(accentInput, stringResource(Res.string.vinyl_secondary_hex)) { input, color ->
+                                    accentInput = input
+                                    if (input.isEmpty() || color != null) onChange(value.copy(secondaryColor = color))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(Res.string.vinyl_finish),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                // Visual grid of mini vinyl previews (adapts column count to available width).
+                val rows = remember(finishColumns) { VinylFinish.entries.chunked(finishColumns) }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rows.forEach { rowItems ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            rowItems.forEach { finish ->
+                                val isSelected = value.finish == finish
+                                val label = stringResource(vinylFinishLabel(finish))
+                                val tileShape = RoundedCornerShape(16.dp)
+                                val tileBg = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                                }
+                                val borderColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                }
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(tileShape)
+                                        .background(tileBg)
+                                        .border(if (isSelected) 2.dp else 1.dp, borderColor, tileShape)
+                                        .semantics { selected = isSelected }
+                                        .clickable(role = Role.RadioButton) {
+                                            onChange(value.copy(finish = finish))
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    VinylFinishSwatch(
+                                        appearance = value.copy(finish = finish),
+                                        palette = activePalette,
+                                        artwork = artwork,
+                                        modifier = Modifier.size(56.dp),
+                                    )
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = if (isSelected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                    )
+                                }
+                            }
+                            repeat(finishColumns - rowItems.size) {
+                                Spacer(Modifier.weight(1f))
                             }
                         }
                     }
                 }
             }
         }
+    }
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                stringResource(Res.string.vinyl_finish),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            // Visual grid of mini vinyl previews (3 per row).
-            val rows = remember { VinylFinish.entries.chunked(3) }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                rows.forEach { rowItems ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        rowItems.forEach { finish ->
-                            val isSelected = value.finish == finish
-                            val label = stringResource(vinylFinishLabel(finish))
-                            val tileShape = RoundedCornerShape(16.dp)
-                            val tileBg = if (isSelected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                            }
-                            val borderColor = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(tileShape)
-                                    .background(tileBg)
-                                    .border(if (isSelected) 2.dp else 1.dp, borderColor, tileShape)
-                                    .semantics { selected = isSelected }
-                                    .clickable(role = Role.RadioButton) {
-                                        onChange(value.copy(finish = finish))
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                VinylFinishSwatch(
-                                    appearance = value.copy(finish = finish),
-                                    palette = activePalette,
-                                    artwork = artwork,
-                                    modifier = Modifier.size(56.dp),
-                                )
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                    color = if (isSelected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                        }
-                        repeat(3 - rowItems.size) {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        val viewportHeight = availableHeight ?: if (maxHeight != androidx.compose.ui.unit.Dp.Infinity) maxHeight else null
+        val useWideLandscape = maxWidth >= 560.dp && (viewportHeight == null || maxWidth > viewportHeight || viewportHeight < 520.dp)
+        if (useWideLandscape) {
+            val previewHeight = ((viewportHeight ?: 420.dp) * 0.56f).coerceIn(168.dp, 236.dp)
+            val rightCols = ((maxWidth * 0.62f) / 98.dp).toInt().coerceIn(3, 5)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(Modifier.weight(0.36f)) { showcaseCard(previewHeight) }
+                Box(Modifier.weight(0.64f)) { controlsContent(rightCols) }
+            }
+        } else {
+            val previewHeight = if (viewportHeight != null) {
+                minOf(232.dp, (viewportHeight * 0.34f).coerceAtLeast(168.dp))
+            } else {
+                232.dp
+            }
+            val cols = (maxWidth / 104.dp).toInt().coerceIn(3, 5)
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                showcaseCard(previewHeight)
+                controlsContent(cols)
             }
         }
     }
