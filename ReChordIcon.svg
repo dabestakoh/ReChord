@@ -1,1 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" rx="52" fill="#050505"/><path fill="#fff" fill-rule="evenodd" d="M73,61 L73,62 L72,63 L72,194 L73,195 L101,195 L102,194 L102,160 L100,160 L99,159 L97,159 L96,158 L91,156 L89,154 L90,153 L92,153 L104,152 L105,153 L107,153 L108,154 L110,154 L111,155 L114,156 L116,158 L117,158 L120,161 L121,161 L132,172 L132,173 L152,193 L153,193 L154,194 L156,194 L157,195 L190,195 L190,194 L176,180 L176,179 L153,156 L153,155 L154,154 L157,154 L158,153 L160,153 L161,152 L163,152 L164,151 L169,149 L171,147 L172,147 L182,137 L182,136 L184,134 L184,133 L187,128 L187,126 L189,123 L189,120 L190,119 L190,113 L191,112 L191,106 L190,105 L190,99 L189,98 L189,95 L188,94 L188,92 L187,91 L187,90 L186,89 L186,88 L185,87 L183,82 L181,80 L181,79 L172,70 L171,70 L166,66 L165,66 L162,64 L160,64 L159,63 L157,63 L156,62 L152,62 L151,61Z M165,92 L165,93 L169,100 L169,103 L170,104 L170,115 L169,116 L169,118 L168,119 L168,121 L167,122 L167,123 L165,125 L165,126 L159,132 L158,132 L156,134 L155,134 L150,137 L147,137 L146,138 L140,138 L139,139 L134,139 L133,138 L121,138 L120,137 L106,137 L105,138 L100,138 L99,139 L97,139 L96,140 L94,140 L93,141 L90,142 L88,144 L87,144 L84,147 L83,147 L77,154 L76,153 L76,152 L77,151 L78,148 L80,146 L80,145 L88,137 L88,107 L89,106 L89,103 L90,102 L90,100 L91,99 L92,96 L94,94 L94,93 L101,86 L102,86 L104,84 L105,84 L110,81 L112,81 L113,80 L117,80 L118,79 L143,79 L144,80 L148,80 L149,81 L151,81 L152,82 L155,83 L157,85 L158,85Z M156,105 L153,107 L153,115 L154,116 L158,116 L158,115 L159,114 L159,108 L158,107 L158,106 L157,106Z M107,105 L104,107 L104,115 L107,117 L110,115 L110,107Z M142,99 L142,100 L141,101 L141,120 L143,122 L145,122 L147,120 L147,100 L146,99Z M118,99 L116,101 L116,120 L118,122 L121,122 L122,121 L122,100 L121,99Z M132,88 L129,90 L129,129 L130,130 L133,130 L135,128 L135,90Z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="bg" cx="38%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#202434"/>
+      <stop offset="55%" stop-color="#11131C"/>
+      <stop offset="100%" stop-color="#07080D"/>
+    </radialGradient>
+    <linearGradient id="eqGrad" x1="0" y1="90" x2="0" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="50%" stop-color="#D946EF"/>
+      <stop offset="100%" stop-color="#F43F5E"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="60" y1="46" x2="196" y2="202" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="65%" stop-color="#EEF1F8"/>
+      <stop offset="100%" stop-color="#D8DFEC"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- Precision concentric vinyl grooves -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+    <circle cx="128" cy="114" r="60" stroke-width="1.4" stroke-opacity="0.16"/>
+    <circle cx="128" cy="114" r="54" stroke-width="1.4" stroke-opacity="0.22"/>
+    <circle cx="128" cy="114" r="48" stroke-width="1.4" stroke-opacity="0.15"/>
+    <circle cx="128" cy="114" r="43" stroke-width="1.2" stroke-opacity="0.20"/>
+  </g>
+  <!-- Bottom vinyl rim arc between stem and leg -->
+  <path d="M98,176 A69,69 0 0 0 144,180" fill="none" stroke="url(#metal)" stroke-width="10" stroke-linecap="butt"/>
+  <!-- Outer Vinyl R silhouette (outer arc + left stem + right diagonal leg) -->
+  <path fill="none" stroke="url(#metal)" stroke-width="11" stroke-linecap="square" stroke-linejoin="miter"
+        d="M60,114 A68,68 0 1 1 164,171 L192,199 L167,199 L127,151"/>
+  <!-- Left vertical stem -->
+  <path fill="none" stroke="url(#metal)" stroke-width="11" stroke-linecap="square" stroke-linejoin="miter"
+        d="M60,114 L60,199 L88,199 L88,114"/>
+  <!-- Inner vinyl label ring -->
+  <circle cx="128" cy="114" r="37" fill="#0B0D14" stroke="url(#metal)" stroke-width="10"/>
+  <!-- Three glowing violet-to-coral equalizer bars -->
+  <rect x="108.5" y="100" width="8.5" height="28" rx="4.25" fill="url(#eqGrad)"/>
+  <rect x="123.75" y="89" width="8.5" height="50" rx="4.25" fill="url(#eqGrad)"/>
+  <rect x="139" y="100" width="8.5" height="28" rx="4.25" fill="url(#eqGrad)"/>
+</svg>
