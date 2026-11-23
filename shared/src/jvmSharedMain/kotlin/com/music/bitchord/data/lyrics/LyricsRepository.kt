@@ -137,7 +137,7 @@ object LyricsRepository {
             LyricsSource.KUGOU -> KuGou.lyrics(title, artist, durationMs, album)
             LyricsSource.MEGALOBIZ -> Megalobiz.lyrics(title, artist)
             LyricsSource.GENIUS -> Genius.lyrics(cleanTitle, cleanArtist)
-        }
+        }?.takeUnless(KuGou::isInstrumentalNotice)
     }
 
     /**

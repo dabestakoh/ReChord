@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">Sıraya ekle</string>
+    <string name="queue_selected_count">%1$d seçildi</string>
+    <string name="queue_select_all">Tümünü seç</string>
+    <string name="queue_select">Seç</string>
+    <string name="queue_close_selection">Seçim modunu kapat</string>
+    <string name="queue_add_to_playlist">Çalma listesi</string>
+    <string name="queue_download">İndir</string>
+    <string name="queue_selection_remove">Kaldır</string>
+    <string name="queue_add_all_to_playlist">Tümünü çalma listesine ekle</string>
 </resources>

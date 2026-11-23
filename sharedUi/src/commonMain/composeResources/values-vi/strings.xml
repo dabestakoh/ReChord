@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">Thêm vào hàng đợi</string>
+    <string name="queue_selected_count">Đã chọn %1$d</string>
+    <string name="queue_select_all">Chọn tất cả</string>
+    <string name="queue_select">Chọn</string>
+    <string name="queue_close_selection">Đóng chế độ chọn</string>
+    <string name="queue_add_to_playlist">Danh sách phát</string>
+    <string name="queue_download">Tải xuống</string>
+    <string name="queue_selection_remove">Xóa</string>
+    <string name="queue_add_all_to_playlist">Thêm tất cả vào danh sách phát</string>
 </resources>

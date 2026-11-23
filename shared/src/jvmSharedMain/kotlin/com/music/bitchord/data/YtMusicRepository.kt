@@ -393,6 +393,9 @@ object YtMusicRepository {
      */
     suspend fun searchTypeahead(input: String): Result<SearchPage> =
         call("typeahead:$input") {
+            val cards = InnertubeParser.parseSearchSuggestionEntities(Innertube.searchSuggestions(input))
+                .distinctBy { it.identityKey() }
+            if (cards.isNotEmpty()) return@call SearchPage(cards, continuation = null)
             InnertubeParser.parseSearchPage(
                 Innertube.searchTypeahead(input),
                 includeVideos = false,

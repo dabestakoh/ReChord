@@ -120,6 +120,7 @@ class DiscordRPC(
             // which is anything that isn't an http URL — sends none, and Discord
             // draws the ReChord application's own icon in its place.
             largeImage = song.artworkAt(ART_PX)
+                ?.let { com.music.bitchord.data.model.youTubeThumbnailFallback(it) ?: it }
                 ?.takeIf { it.startsWith("http") }
                 ?.let(RpcImage::ExternalImage),
             smallImage = null,

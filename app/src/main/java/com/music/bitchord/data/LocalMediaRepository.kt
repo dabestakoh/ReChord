@@ -542,6 +542,7 @@ object LocalMediaRepository {
         var trackNumber: Int? = null
         var albumArtist: String? = null
         var discNumber: Int? = null
+        var embeddedArt: String? = null
 
         runCatching {
             val retriever = MediaMetadataRetriever()
@@ -560,6 +561,13 @@ object LocalMediaRepository {
                 trackNumber = trackNumberFromTag(metaTrack)
                 albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST).cleanTag()
                 discNumber = trackNumberFromTag(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER))
+                if (scanned?.artworkUrl == null) {
+                    embeddedArt = cachedEmbeddedArt(
+                        java.io.File(context.cacheDir, EMBEDDED_ART_DIR),
+                        uriStr,
+                        retriever.embeddedPicture,
+                    )
+                }
             } finally {
                 retriever.release()
             }
@@ -569,7 +577,7 @@ object LocalMediaRepository {
             videoId = uriStr,
             title = title,
             artist = artist,
-            thumbnailUrl = scanned?.artworkUrl,
+            thumbnailUrl = scanned?.artworkUrl ?: embeddedArt,
             durationText = durationText,
             albumName = albumName ?: scanned?.albumName,
             localUri = uriStr,
@@ -580,6 +588,18 @@ object LocalMediaRepository {
             localDiscNumber = discNumber,
         )
     }
+
+    internal fun cachedEmbeddedArt(dir: java.io.File, key: String, picture: ByteArray?): String? {
+        if (picture == null || picture.isEmpty()) return null
+        return runCatching {
+            dir.mkdirs()
+            val file = java.io.File(dir, "${key.hashCode().toUInt()}-${picture.size}.img")
+            if (!file.exists()) file.writeBytes(picture)
+            "file://${file.absolutePath}"
+        }.getOrNull()
+    }
+
+    private const val EMBEDDED_ART_DIR = "embedded_art"
 
     /**
      * MediaStore packs the disc into the same int (`disc * 1000 + track`), so
