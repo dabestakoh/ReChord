@@ -22,6 +22,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import okhttp3.OkHttpClient
 import com.music.bitchord.auth.AuthStore
 import com.music.bitchord.data.DebugLog
+import com.music.bitchord.data.YouTubeThumbnailFallback
 import com.music.bitchord.data.lyrics.LyricsTranslation
 import androidx.appcompat.app.AppCompatDelegate
 import com.music.bitchord.ui.player.AndroidPlayerHost
@@ -53,6 +54,10 @@ import kotlinx.coroutines.launch
 import kotlin.concurrent.thread
 
 class BitChordApplication : Application(), SingletonImageLoader.Factory, Configuration.Provider {
+
+    init {
+        if (!BuildConfig.DEBUG) System.setProperty("slf4j.internal.verbosity", "ERROR")
+    }
 
     /** Asked for on first use rather than at launch; see [PlaylistSync.init]. */
     override val workManagerConfiguration: Configuration
@@ -291,6 +296,9 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory, Configu
             // the header is attached per request instead. See WebDavCoilAuth.
             .components {
                 add(WebDavCoilAuth())
+                // A larger YouTube cover than the video has 404s; this
+                // falls back to the size every video has.
+                add(YouTubeThumbnailFallback())
                 // Covers filed on the SMB share; anything else falls
                 // through to Coil's own fetchers. See SmbCoverFetcher.
                 add(SmbCoverFetcher.Factory())
