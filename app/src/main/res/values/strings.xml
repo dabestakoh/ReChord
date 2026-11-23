@@ -207,7 +207,10 @@
     <string name="dolby_atmos_unavailable">This device can\'t play Atmos, so these songs play in their usual version</string>
     <string name="spatial_audio">Spatial audio</string>
     <string name="spatial_audio_subtitle">Widens stereo tracks for a more immersive feel</string>
+    <string name="spatial_audio_on_subtitle">Spatial Audio is ON</string>
     <string name="spatial_audio_atmos_subtitle">Paused for this track — Dolby Atmos is already spatial</string>
+    <string name="auto_romanize_lyrics">Auto-romanize lyrics</string>
+    <string name="auto_romanize_lyrics_subtitle">Automatically show romanized pronunciation for non-Latin lyrics</string>
     <string name="animated_cover_cellular">Play animated cover over cellular</string>
     <string name="replay">Replay</string>
     <string name="replay_subtitle">Your top songs, artists, albums and genres</string>

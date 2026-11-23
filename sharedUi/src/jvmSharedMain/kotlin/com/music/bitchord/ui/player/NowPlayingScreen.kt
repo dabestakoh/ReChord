@@ -2084,7 +2084,10 @@ fun NowPlayingScreen(
                 hazeState = playerHaze,
                 accountName = accountName,
                 onDismiss = { showAudioOutput = false },
-                onOpenPipeline = { showAudioPipeline = true },
+                onOpenPipeline = {
+                    showAudioOutput = false
+                    showAudioPipeline = true
+                },
                 onOpenCast = { showCast = true },
                 onListenTogether = {
                     showAudioOutput = false

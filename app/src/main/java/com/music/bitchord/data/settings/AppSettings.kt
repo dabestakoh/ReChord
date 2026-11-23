@@ -561,6 +561,9 @@ object AppSettings {
      */
     val translationLanguage = MutableStateFlow("")
 
+    /** Automatically romanizes non-Latin lyrics when loaded. Seeded on for fresh installs. */
+    val autoRomanizeLyrics = MutableStateFlow(false)
+
     /**
      * Plays a looping video behind the cover art on the player when one is
      * published for the track — Spotify's Canvas, Apple's motion artwork.
@@ -974,6 +977,12 @@ object AppSettings {
     fun init(context: Context, authStore: AuthStore) {
         prefs = context.getSharedPreferences("bitchord_settings", Context.MODE_PRIVATE)
         this.authStore = authStore
+        if (prefs.all.isEmpty()) {
+            prefs.edit()
+                .putBoolean(KEY_NERD_STATS, true)
+                .putBoolean(KEY_AUTO_ROMANIZE_LYRICS, true)
+                .apply()
+        }
         moveSecretsOutOfSettings()
         com.music.bitchord.data.spotify.LocalPlaylistStore.init(context)
         com.music.bitchord.data.OfflinePlaylists.init(
@@ -1162,6 +1171,7 @@ object AppSettings {
         lyricsOffsetMs.value = prefs.getInt(KEY_LYRICS_OFFSET_MS, 0)
             .coerceIn(MIN_LYRICS_OFFSET_MS, MAX_LYRICS_OFFSET_MS)
         translationLanguage.value = prefs.getString(KEY_TRANSLATION_LANGUAGE, "").orEmpty()
+        autoRomanizeLyrics.value = prefs.getBoolean(KEY_AUTO_ROMANIZE_LYRICS, false)
         if (highPerformanceMode.value) {
             reduceAnimation.value = false
             reduceDynamicBlur.value = false
@@ -1771,6 +1781,11 @@ object AppSettings {
     fun setTranslationLanguage(value: String) {
         translationLanguage.value = value
         prefs.edit().putString(KEY_TRANSLATION_LANGUAGE, value).apply()
+    }
+
+    fun setAutoRomanizeLyrics(value: Boolean) {
+        autoRomanizeLyrics.value = value
+        prefs.edit().putBoolean(KEY_AUTO_ROMANIZE_LYRICS, value).apply()
     }
 
     fun setSyncedLyrics(value: Boolean) {
@@ -2640,6 +2655,7 @@ object AppSettings {
     private const val KEY_LYRICS_BLUR = "lyrics_blur"
     private const val KEY_LYRICS_OFFSET_MS = "lyrics_offset_ms"
     private const val KEY_TRANSLATION_LANGUAGE = "translation_language"
+    private const val KEY_AUTO_ROMANIZE_LYRICS = "auto_romanize_lyrics"
     private const val KEY_ANIMATED_CANVAS = "animated_canvas"
     private const val KEY_CANVAS_OVER_CELLULAR = "canvas_over_cellular"
     private const val KEY_DISABLE_SPOTIFY_CANVAS = "disable_spotify_canvas"

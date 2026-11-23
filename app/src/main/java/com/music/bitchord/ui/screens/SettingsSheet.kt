@@ -275,6 +275,7 @@ fun SettingsScreen(
     val hideLyricsPreview by AppSettings.hideLyricsPreview.collectAsStateWithLifecycle()
     val lyricsSources by AppSettings.lyricsSources.collectAsStateWithLifecycle()
     val translationLanguage by AppSettings.translationLanguage.collectAsStateWithLifecycle()
+    val autoRomanizeLyrics by AppSettings.autoRomanizeLyrics.collectAsStateWithLifecycle()
     val theme by AppSettings.themeMode.collectAsStateWithLifecycle()
     val appFont by AppSettings.appFont.collectAsStateWithLifecycle()
     val sessionId by AppSettings.audioSessionId.collectAsStateWithLifecycle()
@@ -1424,6 +1425,21 @@ fun SettingsScreen(
                             },
                             trailing = { Chevron() },
                             onClick = onTranslationLanguage,
+                        )
+                    }
+                    val autoRomanizeTitle = stringResource(R.string.auto_romanize_lyrics)
+                    row(autoRomanizeTitle, "lyrics", "romanize", "pronunciation") {
+                        SettingsRow(
+                            icon = SfIcons.Language,
+                            title = autoRomanizeTitle,
+                            subtitle = stringResource(R.string.auto_romanize_lyrics_subtitle),
+                            trailing = {
+                                IosSwitch(
+                                    checked = autoRomanizeLyrics,
+                                    onCheckedChange = AppSettings::setAutoRomanizeLyrics,
+                                )
+                            },
+                            onClick = { AppSettings.setAutoRomanizeLyrics(!autoRomanizeLyrics) },
                         )
                     }
                 }

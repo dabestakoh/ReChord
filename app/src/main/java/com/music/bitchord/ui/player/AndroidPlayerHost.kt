@@ -8,14 +8,18 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.music.bitchord.R
 import com.music.bitchord.data.NerdStats
-import com.music.bitchord.ui.components.IosSwitch
 import com.music.bitchord.ui.icons.SfIcons
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -156,6 +160,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         override val smartTransitionWindow get() = AppSettings.smartTransitionWindow
         override val spotifyCanvasAutoHide get() = AppSettings.effectiveSpotifyCanvasAutoHide
         override val syncedLyrics get() = AppSettings.syncedLyrics
+        override val autoRomanizeLyrics get() = AppSettings.autoRomanizeLyrics
         override val translationLanguage get() = AppSettings.translationLanguage
         override val versionAlignmentInProgress get() = AppSettings.versionAlignmentInProgress
 
@@ -284,21 +289,31 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         val spatial by AppSettings.spatialAudio.collectAsStateWithLifecycle()
         val bypassed by BitPerfectOutput.ready.collectAsStateWithLifecycle()
         val format by NerdStats.current.collectAsStateWithLifecycle()
+        val isActive = spatial && !bypassed
         AudioOutputOptionRow(
             icon = SfIcons.SurroundSound,
             title = stringResource(R.string.spatial_audio),
-            subtitle = stringResource(if (format?.isDolbyAtmos == true) {
-                R.string.spatial_audio_atmos_subtitle
-            } else R.string.spatial_audio_subtitle),
+            subtitle = stringResource(
+                when {
+                    format?.isDolbyAtmos == true -> R.string.spatial_audio_atmos_subtitle
+                    isActive -> R.string.spatial_audio_on_subtitle
+                    else -> R.string.spatial_audio_subtitle
+                },
+            ),
             enabled = !bypassed,
+            active = isActive,
+            showChevronWhenNoTrailing = false,
             onClick = { AppSettings.setSpatialAudio(!spatial) },
-            trailing = {
-                IosSwitch(
-                    checked = spatial,
-                    enabled = !bypassed,
-                    onCheckedChange = AppSettings::setSpatialAudio,
-                )
-            },
+            trailing = if (isActive) {
+                {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else null,
         )
     }
 

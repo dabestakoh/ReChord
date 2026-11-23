@@ -173,6 +173,8 @@ fun AudioOutputOptionRow(
     title: String,
     subtitle: String,
     enabled: Boolean = true,
+    active: Boolean = false,
+    showChevronWhenNoTrailing: Boolean = true,
     onClick: () -> Unit,
     trailing: (@Composable () -> Unit)? = null,
 ) {
@@ -182,7 +184,7 @@ fun AudioOutputOptionRow(
             .fillMaxWidth()
             .alpha(if (enabled) 1f else 0.38f)
             .clip(ROW_SHAPE)
-            .background(Color.White.copy(alpha = 0.05f))
+            .background(Color.White.copy(alpha = if (active) 0.10f else 0.05f))
             .clickable(
                 enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
@@ -198,13 +200,13 @@ fun AudioOutputOptionRow(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.08f)),
+                .background(Color.White.copy(alpha = if (active) 0.16f else 0.08f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.7f),
+                tint = Color.White.copy(alpha = if (active) 1f else 0.7f),
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -212,8 +214,10 @@ fun AudioOutputOptionRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                ),
+                color = Color.White.copy(alpha = if (active) 1f else 0.85f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -226,12 +230,16 @@ fun AudioOutputOptionRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (trailing != null) trailing() else Icon(
-            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.35f),
-            modifier = Modifier.size(20.dp),
-        )
+        if (trailing != null) {
+            trailing()
+        } else if (showChevronWhenNoTrailing) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.35f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 

@@ -3361,6 +3361,7 @@ internal fun rememberLyricsTranslation(
     haptics: Haptics,
 ): LyricsTranslationUi {
     val reduceTranslationMotion by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val autoRomanize by PlayerSettings.autoRomanizeLyrics.collectAsStateWithLifecycle()
     val configuredLocale = appLanguageTag()
     val preferredTranslation by PlayerSettings.translationLanguage.collectAsStateWithLifecycle()
     // Settings wins where it has been set; blank means follow the app. Only the
@@ -3426,6 +3427,34 @@ internal fun rememberLyricsTranslation(
         LyricsDisplayMode.Original -> null
     }
     val translationScope = rememberCoroutineScope()
+    LaunchedEffect(trackId, translationLanguage, lyrics, autoRomanize) {
+        if (!autoRomanize) return@LaunchedEffect
+        val source = lyrics.orEmpty()
+        if (source.isEmpty()) return@LaunchedEffect
+        if (romanizationState !is LyricsTranslationUiState.Idle) return@LaunchedEffect
+        if (lyricsDisplayMode != LyricsDisplayMode.Original) return@LaunchedEffect
+        if (translationState is LyricsTranslationUiState.Loading) return@LaunchedEffect
+        romanizationJob?.cancel()
+        romanizationJob = translationScope.launch {
+            when (
+                val result = PlayerPlatform.host.romanizeLyrics(
+                    trackId = trackId,
+                    lines = source,
+                    targetLanguageTag = translationLanguage,
+                )
+            ) {
+                is LyricsRomanizationResult.Romanized -> {
+                    romanizationState = LyricsTranslationUiState.Ready(result.lines)
+                    if (lyricsDisplayMode == LyricsDisplayMode.Original) {
+                        lyricsDisplayMode = LyricsDisplayMode.Romanized
+                        translationTransition++
+                    }
+                }
+                LyricsRomanizationResult.AlreadyRomanized,
+                LyricsRomanizationResult.Unavailable -> Unit
+            }
+        }
+    }
     val toggleTranslation: () -> Unit = toggleTranslation@{
         when (val state = translationState) {
             is LyricsTranslationUiState.Ready -> {
