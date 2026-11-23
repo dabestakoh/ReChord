@@ -100,6 +100,26 @@ internal class QueueSelectionState {
         keys = emptySet()
     }
 
+    fun startWith(track: QueueTrack) {
+        generation++
+        active = true
+        busy = false
+        keys = setOf(track.selectionKey)
+    }
+
+    fun startWithEntry(rows: List<QueueTrack>, timelineIndex: Int, song: Song) {
+        val match = rows.firstOrNull {
+            it.timelineIndex == timelineIndex &&
+                it.song.videoId == song.videoId &&
+                it.song.queueEntryId == song.queueEntryId
+        } ?: rows.firstOrNull {
+            song.queueEntryId != null && it.song.queueEntryId == song.queueEntryId
+        } ?: rows.firstOrNull {
+            it.song.videoId == song.videoId
+        }
+        if (match != null) startWith(match) else start()
+    }
+
     fun isSelected(track: QueueTrack): Boolean = track.selectionKey in keys
 
     fun selected(rows: List<QueueTrack>): List<QueueTrack> = rows.filter(::isSelected)

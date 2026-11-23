@@ -1603,4 +1603,5 @@
         <item quantity="one">album</item>
         <item quantity="other">albums</item>
     </plurals>
+    <string name="select_songs">Sélectionner des titres</string>
 </resources>

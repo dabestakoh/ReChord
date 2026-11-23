@@ -189,6 +189,8 @@ fun SongActionsMenu(
     onVideoMode: (() -> Unit)? = null,
     /** Queue rows already belong to the queue, so hide its insertion actions. */
     fromQueue: Boolean = false,
+    /** Enters multi-select mode in the queue with this row checked. */
+    onSelectSongs: (() -> Unit)? = null,
 ) {
     var showingSongInfo by remember(song.videoId) { mutableStateOf(false) }
     var pickingSleepTimer by remember { mutableStateOf(false) }
@@ -212,6 +214,16 @@ fun SongActionsMenu(
         fun startsGroup(): Boolean = drawnAny.also { drawnAny = true }
         val canRate = isOffline || signedIn
         val shareAction = onShare?.takeIf { !isOffline }
+
+        if (fromQueue && onSelectSongs != null) {
+            if (startsGroup()) IosMenuSeparator()
+            ActionRow(
+                SfIcons.Downloaded,
+                stringResource(R.string.select_songs),
+                accent = palette.accent,
+                onClick = onSelectSongs,
+            )
+        }
 
         if (onNowPlayingLayout != null || onVideoMode != null) {
             if (startsGroup()) IosMenuSeparator()

@@ -1541,4 +1541,5 @@
         <item quantity="one">album</item>
         <item quantity="other">album</item>
     </plurals>
+    <string name="select_songs">Seleziona brani</string>
 </resources>

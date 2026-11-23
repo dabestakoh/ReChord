@@ -1574,4 +1574,5 @@
     <plurals name="replay_year_albums_word">
         <item quantity="other">枚のアルバム</item>
     </plurals>
+    <string name="select_songs">曲を選択</string>
 </resources>

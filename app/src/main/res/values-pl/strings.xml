@@ -1652,4 +1652,5 @@
         <item quantity="many">albumów</item>
         <item quantity="other">albumów</item>
     </plurals>
+    <string name="select_songs">Wybierz utwory</string>
 </resources>

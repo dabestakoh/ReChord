@@ -1573,4 +1573,5 @@
     <plurals name="replay_year_albums_word">
         <item quantity="other">张专辑</item>
     </plurals>
+    <string name="select_songs">选择歌曲</string>
 </resources>

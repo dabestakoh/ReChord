@@ -946,6 +946,8 @@ fun NowPlayingScreen(
     onQueueBulkAction: suspend (List<Song>, QueueBulkAction) -> Boolean = { _, _ -> false },
     onQueueRemoveEntries: suspend (List<QueueEntryIdentity>) -> Unit = {},
     onQueueAddAllToPlaylist: (List<Song>) -> Unit = {},
+    queueSelectTarget: Pair<Int, Song>? = null,
+    onConsumeQueueSelect: () -> Unit = {},
     onOpenMenu: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     /**
@@ -1294,6 +1296,14 @@ fun NowPlayingScreen(
     LaunchedEffect(queueSelection.active) {
         // Leave it hidden on exit; the normal scroll-up reveal resumes then.
         if (queueSelection.active) queueControlsOpen = false
+    }
+    LaunchedEffect(queueSelectTarget) {
+        val (timelineIndex, targetSong) = queueSelectTarget ?: return@LaunchedEffect
+        if (!controlsLocked && queueOpen && !lyricsOpen) {
+            val rows = splitQueue(queue, queueIndex, PlayerSettings.showQueueHistory.value).rows
+            queueSelection.startWithEntry(rows, timelineIndex, targetSong)
+        }
+        onConsumeQueueSelect()
     }
     // Shared with Spotify's title placement below. The deck and credits must
     // read one clock: the weighted region changes size as this value moves, so
@@ -2598,7 +2608,8 @@ fun NowPlayingScreen(
                     lyricsPane = { active -> embeddedLyrics(active) { lyricsScrolling = it } },
                     queuePane = { active -> embeddedQueue(active) { queueScrolling = it } },
                     deckVisible = !lyricPicker.picking &&
-                        (!lyricsOpen || lyricsControlsOpen) && (!queueOpen || queueControlsOpen),
+                        (!lyricsOpen || lyricsControlsOpen) &&
+                        (!queueOpen || (queueControlsOpen && !queueSelection.active)),
                     deckReveal = playerDeckReveal,
                     controlsLocked = controlsLocked,
                     onBlockedControl = onBlockedControl,
@@ -2608,7 +2619,7 @@ fun NowPlayingScreen(
                         dismissBandBottom = bounds.bottom
                     },
                     queuePreview = if (queueDragging) ({ queueSlide.floatValue }) else null,
-                    onDismissPane = { queueOpen = false; closeLyrics() },
+                    onDismissPane = { queueSelection.clear(); queueOpen = false; closeLyrics() },
                     playbackOrigin = if (hideSongStatus) null else playbackOriginText(song, playedBy),
                     onOpenPlaybackOrigin = openPlaybackOrigin,
                     onOpenAlbum = onOpenAlbum,
@@ -2630,7 +2641,7 @@ fun NowPlayingScreen(
                                     onOpenLyrics = openLyrics,
                                     titleTargetCoords = LocalPosterTitleTarget.current,
                                 )
-                            } else if (syncedLyricsEnabled) {
+                            } else if (syncedLyricsEnabled && !hideLyricsPreview) {
                                 CurrentLyricStrip(
                                     lines = lyricsTranslation.displayedLyrics,
                                     trackKey = song.videoId,
@@ -2789,24 +2800,39 @@ fun NowPlayingScreen(
                             videoRendered = videoRendered && videoMode,
                             video = if (videoPresentation) {
                                 {
-                                    if (videoMode) {
-                                        MusicVideoSurface(
-                                            videoId = pictureId, fit = true,
-                                            onRenderedChanged = { videoRendered = it },
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                    VideoCornerControls(
-                                        fullscreen = false,
-                                        onToggleFullscreen = enterFullscreen,
-                                        onOpenQuality = { showVideoQuality = true },
-                                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                                    )
-                                    if (videoStatus != null) {
-                                        Text(
-                                            videoStatus, color = Color.White,
-                                            modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp),
-                                        )
+                                    WhileShown({ !docking() }) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black),
+                                        ) {
+                                            if (!videoRendered && (videoMode || fullVideoSearching)) {
+                                                VideoLoadingBackdrop(Modifier.fillMaxSize())
+                                            }
+                                            if (videoMode) {
+                                                MusicVideoSurface(
+                                                    videoId = pictureId,
+                                                    fit = !squareVideo,
+                                                    onRenderedChanged = { videoRendered = it },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                            if (!panelOpen) {
+                                                VideoCornerControls(
+                                                    fullscreen = false,
+                                                    onToggleFullscreen = enterFullscreen,
+                                                    onOpenQuality = { showVideoQuality = true },
+                                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                                                )
+                                            }
+                                            if (videoStatus != null) {
+                                                Text(
+                                                    videoStatus,
+                                                    color = Color.White,
+                                                    modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             } else null,
@@ -2861,44 +2887,6 @@ fun NowPlayingScreen(
                                     closeLyrics()
                                 },
                         ) {
-                            // A music video where the window doesn't make it the
-                            // whole screen — a tablet held sideways: the picture
-                            // takes the sleeve's own square, letterboxed in black
-                            // (or cropped to it, under square video thumbnails),
-                            // with the same corner buttons as the upright card.
-                            // Put away for the trip to the mini player, as the
-                            // portrait card is: the cover in the bar is the still.
-                            if (videoMode) {
-                                WhileShown({ !docking() }) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                shape = landscapeArtShape()
-                                                clip = true
-                                            }
-                                            .background(Color.Black),
-                                    ) {
-                                        if (!videoRendered) VideoLoadingBackdrop(Modifier.fillMaxSize())
-                                        MusicVideoSurface(
-                                            videoId = song.videoId,
-                                            fit = !squareVideo,
-                                            onRenderedChanged = { videoRendered = it },
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                        if (!panelOpen) {
-                                            VideoCornerControls(
-                                                fullscreen = false,
-                                                onToggleFullscreen = enterFullscreen,
-                                                onOpenQuality = { showVideoQuality = true },
-                                                modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(8.dp),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                             // The stats belong to the player, not to the sleeve, so
                             // they leave it along with the rest of the player.
                             SleeveNerdStats(

@@ -1446,4 +1446,5 @@
     <plurals name="replay_year_albums_word">
         <item quantity="other">개의 앨범</item>
     </plurals>
+    <string name="select_songs">곡 선택</string>
 </resources>

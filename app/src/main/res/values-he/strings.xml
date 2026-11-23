@@ -1607,4 +1607,5 @@
         <item quantity="one">אלבום</item>
         <item quantity="other">אלבומים</item>
     </plurals>
+    <string name="select_songs">בחירת שירים</string>
 </resources>

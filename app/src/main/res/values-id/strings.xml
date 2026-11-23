@@ -1573,4 +1573,5 @@
     <plurals name="replay_year_albums_word">
         <item quantity="other">album</item>
     </plurals>
+    <string name="select_songs">Pilih lagu</string>
 </resources>

@@ -1646,4 +1646,5 @@
         <item quantity="many">альбомов</item>
         <item quantity="other">альбомов</item>
     </plurals>
+    <string name="select_songs">Выбрать треки</string>
 </resources>

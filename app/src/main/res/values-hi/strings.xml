@@ -1602,4 +1602,5 @@
         <item quantity="one">एल्बम</item>
         <item quantity="other">एल्बम</item>
     </plurals>
+    <string name="select_songs">गाने चुनें</string>
 </resources>

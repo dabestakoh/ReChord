@@ -1559,4 +1559,5 @@
         <item quantity="one">albüm</item>
         <item quantity="other">albüm</item>
     </plurals>
+    <string name="select_songs">Şarkıları seç</string>
 </resources>

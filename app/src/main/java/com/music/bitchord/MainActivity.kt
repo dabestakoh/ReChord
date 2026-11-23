@@ -771,6 +771,10 @@ private fun BitChordApp(
     var menuFromPlayer by remember { mutableStateOf(false) }
     /** Whether the track menu was opened from a row in the player's queue. */
     var menuFromQueue by remember { mutableStateOf(false) }
+    /** Timeline index of the queue row that opened the menu, for "Select songs". */
+    var menuQueueIndex by remember { mutableIntStateOf(-1) }
+    /** Pending queue multi-select entry requested from the queue song menu. */
+    var queueSelectTarget by remember { mutableStateOf<Pair<Int, Song>?>(null) }
     /** Whether the track menu was opened from the History screen. */
     var menuFromHistory by remember { mutableStateOf(false) }
     /**
@@ -2873,6 +2877,8 @@ private fun BitChordApp(
             onQueueAddAllToPlaylist = { songs ->
                 scope.launch { performQueueBulkAction(songs, QueueBulkAction.PLAYLIST) }
             },
+            queueSelectTarget = queueSelectTarget,
+            onConsumeQueueSelect = { queueSelectTarget = null },
             queueUndoNotice = { queueHaze ->
                 QueueActionNoticeHost(
                     notice = queueUndoNotice,
@@ -2888,8 +2894,9 @@ private fun BitChordApp(
             },
             onMoveInQueue = { from, to -> controller?.moveMediaItem(from, to) },
             onQueueDragActiveChange = { active -> controller?.setQueueDragActive(active) },
-            onQueueSongMenu = { _, queueSong ->
+            onQueueSongMenu = { timelineIndex, queueSong ->
                 menuFromQueue = true
+                menuQueueIndex = timelineIndex
                 menuFromPlayer = true
                 songMenuOrigin = LongPressOrigin.consume()
                 songMenuAnchor = MenuAnchor.consume()
@@ -4797,6 +4804,13 @@ private fun BitChordApp(
             SongActionsMenu(
                 song = song,
                 fromQueue = fromQueue,
+                onSelectSongs = if (fromQueue && !controlsLocked) {
+                    {
+                        val index = menuQueueIndex
+                        songActions = null
+                        queueSelectTarget = index to song
+                    }
+                } else null,
                 signedIn = signedIn,
                 likeStatus = likeStatusOf(song),
                 onPlayNext = { playNext(song); songActions = null },
@@ -5378,6 +5392,7 @@ private fun BitChordApp(
                     songMenuOrigin = null
                     songMenuAnchor = null
                     menuFromQueue = false
+                    menuQueueIndex = -1
                     menuFromHistory = false
                 }
             }
