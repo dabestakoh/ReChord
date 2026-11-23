@@ -1569,4 +1569,7 @@
         <item quantity="other">張專輯</item>
     </plurals>
     <string name="select_songs">選擇歌曲</string>
+    <string name="spatial_audio_on_subtitle">空間音訊已開啟</string>
+    <string name="auto_romanize_lyrics">自動羅馬化歌詞</string>
+    <string name="auto_romanize_lyrics_subtitle">自動為非拉丁文字歌詞顯示羅馬拼音</string>
 </resources>

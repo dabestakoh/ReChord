@@ -1542,4 +1542,7 @@
         <item quantity="other">album</item>
     </plurals>
     <string name="select_songs">Seleziona brani</string>
+    <string name="spatial_audio_on_subtitle">Audio spaziale ATTIVO</string>
+    <string name="auto_romanize_lyrics">Romanizza automaticamente i testi</string>
+    <string name="auto_romanize_lyrics_subtitle">Mostra automaticamente la pronuncia romanizzata per i testi non latini</string>
 </resources>

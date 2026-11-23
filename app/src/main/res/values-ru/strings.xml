@@ -1647,4 +1647,7 @@
         <item quantity="other">альбомов</item>
     </plurals>
     <string name="select_songs">Выбрать треки</string>
+    <string name="spatial_audio_on_subtitle">Пространственное аудио ВКЛЮЧЕНО</string>
+    <string name="auto_romanize_lyrics">Автоматическая романизация текста</string>
+    <string name="auto_romanize_lyrics_subtitle">Автоматически показывать транслитерацию латиницей для нелатинских текстов</string>
 </resources>

@@ -1604,4 +1604,7 @@
         <item quantity="other">albums</item>
     </plurals>
     <string name="select_songs">Sélectionner des titres</string>
+    <string name="spatial_audio_on_subtitle">L\'audio spatial est ACTIVÉ</string>
+    <string name="auto_romanize_lyrics">Romaniser automatiquement les paroles</string>
+    <string name="auto_romanize_lyrics_subtitle">Afficher automatiquement la prononciation romanisée pour les paroles non latines</string>
 </resources>

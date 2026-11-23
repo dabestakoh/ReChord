@@ -1574,4 +1574,7 @@
         <item quantity="other">张专辑</item>
     </plurals>
     <string name="select_songs">选择歌曲</string>
+    <string name="spatial_audio_on_subtitle">空间音频已开启</string>
+    <string name="auto_romanize_lyrics">自动罗马化歌词</string>
+    <string name="auto_romanize_lyrics_subtitle">自动为非拉丁文字歌词显示罗马音发音</string>
 </resources>

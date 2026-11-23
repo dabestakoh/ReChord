@@ -1575,4 +1575,7 @@
         <item quantity="other">álbumes</item>
     </plurals>
     <string name="select_songs">Seleccionar canciones</string>
+    <string name="spatial_audio_on_subtitle">El audio espacial está ACTIVADO</string>
+    <string name="auto_romanize_lyrics">Romanizar letras automáticamente</string>
+    <string name="auto_romanize_lyrics_subtitle">Mostrar automáticamente la pronunciación romanizada para letras no latinas</string>
 </resources>

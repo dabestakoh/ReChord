@@ -1608,4 +1608,7 @@
         <item quantity="other">אלבומים</item>
     </plurals>
     <string name="select_songs">בחירת שירים</string>
+    <string name="spatial_audio_on_subtitle">שמע מרחבי פועל</string>
+    <string name="auto_romanize_lyrics">רומניזציה אוטומטית של מילים</string>
+    <string name="auto_romanize_lyrics_subtitle">הצג באופן אוטומטי הגייה באותיות לטיניות עבור מילים שאינן באלפבית לטיני</string>
 </resources>

@@ -1574,4 +1574,7 @@
         <item quantity="other">album</item>
     </plurals>
     <string name="select_songs">Pilih lagu</string>
+    <string name="spatial_audio_on_subtitle">Audio Spasial AKTIF</string>
+    <string name="auto_romanize_lyrics">Romanisasi lirik otomatis</string>
+    <string name="auto_romanize_lyrics_subtitle">Tampilkan pelafalan romanisasi secara otomatis untuk lirik non-Latin</string>
 </resources>

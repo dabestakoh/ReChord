@@ -1603,4 +1603,7 @@
         <item quantity="other">Alben</item>
     </plurals>
     <string name="select_songs">Songs auswählen</string>
+    <string name="spatial_audio_on_subtitle">Räumliches Audio ist EIN</string>
+    <string name="auto_romanize_lyrics">Songtexte automatisch romanisieren</string>
+    <string name="auto_romanize_lyrics_subtitle">Aussprache für nicht-lateinische Songtexte automatisch in lateinischer Schrift anzeigen</string>
 </resources>

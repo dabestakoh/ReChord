@@ -1580,4 +1580,7 @@
         <item quantity="other">อัลบั้ม</item>
     </plurals>
     <string name="select_songs">เลือกเพลง</string>
+    <string name="spatial_audio_on_subtitle">เสียงเชิงพื้นที่เปิดอยู่</string>
+    <string name="auto_romanize_lyrics">ถอดเสียงเนื้อเพลงเป็นอักษรโรมันอัตโนมัติ</string>
+    <string name="auto_romanize_lyrics_subtitle">แสดงคำอ่านอักษรโรมันโดยอัตโนมัติสำหรับเนื้อเพลงที่ไม่ใช่อักษรละติน</string>
 </resources>

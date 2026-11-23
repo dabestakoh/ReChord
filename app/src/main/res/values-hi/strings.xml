@@ -1603,4 +1603,7 @@
         <item quantity="other">एल्बम</item>
     </plurals>
     <string name="select_songs">गाने चुनें</string>
+    <string name="spatial_audio_on_subtitle">स्पेशियल ऑडियो चालू है</string>
+    <string name="auto_romanize_lyrics">गीत के बोल स्वतः रोमनाइज़ करें</string>
+    <string name="auto_romanize_lyrics_subtitle">गैर-लैटिन बोलों के लिए रोमन उच्चारण स्वचालित रूप से दिखाएँ</string>
 </resources>

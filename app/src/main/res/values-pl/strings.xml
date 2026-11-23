@@ -1653,4 +1653,7 @@
         <item quantity="other">albumów</item>
     </plurals>
     <string name="select_songs">Wybierz utwory</string>
+    <string name="spatial_audio_on_subtitle">Dźwięk przestrzenny jest WŁĄCZONY</string>
+    <string name="auto_romanize_lyrics">Automatyczna romanizacja tekstów</string>
+    <string name="auto_romanize_lyrics_subtitle">Automatycznie pokazuj wymowę w alfabecie łacińskim dla tekstów niełacińskich</string>
 </resources>

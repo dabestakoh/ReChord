@@ -1575,4 +1575,7 @@
         <item quantity="other">枚のアルバム</item>
     </plurals>
     <string name="select_songs">曲を選択</string>
+    <string name="spatial_audio_on_subtitle">空間オーディオはオンです</string>
+    <string name="auto_romanize_lyrics">歌詞を自動的にローマ字表記</string>
+    <string name="auto_romanize_lyrics_subtitle">非ラテン文字の歌詞の発音を自動的にローマ字で表示します</string>
 </resources>

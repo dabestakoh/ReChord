@@ -1447,4 +1447,7 @@
         <item quantity="other">개의 앨범</item>
     </plurals>
     <string name="select_songs">곡 선택</string>
+    <string name="spatial_audio_on_subtitle">공간 음향 켜짐</string>
+    <string name="auto_romanize_lyrics">가사 자동 로마자 표기</string>
+    <string name="auto_romanize_lyrics_subtitle">비라틴 문자 가사의 로마자 발음을 자동으로 표시합니다</string>
 </resources>

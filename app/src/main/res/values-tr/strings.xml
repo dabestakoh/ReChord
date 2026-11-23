@@ -1560,4 +1560,7 @@
         <item quantity="other">albüm</item>
     </plurals>
     <string name="select_songs">Şarkıları seç</string>
+    <string name="spatial_audio_on_subtitle">Uzamsal Ses AÇIK</string>
+    <string name="auto_romanize_lyrics">Şarkı sözlerini otomatik romanize et</string>
+    <string name="auto_romanize_lyrics_subtitle">Latin alfabesi dışındaki şarkı sözleri için okunuşu otomatik olarak göster</string>
 </resources>
