@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">再生キューに追加</string>
+    <string name="queue_selected_count">%1$d件選択</string>
+    <string name="queue_select_all">すべて選択</string>
+    <string name="queue_select">選択</string>
+    <string name="queue_close_selection">選択モードを終了</string>
+    <string name="queue_add_to_playlist">プレイリスト</string>
+    <string name="queue_download">ダウンロード</string>
+    <string name="queue_selection_remove">削除</string>
+    <string name="queue_add_all_to_playlist">すべてプレイリストに追加</string>
 </resources>

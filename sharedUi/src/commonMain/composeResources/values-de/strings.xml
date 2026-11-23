@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">Zur Warteschlange hinzufügen</string>
+    <string name="queue_selected_count">%1$d ausgewählt</string>
+    <string name="queue_select_all">Alle auswählen</string>
+    <string name="queue_select">Auswählen</string>
+    <string name="queue_close_selection">Auswahl beenden</string>
+    <string name="queue_add_to_playlist">Playlist</string>
+    <string name="queue_download">Herunterladen</string>
+    <string name="queue_selection_remove">Entfernen</string>
+    <string name="queue_add_all_to_playlist">Alle zur Playlist hinzufügen</string>
 </resources>

@@ -207,7 +207,10 @@
     <string name="dolby_atmos_unavailable">This device can\'t play Atmos, so these songs play in their usual version</string>
     <string name="spatial_audio">Spatial audio</string>
     <string name="spatial_audio_subtitle">Widens stereo tracks for a more immersive feel</string>
+    <string name="spatial_audio_on_subtitle">Spatial Audio is ON</string>
     <string name="spatial_audio_atmos_subtitle">Paused for this track — Dolby Atmos is already spatial</string>
+    <string name="auto_romanize_lyrics">Auto-romanize lyrics</string>
+    <string name="auto_romanize_lyrics_subtitle">Automatically show romanized pronunciation for non-Latin lyrics</string>
     <string name="animated_cover_cellular">Play animated cover over cellular</string>
     <string name="replay">Replay</string>
     <string name="replay_subtitle">Your top songs, artists, albums and genres</string>
@@ -758,8 +761,8 @@
     <string name="listen_most_around">You listen most around %1$s.</string>
     <string name="lyrics_share_title">Share lyrics</string>
     <string name="lyrics_share_description">The lines you picked, laid out on a card with the cover.</string>
-    <string name="lyrics_share_story">Make it a story</string>
-    <string name="lyrics_share_story_revert">Back to the card</string>
+    <string name="lyrics_share_story">Convert to story</string>
+    <string name="lyrics_share_story_revert">Convert to card</string>
     <string name="listening_shape">Your listening pattern</string>
     <string name="member_since">Member since</string>
     <string name="member_since_value">Member since %1$s</string>
@@ -1378,4 +1381,101 @@
     <string name="vinyl_appearance">Vinyl appearance</string>
     <string name="poster_visualizer">Curved rim visualizer</string>
     <string name="poster_visualizer_subtitle">Show live audio bars along the curved Poster edge</string>
+    <string name="find_a_playlist">Find a playlist</string>
+    <string name="no_playlists_match">No playlists match “%1$s”</string>
+    <string name="automix_art_transition">Art transition</string>
+    <string name="automix_art_transition_subtitle">Smoothly blends cover art between tracks during AutoMix on the Default layout.</string>
+    <string name="automix_mini_art_transition">Mini-player art transition</string>
+    <string name="automix_mini_art_transition_subtitle">Shows artwork transitions in the mini-player during AutoMix on the Default layout.</string>
+    <string name="show_best_part">Best Part button</string>
+    <string name="show_best_part_subtitle">A button on the artwork that skips to the part of the song people replay most</string>
+    <string name="hide_lyrics_preview">Hide lyrics</string>
+    <string name="hide_lyrics_preview_subtitle">Hides the lyrics line on the main player screen</string>
+    <string name="show_total_duration">Show total duration</string>
+    <string name="show_total_duration_subtitle">Shows the song\'s full length instead of the time remaining</string>
+    <plurals name="queue_removed_count">
+        <item quantity="one">Removed %1$d song</item>
+        <item quantity="other">Removed %1$d songs</item>
+    </plurals>
+    <string name="sleep_timer_fade_out">Fade out before pausing</string>
+    <string name="sleep_timer_fade_out_subtitle">Gradually lowers volume over the last 30 seconds</string>
+    <string name="disable_spotify_canvas">Disable Spotify Canvas</string>
+    <string name="disable_spotify_canvas_subtitle">Never use Spotify Canvas. Animated artwork comes from the other sources instead</string>
+    <string name="lyrics_share_canvas">Canvas</string>
+    <string name="lyrics_share_video">Video</string>
+    <string name="lyrics_share_image">Image</string>
+    <string name="lyrics_share_saving">Saving…</string>
+    <string name="lyrics_share_gradient">Gradient</string>
+    <string name="lyrics_share_apple_canvas" translatable="false">Apple</string>
+    <string name="lyrics_share_spotify_canvas" translatable="false">Spotify</string>
+    <string name="lyrics_share_show_logo">Show ReChord logo</string>
+    <string name="sort_track_number">Track number</string>
+    <string name="download_liked_songs">Download liked songs</string>
+    <string name="download_liked_songs_subtitle">Downloads your Liked Music and every song you like from now on</string>
+    <string name="queue_removed_song">Removed %1$s</string>
+    <string name="queue_undo_action">Undo</string>
+    <string name="queue_cleared">Queue cleared</string>
+    <string name="queue_selected_count">%1$d selected</string>
+    <string name="queue_playlist_added">Added %1$d of %2$d songs</string>
+    <string name="queue_playlist_partial">%1$s (%2$d incompatible, %3$d already present, %4$d failed)</string>
+    <string name="replay_year_open">Open your Replay %1$s</string>
+    <string name="replay_year_building">Building your year…</string>
+    <string name="replay_year_opener_start">Your</string>
+    <string name="replay_year_opener_end">in ReChord</string>
+    <string name="replay_year_opener_detail">Let’s look back at what you played.</string>
+    <string name="replay_year_minutes_start">This year you listened for</string>
+    <plurals name="replay_year_minutes_word">
+        <item quantity="one">minute</item>
+        <item quantity="other">minutes</item>
+    </plurals>
+    <string name="replay_year_minutes_days_start">That’s</string>
+    <string name="replay_year_minutes_days_value">%1$s days</string>
+    <string name="replay_year_minutes_hours_value">%1$s hours</string>
+    <string name="replay_year_minutes_days_end">of music.</string>
+    <string name="replay_year_busiest_start">Your biggest day was</string>
+    <string name="replay_year_busiest_minutes">%1$s minutes of music in one day</string>
+    <string name="replay_year_busiest_song">Mostly %1$s</string>
+    <string name="replay_year_clock_start">You came alive around</string>
+    <string name="replay_year_night_owl">Night Owl</string>
+    <string name="replay_year_night_owl_detail">So much of your listening happened after 10 pm.</string>
+    <string name="replay_year_early_bird">Early Riser</string>
+    <string name="replay_year_early_bird_detail">Your days started with music before 10 am.</string>
+    <string name="replay_year_golden_hour">Golden Hour</string>
+    <string name="replay_year_golden_hour_detail">Evenings were when the music came out.</string>
+    <string name="replay_year_daytime">Daytime Drifter</string>
+    <string name="replay_year_daytime_detail">You kept the music going through the day.</string>
+    <string name="replay_year_all_day">Around the Clock</string>
+    <string name="replay_year_all_day_detail">Morning, noon or night, something was playing.</string>
+    <string name="replay_year_genres_start">Your sound this year</string>
+    <string name="replay_year_artist_start">Your top artist this year was…</string>
+    <string name="replay_year_minutes_together">%1$s minutes together</string>
+    <string name="replay_year_top_artists">Your top artists</string>
+    <string name="replay_year_song_start">And your song of the year…</string>
+    <plurals name="replay_year_played_times">
+        <item quantity="one">Played %1$s time</item>
+        <item quantity="other">Played %1$s times</item>
+    </plurals>
+    <string name="replay_year_top_songs">The rest of your top songs</string>
+    <string name="replay_year_albums">Albums you lived in</string>
+    <string name="replay_year_months">Your year, month by month</string>
+    <string name="replay_year_discovery_start">This year you explored</string>
+    <plurals name="replay_year_songs_word">
+        <item quantity="one">song</item>
+        <item quantity="other">songs</item>
+    </plurals>
+    <plurals name="replay_year_artists_word">
+        <item quantity="one">artist</item>
+        <item quantity="other">artists</item>
+    </plurals>
+    <plurals name="replay_year_albums_word">
+        <item quantity="one">album</item>
+        <item quantity="other">albums</item>
+    </plurals>
+    <string name="replay_year_summary_title">Your %1$s</string>
+    <string name="replay_year_summary_artists">Top artists</string>
+    <string name="replay_year_summary_songs">Top songs</string>
+    <string name="replay_year_summary_minutes">Minutes listened</string>
+    <string name="replay_year_mute">Mute the story</string>
+    <string name="replay_year_unmute">Unmute the story</string>
+    <string name="select_songs">Select songs</string>
 </resources>

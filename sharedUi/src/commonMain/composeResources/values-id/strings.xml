@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">Tambahkan ke antrean</string>
+    <string name="queue_selected_count">%1$d dipilih</string>
+    <string name="queue_select_all">Pilih semua</string>
+    <string name="queue_select">Pilih</string>
+    <string name="queue_close_selection">Tutup mode pilih</string>
+    <string name="queue_add_to_playlist">Playlist</string>
+    <string name="queue_download">Unduh</string>
+    <string name="queue_selection_remove">Hapus</string>
+    <string name="queue_add_all_to_playlist">Tambahkan semua ke playlist</string>
 </resources>

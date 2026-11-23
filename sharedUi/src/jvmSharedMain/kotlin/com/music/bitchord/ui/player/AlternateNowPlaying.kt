@@ -56,11 +56,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -538,6 +540,7 @@ internal fun AlternateNowPlaying(
                                     } else if (vinyl) {
                                         val drag = onScrub.takeIf { canSeek && pane == PlayerPane.Main }
                                         val swipingNow = abs(swipe.artworkOffset(song)) > 0.001f
+                                        val landscapeVinylTravelPx = with(density) { (stageMaxWidth * 1.06f).toPx() }
                                         Box(Modifier.fillMaxSize().then(gesture).then(artHold)) {
                                             for ((slot, track) in tracks) {
                                                 val current = slot == 0
@@ -559,7 +562,7 @@ internal fun AlternateNowPlaying(
                                                         if (current) shown else ({ 0f }),
                                                         { current && seekingArm },
                                                         Modifier.fillMaxSize().graphicsLayer {
-                                                            translationX = (slot + swipe.artworkOffset(song)) * size.width * artworkStride
+                                                            translationX = (slot + swipe.artworkOffset(song)) * landscapeVinylTravelPx
                                                         },
                                                         albumKey = track.videoId,
                                                         labelPlacement = if (pane == PlayerPane.Main && current) ({ coordinates, angle ->
@@ -709,6 +712,7 @@ internal fun AlternateNowPlaying(
                                                     Modifier
                                                         .fillMaxWidth()
                                                         .weight(1f)
+                                                        .heightIn(min = 40.dp)
                                                         .padding(vertical = if (shortLandscape) 0.dp else 2.dp)
                                                         .graphicsLayer {
                                                             alpha = textOpacity
@@ -1146,15 +1150,14 @@ internal fun AlternateNowPlaying(
             Box(
                 Modifier
                     .then(if (landscape) Modifier.align(Alignment.TopCenter).width(96.dp) else Modifier.fillMaxWidth())
-                    .then(if (preview) Modifier else Modifier.windowInsetsPadding(stableStatusBarInsets()))
+                    .then(if (preview) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars))
                     .height(44.dp).then(topHold),
             ) {
-                val handleShape = RoundedCornerShape(3.dp)
+                val handleShape = RoundedCornerShape(100)
                 Box(Modifier.align(Alignment.TopCenter)
                     .offset { IntOffset(0, playerHandleTop(handlePanel).roundToPx()) }
-                    .size(38.dp, 5.dp)
-                    .shadow(2.dp, handleShape, clip = false)
-                    .background(accent.copy(alpha = 0.75f), handleShape))
+                    .size(32.dp, 3.5.dp)
+                    .background(Color.White.copy(alpha = 0.26f), handleShape))
                 if (!landscape && pane == PlayerPane.Lyrics) {
                     LayoutArtwork(artworkUrl ?: artwork, Modifier.align(Alignment.CenterStart).padding(start = 18.dp)
                         .size(36.dp).onGloballyPositioned(reportArtwork).clip(RoundedCornerShape(7.dp))
@@ -1211,7 +1214,11 @@ internal fun AlternateNowPlaying(
                 }.then(if (!curved) Modifier else Modifier.drawWithCache {
                     val curveFraction = (dock.openFraction() / 0.85f).coerceIn(0f, 1f)
                     val mask = Path().apply {
-                        addPosterMask(size, posterSeekFooter.toPx(), curveFraction, posterCurveHeight?.toPx())
+                        if (landscape) {
+                            addPosterSidewaysMask(size, 42.dp.toPx() * curveFraction)
+                        } else {
+                            addPosterMask(size, posterSeekFooter.toPx() * curveFraction, curveFraction, posterCurveHeight?.toPx())
+                        }
                     }
                     onDrawWithContent { clipPath(mask) { this@onDrawWithContent.drawContent() } }
                 }), placeholder = dock.miniPainterFor(song.videoId))

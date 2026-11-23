@@ -14,12 +14,15 @@ import com.music.bitchord.data.model.creditSegments
 import com.music.bitchord.sharedui.resources.*
 
 import org.jetbrains.compose.resources.DrawableResource
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -55,6 +58,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
@@ -75,6 +79,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -88,8 +94,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -98,6 +106,7 @@ import org.jetbrains.compose.resources.vectorResource
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -110,11 +119,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.music.bitchord.playback.AutoMixVisualPhase
+import com.music.bitchord.playback.PlaybackPosition
 import com.music.bitchord.ui.components.LINE_FADE
+import com.music.bitchord.ui.components.MenuFrostDark
+import com.music.bitchord.ui.components.liveMenuFrost
 import com.music.bitchord.ui.graphics.fadingEdges
 import com.music.bitchord.ui.haptics.Haptic
 import com.music.bitchord.ui.haptics.rememberHaptics
 import com.music.bitchord.ui.icons.BitChordIcons
+import dev.chrisbanes.haze.HazeState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.NerdStats
 import com.music.bitchord.data.listentogether.PartyMember
@@ -222,6 +236,8 @@ internal fun PlayerScrubber(
     // canvas needs.
     val mixBlend = PlayerSettings.smartMixBlend.collectAsStateWithLifecycle()
     val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val showTotalDuration by PlayerSettings.showTotalDuration.collectAsStateWithLifecycle()
+    val totalDuration = durationMs.takeIf { it > 0L }
     // One clock for the bar and the "Mixing" label, so they breathe on the same beat.
     val mixPulse = rememberMixPulse({ mixBlend.value }, enabled = !reduceAnimation)
     Column(Modifier.fillMaxWidth()) {
@@ -241,7 +257,7 @@ internal fun PlayerScrubber(
                 // so pull the labels back up under it.
                 .offset(y = -SCRUBBER_LABEL_LIFT),
         ) {
-            // Drawn like the artist line: the same white, added the same way.
+            // Drawn like the artist line: the same accent ink, added the same way.
             val timeColor = LocalPlayerAccent.current.copy(alpha = 0.65f)
             Row(
                 modifier = Modifier.fillMaxWidth().additiveChrome(LocalPlayerChrome.current),
@@ -253,7 +269,11 @@ internal fun PlayerScrubber(
                     color = timeColor,
                 )
                 Text(
-                    text = "-" + formatTime(durationMs - (shown * durationMs).toLong()),
+                    text = if (showTotalDuration && totalDuration != null) {
+                        formatTime(totalDuration)
+                    } else {
+                        "-" + formatTime(durationMs - (shown * durationMs).toLong())
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = timeColor,
                 )
@@ -388,95 +408,174 @@ internal fun PlaybackQualityLabel(
  * it what Automix's analysis is doing. Nothing at all while the setting is off.
  */
 @Composable
-internal fun SleeveNerdStats(song: Song, modifier: Modifier = Modifier, reserveSpace: Boolean = false) {
+internal fun SleeveNerdStats(
+    song: Song,
+    modifier: Modifier = Modifier,
+    reserveSpace: Boolean = false,
+    bestPart: @Composable () -> Unit = {},
+) {
     val showNerdStats by PlayerSettings.showNerdStats.collectAsStateWithLifecycle()
-    if (!showNerdStats) return
-    val nerdStats by NerdStats.current.collectAsStateWithLifecycle()
-    val smartFadeOn by PlayerSettings.smartFadeEnabled.collectAsStateWithLifecycle()
-    val smartAnalysis by PlayerSettings.smartAnalysis.collectAsStateWithLifecycle()
-    val automixDetail by PlayerSettings.automixDetail.collectAsStateWithLifecycle()
-    // A party doesn't mix, and doesn't analyse for one either — see
-    // [com.music.bitchord.playback.CrossfadeController]. So the two flows above
-    // simply stop moving there, and the stats line has to say why rather than
-    // leave their last values on screen as if they still described something.
-    //
-    // Read off the party rather than published as a third flow: it is the same
-    // fact the controller and the analyzer each read for themselves, and a
-    // mirror of it could only ever disagree.
-    val inParty by remember {
-        PlayerPlatform.host.party.map { it.inParty }.distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = PlayerPlatform.host.party.value.inParty)
-    // A plain white line reads fine over the usual dark tile, but a light
-    // stretch of an animated cover — sky, snow, a pale sleeve — washes it out
-    // entirely. The shadow costs nothing on a dark background and is what
-    // keeps it legible on a bright one.
-    val nerdStyle = MaterialTheme.typography.labelSmall.copy(
-        shadow = Shadow(
-            color = Color.Black.copy(alpha = 0.55f),
-            offset = Offset(0f, 1f),
-            blurRadius = 4f,
-        ),
-    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier,
     ) {
-        val stats = nerdStats?.describe()
-        if (stats != null || reserveSpace) {
-            Text(
-                text = stats.orEmpty(),
-                modifier = if (stats == null) Modifier.clearAndSetSemantics {} else Modifier,
-                style = nerdStyle,
-                color = Color.White.copy(alpha = 0.65f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
+        if (showNerdStats) {
+            val nerdStats by NerdStats.current.collectAsStateWithLifecycle()
+            val smartFadeOn by PlayerSettings.smartFadeEnabled.collectAsStateWithLifecycle()
+            val smartAnalysis by PlayerSettings.smartAnalysis.collectAsStateWithLifecycle()
+            val automixDetail by PlayerSettings.automixDetail.collectAsStateWithLifecycle()
+            val inParty by remember {
+                PlayerPlatform.host.party.map { it.inParty }.distinctUntilChanged()
+            }.collectAsStateWithLifecycle(initialValue = PlayerPlatform.host.party.value.inParty)
+            val nerdStyle = MaterialTheme.typography.labelSmall.copy(
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.55f),
+                    offset = Offset(0f, 1f),
+                    blurRadius = 4f,
+                ),
             )
-        }
-        // Only when Automix is actually switched on: otherwise this would
-        // report on analysis nothing is going to use, which is noise rather
-        // than a stat.
-        if (smartFadeOn) {
-            val summary = when {
-                    // Ahead of the video case because it is the broader one:
-                    // in a party nothing is analysed for any song, video or
-                    // not, so naming the video limitation there would describe
-                    // a rule that is not the one in force.
+            val stats = nerdStats?.describe()
+            if (stats != null || reserveSpace) {
+                Text(
+                    text = stats.orEmpty(),
+                    modifier = if (stats == null) Modifier.clearAndSetSemantics {} else Modifier,
+                    style = nerdStyle,
+                    color = Color.White.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (smartFadeOn) {
+                val summary = when {
                     inParty -> stringResource(Res.string.automix_stopped_in_party)
                     song.isVideoOrigin ->
                         stringResource(Res.string.automix_not_supported_video)
-                    // The detailed line once the controller has one: each song's
-                    // grid, then the planned mix — the loops and what cleared them.
                     automixDetail != null -> automixDetail!!
                     else -> stringResource(
                         Res.string.automix_analysis_status,
                         smartAnalysis.current.localizedLabel(),
                         smartAnalysis.next.localizedLabel(),
                     )
+                }
+                val measurer = rememberTextMeasurer()
+                val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+                BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val overflows = measurer.measure(
+                        summary, nerdStyle, softWrap = false, maxLines = 1, constraints = constraints,
+                    ).hasVisualOverflow
+                    Text(
+                        text = summary,
+                        style = nerdStyle,
+                        color = Color.White.copy(alpha = 0.5f),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        textAlign = if (overflows) TextAlign.Left else TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().then(
+                            if (overflows) Modifier.fadingEdges(16.dp, start = { if (rtl) 1f else 0f },
+                                end = { if (rtl) 0f else 1f }) else Modifier,
+                        ),
+                    )
+                }
             }
-            val measurer = rememberTextMeasurer()
-            val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-            BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                val overflows = measurer.measure(
-                    summary, nerdStyle, softWrap = false, maxLines = 1, constraints = constraints,
-                ).hasVisualOverflow
+        }
+        bestPart()
+    }
+}
+
+/**
+ * "Best Part": a glass pill on the artwork that skips to the part of the song
+ * people replay most, or failing that to its chorus.
+ */
+@Composable
+internal fun BestPartPill(
+    song: Song,
+    position: PlaybackPosition,
+    hazeState: HazeState?,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    overlayOpen: () -> Boolean = { false },
+) {
+    val enabled by PlayerSettings.showBestPart.collectAsStateWithLifecycle()
+    if (!enabled) return
+    val start by produceState<Long?>(null, song.videoId) {
+        value = runCatching { PlayerPlatform.host.bestPartMs(song) }.getOrNull()
+    }
+    var heard by remember(song.videoId) { mutableStateOf(false) }
+    val at = start
+    val ahead by remember(at, position) {
+        derivedStateOf { at != null && position.positionMs < at - AHEAD_SLACK_MS }
+    }
+    val reaching by remember(at, position) {
+        derivedStateOf { at != null && position.positionMs in (at - AHEAD_SLACK_MS)..(at + HEARD_WINDOW_MS) }
+    }
+    LaunchedEffect(reaching) { if (reaching) heard = true }
+
+    val mixing by PlayerSettings.smartMixInProgress.collectAsStateWithLifecycle()
+    val haptics = rememberHaptics()
+    val reduceDynamicBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val autoMixHold = rememberAutoMixFrostHold()
+    AnimatedVisibility(
+        visible = at != null && ahead && !heard && !mixing,
+        enter = expandVertically(tween(BEST_PART_FADE_MS)) +
+            fadeIn(tween(BEST_PART_FADE_MS, delayMillis = BEST_PART_FADE_MS / 2)),
+        exit = fadeOut(tween(BEST_PART_FADE_MS)) +
+            shrinkVertically(tween(BEST_PART_FADE_MS, delayMillis = BEST_PART_FADE_MS / 2)),
+        modifier = modifier,
+    ) {
+        val shape = CircleShape
+        val label = stringResource(Res.string.best_part)
+        val description = stringResource(Res.string.best_part_description)
+        val chrome = LocalPlayerChrome.current
+        Box(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .clip(shape)
+                .glassFrost(hazeState, flat = reduceDynamicBlur || overlayOpen() || autoMixHold())
+                .clickable(role = Role.Button) {
+                    val target = at ?: return@clickable
+                    haptics.play(Haptic.Tap)
+                    heard = true
+                    onSeek(target)
+                }
+                .semantics { contentDescription = description },
+        ) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .vibrantChrome(chrome)
+                    .background(discFill(chrome)),
+            )
+            Box(Modifier.matchParentSize().glassRim(shape))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 12.dp, end = 15.dp, top = 7.dp, bottom = 7.dp),
+            ) {
+                Icon(
+                    imageVector = BitChordIcons.MusicNote,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
                 Text(
-                    text = summary,
-                    style = nerdStyle,
-                    color = Color.White.copy(alpha = 0.5f),
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.W700,
+                    color = Color.White,
                     maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    textAlign = if (overflows) TextAlign.Left else TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().then(
-                        if (overflows) Modifier.fadingEdges(16.dp, start = { if (rtl) 1f else 0f },
-                            end = { if (rtl) 0f else 1f }) else Modifier,
-                    ),
                 )
             }
         }
     }
 }
+
+private const val AHEAD_SLACK_MS = 400L
+private const val HEARD_WINDOW_MS = 20_000L
+private const val BEST_PART_FADE_MS = 280
+private const val GLASS_SLAB_ALPHA = 0.38f
+private const val GLASS_FLAT_ALPHA = 0.72f
 
 /**
  * Previous, play/pause, next.
@@ -500,14 +599,23 @@ internal fun TransportRow(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     compact: Boolean = false,
+    animationsActive: Boolean = true,
 ) {
     val playSize = if (compact) 58.dp else 74.dp
     val playTouch = if (compact) 76.dp else 92.dp
     val skipSize = if (compact) 44.dp else PLAYER_SKIP_ICON_SIZE
+    val reduceAnimation by PlayerSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val previousMotion = rememberPlayerSkipMotion(active = animationsActive, reduceMotion = reduceAnimation)
+    val nextMotion = rememberPlayerSkipMotion(active = animationsActive, reduceMotion = reduceAnimation)
+    val playVector = vectorResource(Res.drawable.ic_player_play)
+    val pauseVector = vectorResource(Res.drawable.ic_player_pause)
+    val playPauseMotion = rememberExpandedPlayPauseMotion(
+        isPlaying = isPlaying,
+        active = animationsActive && !isLoading && playVector.root.size > 0 && pauseVector.root.size > 0,
+        reduceMotion = reduceAnimation,
+    )
     Row(
         modifier = Modifier.fillMaxWidth(),
-        // SpaceAround, not SpaceEvenly: the outer margins take half a gap, so
-        // the three buttons spread a little further apart from each other.
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -520,10 +628,10 @@ internal fun TransportRow(
             onClick = onPrevious,
             enabled = previousEnabled,
             haptic = Haptic.SkipPrevious,
+            skipMotion = previousMotion,
+            skipPrevious = true,
         )
         if (isLoading) {
-            // Same footprint as the play/pause target — a smaller box here
-            // would shunt everything below it on every load.
             Box(Modifier.size(playTouch), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     color = LocalPlayerAccent.current,
@@ -539,6 +647,7 @@ internal fun TransportRow(
                 touchSize = playTouch,
                 onClick = onPlayPause,
                 haptic = if (isPlaying) Haptic.Pause else Haptic.Resume,
+                playPauseMotion = playPauseMotion,
             )
         }
         TransportGlyph(
@@ -550,6 +659,7 @@ internal fun TransportRow(
             onClick = onNext,
             enabled = nextEnabled,
             haptic = Haptic.SkipNext,
+            skipMotion = nextMotion,
         )
     }
 }
@@ -805,14 +915,9 @@ internal fun CircleGlyph(
             Modifier
                 .matchParentSize()
                 .vibrantChrome(chrome)
-                .background(
-                    if (chrome) {
-                        VibrantChromeInk.copy(alpha = (discAlpha * CIRCLE_DISC_DODGE_GAIN).coerceAtMost(1f))
-                    } else {
-                        Color.White.copy(alpha = discAlpha)
-                    },
-                ),
+                .background(discFill(chrome, discAlpha)),
         )
+        Box(Modifier.matchParentSize().glassRim(CircleShape))
         Crossfade(
             targetState = icon,
             animationSpec = tween(durationMillis = 180),
@@ -827,6 +932,67 @@ internal fun CircleGlyph(
         }
     }
 }
+
+private const val CIRCLE_DISC_ALPHA = 0.18f
+
+private fun discFill(chrome: Boolean, alpha: Float = CIRCLE_DISC_ALPHA): Color =
+    if (chrome) {
+        VibrantChromeInk.copy(alpha = (alpha * CIRCLE_DISC_DODGE_GAIN).coerceAtMost(1f))
+    } else {
+        Color.White.copy(alpha = alpha)
+    }
+
+@Composable
+internal fun rememberAutoMixFrostHold(): () -> Boolean {
+    val feed = PlayerPlatform.host.autoMixVisualState ?: return { false }
+    val visual = feed.collectAsStateWithLifecycle()
+    val hold = remember(visual) {
+        derivedStateOf { visual.value?.let { it.mixActive || it.phase == AutoMixVisualPhase.ARMED } == true }
+    }
+    return { hold.value }
+}
+
+internal fun Modifier.glassFrost(hazeState: HazeState?, flat: Boolean): Modifier =
+    if (flat || hazeState == null) {
+        background(MenuFrostDark.copy(alpha = GLASS_FLAT_ALPHA))
+    } else {
+        liveMenuFrost(hazeState, MenuFrostDark, alpha = GLASS_SLAB_ALPHA)
+    }
+
+@Composable
+internal fun GlassDiscPair(
+    hazeState: HazeState?,
+    overlayOpen: () -> Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val reduceDynamicBlur by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val autoMixHold = rememberAutoMixFrostHold()
+    Box(modifier) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(DiscPairShape)
+                .glassFrost(hazeState, flat = reduceDynamicBlur || overlayOpen() || autoMixHold()),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, content = content)
+    }
+}
+
+private val DiscPairShape = GenericShape { size, _ ->
+    val d = size.height
+    addOval(Rect(0f, 0f, d, d))
+    if (size.width >= d * 1.5f) addOval(Rect(size.width - d, 0f, size.width, d))
+}
+
+internal fun Modifier.glassRim(shape: Shape): Modifier = border(
+    width = 1.dp,
+    brush = Brush.verticalGradient(
+        0f to Color.White.copy(alpha = 0.42f),
+        1f to Color.White.copy(alpha = 0.14f),
+    ),
+    shape = shape,
+)
 
 /**
  * Transport / bottom glyphs. The circular clip belongs on the touch target,
@@ -844,36 +1010,82 @@ private fun TransportGlyph(
     haptic: Haptic = Haptic.Tap,
     /** Vertical squash of the glyph alone; its width and touch box are untouched. */
     heightScale: Float = 1f,
+    skipMotion: PlayerSkipMotion? = null,
+    skipPrevious: Boolean = false,
+    playPauseMotion: ExpandedPlayPauseMotion? = null,
 ) {
     val haptics = rememberHaptics()
-    // Faded rather than hidden: the row keeps its shape at the ends of a queue.
+    val interactionSource = remember { MutableInteractionSource() }
     val alpha by animateFloatAsState(
         targetValue = if (enabled) 1f else 0.3f,
         label = "transportAlpha",
     )
+    val glyphTint = LocalPlayerAccent.current.copy(alpha = alpha)
     Box(
         modifier = Modifier
             .size(touchSize)
+            .then(
+                if (skipMotion != null) Modifier.playerSkipPressCircle(
+                    motion = skipMotion,
+                    interactionSource = interactionSource,
+                    enabled = enabled,
+                    tint = glyphTint,
+                    glyphSize = size,
+                    diameter = PLAYER_PRESS_CIRCLE_DIAMETER,
+                ) else if (playPauseMotion != null) Modifier.expandedPlayPausePressCircle(
+                    motion = playPauseMotion,
+                    interactionSource = interactionSource,
+                    tint = glyphTint,
+                    glyphSize = size,
+                    diameter = PLAYER_PRESS_CIRCLE_DIAMETER,
+                ) else Modifier,
+            )
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 enabled = enabled,
             ) {
                 haptics.play(haptic)
+                skipMotion?.onTap()
+                playPauseMotion?.onTap()
                 onClick()
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = contentDescription,
-            tint = LocalPlayerAccent.current.copy(alpha = alpha),
-            modifier = Modifier
-                .size(size)
-                .then(if (heightScale != 1f) Modifier.graphicsLayer { scaleY = heightScale } else Modifier),
-        )
+        if (skipMotion != null) {
+            PlayerSkipGlyph(
+                motion = skipMotion,
+                contentDescription = contentDescription,
+                tint = glyphTint,
+                modifier = Modifier
+                    .size(size)
+                    .then(if (heightScale != 1f) Modifier.graphicsLayer { scaleY = heightScale } else Modifier),
+                previous = skipPrevious,
+            )
+        } else if (playPauseMotion != null) {
+            ExpandedPlayPauseGlyph(
+                motion = playPauseMotion,
+                interactionSource = interactionSource,
+                playPainter = painterResource(Res.drawable.ic_player_play),
+                pausePainter = painterResource(Res.drawable.ic_player_pause),
+                contentDescription = contentDescription,
+                tint = glyphTint,
+                modifier = Modifier.size(size),
+            )
+        } else {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = contentDescription,
+                tint = glyphTint,
+                modifier = Modifier
+                    .size(size)
+                    .then(if (heightScale != 1f) Modifier.graphicsLayer { scaleY = heightScale } else Modifier),
+            )
+        }
     }
 }
+
+private val PLAYER_PRESS_CIRCLE_DIAMETER = 60.dp
 
 /** The skip glyphs' width, and their touch box, beside the larger play button. */
 private val PLAYER_SKIP_ICON_SIZE = 53.dp

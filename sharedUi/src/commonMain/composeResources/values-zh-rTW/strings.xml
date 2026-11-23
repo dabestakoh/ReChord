@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">新增到播放佇列</string>
+    <string name="queue_selected_count">已選擇 %1$d 項</string>
+    <string name="queue_select_all">全選</string>
+    <string name="queue_select">選擇</string>
+    <string name="queue_close_selection">關閉選擇模式</string>
+    <string name="queue_add_to_playlist">播放列表</string>
+    <string name="queue_download">下載</string>
+    <string name="queue_selection_remove">移除</string>
+    <string name="queue_add_all_to_playlist">全部新增到播放列表</string>
 </resources>

@@ -177,6 +177,8 @@ fun HomeScreen(
     artworkMotion: Boolean = true,
     homeSections: Map<String, Boolean> = emptyMap(),
     featuredHeightLimit: Dp = 460.dp,
+    /** The Replay year story's button beside the wordmark, or null for none. See [ReplayYearButton]. */
+    replayYear: ReplayYearBadge? = null,
 ) {
     // Top Picks' pictures and motion wait for the feed — see LocalArtworkImages.
     val imageContext = LocalPlatformContext.current
@@ -290,6 +292,19 @@ fun HomeScreen(
                 // Reserve the feed's original breathing room while the wordmark
                 // lives in the top bar beside the account avatar.
                 item(key = "home-header-space") { Spacer(Modifier.height(72.dp)) }
+                if (replayYear != null) {
+                    item(key = "home-replay-year") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = PAGE_GUTTER)
+                                .padding(bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ReplayYearButton(replayYear, height = 34.dp)
+                        }
+                    }
+                }
             }
             if (carouselVisible && onTopPickClick != null) {
                 when {

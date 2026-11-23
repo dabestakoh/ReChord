@@ -209,18 +209,9 @@ fun PlayerDrawer(
                 .onSizeChanged { height = it.height }
                 .offset { IntOffset(0, offset.roundToInt()) }
                 .clip(DRAWER_SHAPE)
-                .then(
-                    // The ⋯ menu's frost, so the drawers and the menu read as one
-                    // material over the player — its own where the player is
-                    // recorded for it, else the same look through the haze.
-                    when {
-                        reduceDynamicBlur -> Modifier.background(MenuFrostDark)
-                        frost != null -> with(frost) {
-                            Modifier.frostPanel(DRAWER_SHAPE, MenuFrostDark.copy(alpha = MENU_FROST_ALPHA))
-                        }
-                        else -> Modifier.liveMenuFrost(hazeState, MenuFrostDark)
-                    }
-                )
+                // The ⋯ menu's frost, so the drawers and the menu read as one
+                // material over the player — see [playerMenuSurface].
+                .playerMenuSurface(DRAWER_SHAPE, hazeState)
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },

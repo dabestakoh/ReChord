@@ -254,4 +254,15 @@
     <string name="lyrics_auto_sync_play_first">Play the song to auto-sync</string>
     <string name="lyrics_auto_sync_failed">Couldn't detect clear vocals — try during a verse</string>
     <string name="lyrics_offset_per_song_description">Adjust timing for this song only</string>
+    <string name="best_part">Best Part</string>
+    <string name="best_part_description">Skip to the best part</string>
+    <string name="add_to_queue">เพิ่มลงคิว</string>
+    <string name="queue_selected_count">เลือก %1$d รายการ</string>
+    <string name="queue_select_all">เลือกทั้งหมด</string>
+    <string name="queue_select">เลือก</string>
+    <string name="queue_close_selection">ปิดโหมดเลือก</string>
+    <string name="queue_add_to_playlist">เพลย์ลิสต์</string>
+    <string name="queue_download">ดาวน์โหลด</string>
+    <string name="queue_selection_remove">นำออก</string>
+    <string name="queue_add_all_to_playlist">เพิ่มทั้งหมดลงเพลย์ลิสต์</string>
 </resources>

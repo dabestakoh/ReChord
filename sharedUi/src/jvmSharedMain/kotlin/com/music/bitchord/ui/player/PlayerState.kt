@@ -32,8 +32,11 @@ import coil3.PlatformContext
 import coil3.compose.LocalPlatformContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImagePainter
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import com.music.bitchord.data.canvas.CanvasArtwork
+import com.music.bitchord.data.canvas.CanvasSource
+import com.music.bitchord.data.model.PLAYER_ART_MEMORY_CACHE_KEY_EXTRA
 import com.music.bitchord.ui.rememberIsForeground
 import com.music.bitchord.ui.theme.ArtworkPlayerAnalysis
 import com.music.bitchord.ui.theme.rememberArtworkPlayerAnalysis
@@ -54,6 +57,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
     val canvasEnabled by PlayerSettings.animatedCanvas.collectAsStateWithLifecycle()
     val canvasOverCellular by PlayerSettings.canvasOverCellular.collectAsStateWithLifecycle()
+    val disableSpotifyCanvas by PlayerSettings.disableSpotifyCanvas.collectAsStateWithLifecycle()
     val prioritizeSpotifyCanvas by PlayerSettings.prioritizeSpotifyCanvas.collectAsStateWithLifecycle()
     val meteredConnection by PlayerSettings.meteredConnection.collectAsStateWithLifecycle()
     // The switch turns the feature off outright; this is the narrower "not
@@ -68,7 +72,7 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
     // clean; the same-titled-impostor case is guarded where the clip is
     // adopted, by [CanvasArtwork.matches].
     var canvas by remember(song.title, song.artist) { mutableStateOf<CanvasArtwork?>(null) }
-    LaunchedEffect(song.videoId, song.albumName, canvasAllowedNow, prioritizeSpotifyCanvas) {
+    LaunchedEffect(song.videoId, song.albumName, canvasAllowedNow, prioritizeSpotifyCanvas, disableSpotifyCanvas) {
         if (!canvasAllowedNow) {
             canvas = null
             return@LaunchedEffect
@@ -82,7 +86,10 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
         // what is playing: [CanvasArtwork.matches] is what stops a preserved
         // clip from being a different song's that happens to share a title.
         canvas = PlayerPlatform.host.cachedCanvas(song)
-            ?: canvas?.takeIf { it.matches(song.title, song.artist, song.albumName) }
+            ?: canvas?.takeIf {
+                (!disableSpotifyCanvas || it.source != CanvasSource.SPOTIFY) &&
+                    it.matches(song.title, song.artist, song.albumName)
+            }
 
         // The album name is looked up separately and lands a moment after the
         // player opens, and it is the field that makes the catalogue searches
@@ -96,8 +103,20 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
         canvas = PlayerPlatform.host.canvasFor(song) ?: canvas
     }
 
-    return canvas
+    return canvas?.takeIf { canvasAllowedNow && (!disableSpotifyCanvas || it.source != CanvasSource.SPOTIFY) }
 }
+
+/**
+ * The full-size cover request, shared by the player and the AutoMix prepared cover so
+ * a prepared decode is the entry the player then reads.
+ */
+internal fun playerCoverRequest(
+    context: PlatformContext,
+    artworkUrl: String?,
+    artPx: Int = ART_PX,
+): ImageRequest.Builder =
+    ImageRequest.Builder(context).data(artworkUrl).size(artPx)
+        .memoryCacheKeyExtra(PLAYER_ART_MEMORY_CACHE_KEY_EXTRA, artPx.toString())
 
 /**
  * The player's cover: the one request every surface draws it from, whether it
@@ -106,7 +125,13 @@ internal fun rememberCanvasArtwork(song: Song): CanvasArtwork? {
  * Everything here is keyed on the cover's [url] — see [rememberPlayerArtwork].
  */
 @Stable
-internal class PlayerArtwork(val url: String?, private val context: PlatformContext, private val artPx: Int = ART_PX) {
+internal class PlayerArtwork(
+    val url: String?,
+    private val context: PlatformContext,
+    /** The last track's cover, drawn in this one's place until it loads — see [lastCover]. */
+    private val holdOver: MemoryCache.Key? = null,
+    private val artPx: Int = ART_PX,
+) {
     /**
      * Whether the cover is on screen. Keyed on the artwork rather than on the
      * track, because that is what it actually describes and because only Coil
@@ -117,51 +142,30 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
     var lastPainter by mutableStateOf<Painter?>(null)
         private set
 
-    /**
-     * Which go at this cover we are on, and the reason there is more than one.
-     *
-     * Coil does not retry: a request that fails is over, and the state it leaves
-     * behind is the state this screen keeps until the model changes — which,
-     * keyed on the cover, means until the next track. One dropped connection at
-     * the wrong moment and the player showed its placeholder tile for a song it
-     * would have drawn perfectly a second later, with the widget and the
-     * notification both showing the cover from cache the whole time.
-     *
-     * Bounded and spaced, because the usual reason a cover fails is that there
-     * is no network at all, and a retry per recomposition — which is what an
-     * unremembered request effectively gave — is a spin, not a recovery.
-     */
     var attempt by mutableIntStateOf(0)
         private set
 
     /** Latched on an error, and only upwards — cleared by the retry itself. */
     internal var failed by mutableStateOf(false)
 
-    /**
-     * The one request for this cover, built once.
-     *
-     * Built once rather than inline at the sleeve, because Coil compares models
-     * to decide whether to start a new load, and two separately built requests
-     * are never equal — `ImageRequest` has no `equals`, and neither does the
-     * size resolver `.size()` hands it. Inline, *every recomposition* was a new
-     * load. The player recomposes at least twice a second off the position
-     * tick, and each pass pushed the painter back through Loading before it
-     * settled on Success again, which is exactly the [loaded] this screen hangs
-     * the full-bleed banner, the sleeve's shadow and its placeholder icon on.
-     *
-     * Remembered on the cover and the attempt, so it changes when the picture
-     * changes and when a retry is deliberately asked for, and at no other time.
-     */
+    /** This cover's memory-cache entry, once it has been drawn. */
+    private var shown: MemoryCache.Key? = null
+    private var decodedCover: DecodedAutoMixCover? = null
+    private var decodedDuringMix: Long? = null
+
+    fun decodedCoverBefore(generation: Long): DecodedAutoMixCover? =
+        decodedCover?.takeIf { decodedDuringMix != generation }
+
+    fun noteDisplayedCover(cover: DecodedAutoMixCover) {
+        shown = cover.cacheKey
+    }
+
+    val lastCover: MemoryCache.Key? get() = shown ?: holdOver
+
     val request: ImageRequest by derivedStateOf {
         val attempt = attempt
-        ImageRequest.Builder(context)
-            .data(url)
-            .size(artPx)
-            // What makes a retry a new request as far as Coil's model comparison
-            // is concerned. Only from the second go onwards, so the ordinary
-            // request stays byte-identical to the one the mesh and the palette
-            // make of the same cover and goes on sharing their memory-cache
-            // entry. The disk key is unaffected either way.
+        playerCoverRequest(context, url, artPx)
+            .placeholderMemoryCacheKey(holdOver)
             .apply { if (attempt > 0) memoryCacheKeyExtra("attempt", attempt.toString()) }
             .build()
     }
@@ -177,12 +181,13 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
 
     /** Fed from each painter drawing [request]. */
     fun onState(state: AsyncImagePainter.State) {
-        if (state is AsyncImagePainter.State.Success) lastPainter = state.painter
-        // Only the failure is latched, and only upwards: the retry that clears
-        // it is [failed]'s own effect, and clearing it from a Loading state here
-        // would cancel that effect's wait every time the painter passed back
-        // through Loading.
-        if (state is AsyncImagePainter.State.Success) failed = false
+        if (state is AsyncImagePainter.State.Success) {
+            lastPainter = state.painter
+            failed = false
+            shown = state.result.memoryCacheKey
+            decodedCover = state.result.decodedAutoMixCover()
+            decodedDuringMix = PlayerPlatform.host.autoMixVisualState?.value?.takeIf { it.mixActive }?.generation
+        }
         if (state is AsyncImagePainter.State.Error) failed = true
     }
 
@@ -196,7 +201,10 @@ internal class PlayerArtwork(val url: String?, private val context: PlatformCont
 internal fun rememberPlayerArtwork(remoteArt: String?, artPx: Int = ART_PX): PlayerArtwork {
     val context = LocalPlatformContext.current
     val artUrl = remoteArt?.artworkAt(artPx)
-    val art = remember(artUrl, artPx) { PlayerArtwork(artUrl, context, artPx) }
+    val last = remember(artPx) { arrayOfNulls<PlayerArtwork>(1) }
+    val art = remember(artUrl, artPx) {
+        PlayerArtwork(artUrl, context, holdOver = last[0]?.lastCover, artPx = artPx).also { last[0] = it }
+    }
     LaunchedEffect(artUrl, art.failed) {
         // A track with no artwork at all fails immediately and would fail
         // identically three more times: there is no request to make, so there is
