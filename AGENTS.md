@@ -1,6 +1,6 @@
 # ReChord agent instructions
 
-Read the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) before planning or editing. It is the canonical guide for coding, UI, playback, add-ons, and delivery.
+Read the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) before planning or editing. It is the canonical guide for coding, UI, playback, add-ons, and delivery. When assessing or syncing upstream BitChord updates, also read the [ReChord upstream sync policy](docs/UPSTREAM-SYNC-POLICY.md) to avoid pulling intentionally omitted features.
 
 - Keep planning and investigation read-only until the user approves implementation.
 - Load `rechord-multi-agent-orchestration` (along with `rechord-compose-perf-audit` for UI and `rechord-preview-and-release` for delivery) to save main-context tokens: offload broad code/locale scouting (`rechord-code-scout`) and Gradle/CI verification (`rechord-verifier`) to `flash` or `flash_lite` subagents returning compact `<250-token` line-range summaries, reuse warm subagents via `send_message`, skip subagents for trivial known-line edits, and reserve `pro` subagents for complex multi-file domain audits.
