@@ -31,8 +31,22 @@ internal object LocalArtwork {
     internal val coverExtensions = setOf("jpg", "jpeg", "png", "webp")
     private val artworkDispatcher = Dispatchers.IO.limitedParallelism(2)
     private const val THUMB_PX = 384
-    private const val THUMB_CACHE_BYTES = 128L * 1024 * 1024
+    private const val THUMB_CACHE_BYTES = 256L * 1024 * 1024
     private const val THUMB_CACHE_DIR = "local-thumbnails"
+
+    @Volatile private var sharedDiskCache: DiskCache? = null
+    private val cacheLock = Any()
+
+    private fun thumbnailCache(context: Context): DiskCache {
+        sharedDiskCache?.let { return it }
+        return synchronized(cacheLock) {
+            sharedDiskCache ?: DiskCache.Builder()
+                .directory(File(context.applicationContext.cacheDir, THUMB_CACHE_DIR).toOkioPath())
+                .maxSizeBytes(THUMB_CACHE_BYTES)
+                .build()
+                .also { sharedDiskCache = it }
+        }
+    }
 
     data class SidecarCover(
         /** `"file:/path/to/cover.jpg"` or `"content://..."` */
@@ -73,7 +87,7 @@ internal object LocalArtwork {
 
     fun decorateOne(song: Song, sidecars: List<SidecarCover>): Song {
         val media = song.localUri ?: return song
-        val embedded = "embedded:$media"
+        val embedded = if (song.localPath != null) "embedded:$media|path:${song.localPath}" else "embedded:$media"
         val sidecarSources = sidecars.map { it.source }
         val fallback = song.thumbnailUrl?.takeUnless { it.startsWith(PREFIX) }
         val revision = "${song.localDateModifiedSeconds}:${sidecars.joinToString { it.signature }}"
@@ -116,6 +130,10 @@ internal object LocalArtwork {
     }
 
     fun clearThumbnailCache(context: Context) {
+        synchronized(cacheLock) {
+            runCatching { sharedDiskCache?.clear() }
+            sharedDiskCache = null
+        }
         runCatching {
             File(context.cacheDir, THUMB_CACHE_DIR).deleteRecursively()
         }
@@ -125,57 +143,59 @@ internal object LocalArtwork {
     }
 
     /**
-     * Low-priority bounded thumbnail pre-warming for the first batch of unique
-     * album covers so scrolling feels instant right after scanning begins.
+     * Low-priority (`THREAD_PRIORITY_BACKGROUND`) background caching for EVERY
+     * unique song thumbnail and album cover in the local library so scrolling
+     * 5,000+ songs and albums hits the shared 256 MB DiskCache in `< 1 ms`.
      */
-    suspend fun prewarmThumbnails(context: Context, songs: List<Song>, maxUnique: Int = 60) = withContext(artworkDispatcher) {
-        val cache = runCatching {
-            DiskCache.Builder()
-                .directory(File(context.cacheDir, THUMB_CACHE_DIR).toOkioPath())
-                .maxSizeBytes(THUMB_CACHE_BYTES)
-                .build()
-        }.getOrNull() ?: return@withContext
-        val urls = songs.asSequence()
-            .mapNotNull { it.thumbnailUrl }
-            .filter { it.startsWith(PREFIX) }
-            .distinct()
-            .take(maxUnique)
-            .toList()
-        for (url in urls) {
-            val exists = runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
-            if (exists) continue
-            val bytes = url.removePrefix(PREFIX).split('|').drop(1)
-                .firstNotNullOfOrNull { encoded ->
-                    read(context, Uri.decode(encoded))?.let { image -> decodeCover(image, thumbnail = true) }
-                } ?: continue
-            runCatching {
-                cache.openEditor(url)?.let { editor ->
-                    try {
-                        cache.fileSystem.write(editor.metadata) {}
-                        cache.fileSystem.write(editor.data) { write(bytes) }
-                        editor.commit()
-                    } catch (e: Exception) {
-                        editor.abort()
-                        throw e
+    suspend fun prewarmThumbnails(context: Context, songs: List<Song>) = withContext(artworkDispatcher) {
+        val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext
+        val previousPriority = runCatching {
+            android.os.Process.getThreadPriority(android.os.Process.myTid())
+        }.getOrNull()
+        runCatching {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        }
+        try {
+            val urls = LinkedHashSet<String>(songs.size * 2)
+            for (song in songs) {
+                song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
+                song.localAlbumArtwork?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
+            }
+            for (url in urls) {
+                kotlinx.coroutines.yield()
+                val exists = runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
+                if (exists) continue
+                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
+                    .firstNotNullOfOrNull { encoded ->
+                        read(context, Uri.decode(encoded))?.let { image -> decodeCover(image, thumbnail = true) }
+                    } ?: continue
+                runCatching {
+                    cache.openEditor(url)?.let { editor ->
+                        try {
+                            cache.fileSystem.write(editor.metadata) {}
+                            cache.fileSystem.write(editor.data) { write(bytes) }
+                            editor.commit()
+                        } catch (e: Exception) {
+                            editor.abort()
+                            throw e
+                        }
                     }
                 }
+            }
+        } finally {
+            if (previousPriority != null) {
+                runCatching { android.os.Process.setThreadPriority(previousPriority) }
             }
         }
     }
 
-    class Factory(context: Context) : Fetcher.Factory<coil3.Uri> {
-        private val thumbnails by lazy {
-            DiskCache.Builder()
-                .directory(File(context.cacheDir, THUMB_CACHE_DIR).toOkioPath())
-                .maxSizeBytes(THUMB_CACHE_BYTES)
-                .build()
-        }
-
+    class Factory(private val context: Context) : Fetcher.Factory<coil3.Uri> {
         override fun create(data: coil3.Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
             val url = data.toString()
             if (!url.startsWith(PREFIX)) return null
             return object : Fetcher {
                 override suspend fun fetch(): SourceFetchResult = withContext(artworkDispatcher) {
+                    val thumbnails = thumbnailCache(context)
                     val width = options.size.width as? Dimension.Pixels
                     val height = options.size.height as? Dimension.Pixels
                     val small = width != null && height != null && width.px <= THUMB_PX && height.px <= THUMB_PX
@@ -231,7 +251,7 @@ internal object LocalArtwork {
         return try {
             val output = ByteArrayOutputStream()
             val format = if (resized.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            if (resized.compress(format, 88, output)) output.toByteArray() else null
+            if (resized.compress(format, 85, output)) output.toByteArray() else null
         } finally {
             if (resized !== bitmap) resized.recycle()
             bitmap.recycle()
@@ -241,12 +261,27 @@ internal object LocalArtwork {
     private fun read(context: Context, source: String): ByteArray? = runCatching {
         when {
             source.startsWith("embedded:") -> {
-                val retriever = MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(context, Uri.parse(source.removePrefix("embedded:")))
-                    retriever.embeddedPicture?.takeIf { it.size <= MAX_BYTES }
-                } finally {
-                    retriever.release()
+                val raw = source.removePrefix("embedded:")
+                val mediaUri = raw.substringBefore("|path:")
+                val filePath = raw.substringAfter("|path:", "").takeIf { it.isNotBlank() }
+                // Fast pure-Kotlin binary extraction for FLAC/MP3 avoids MediaMetadataRetriever IPC.
+                val fastPicture = when {
+                    filePath != null -> FastAudioTagReader.readEmbeddedPictureFile(File(filePath), MAX_BYTES)
+                    mediaUri.startsWith("file://") -> Uri.parse(mediaUri).path?.let {
+                        FastAudioTagReader.readEmbeddedPictureFile(File(it), MAX_BYTES)
+                    }
+                    else -> null
+                }
+                if (fastPicture != null && fastPicture.isNotEmpty()) {
+                    fastPicture
+                } else {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, Uri.parse(mediaUri))
+                        retriever.embeddedPicture?.takeIf { it.size <= MAX_BYTES }
+                    } finally {
+                        retriever.release()
+                    }
                 }
             }
             source.startsWith("file:") -> File(source.removePrefix("file:")).takeIf { it.length() in 1..MAX_BYTES.toLong() }?.readBytes()

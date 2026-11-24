@@ -53,6 +53,134 @@ object FastAudioTagReader {
         }
     }
 
+    /**
+     * Fast pure-Kotlin embedded cover art extraction for FLAC (`PICTURE` block
+     * type 6) and MP3 (`ID3v2 APIC` frame), avoiding heavy `MediaMetadataRetriever`
+     * binder IPC during background thumbnail caching and fast list scrolling.
+     */
+    fun readEmbeddedPictureFile(file: File, maxBytes: Int = 16 * 1024 * 1024): ByteArray? {
+        val ext = file.extension.lowercase(Locale.ROOT)
+        if (ext != "flac" && ext != "mp3") return null
+        return runCatching {
+            FileInputStream(file).use { fis ->
+                BufferedInputStream(fis, 32 * 1024).use { bis ->
+                    readEmbeddedPictureStream(bis, ext, maxBytes)
+                }
+            }
+        }.getOrNull()
+    }
+
+    fun readEmbeddedPictureStream(
+        stream: InputStream,
+        extension: String,
+        maxBytes: Int = 16 * 1024 * 1024,
+    ): ByteArray? = when (extension.lowercase(Locale.ROOT)) {
+        "flac" -> readFlacPicture(stream, maxBytes)
+        "mp3" -> readId3v2Picture(stream, maxBytes)
+        else -> null
+    }
+
+    private fun readFlacPicture(stream: InputStream, maxBytes: Int): ByteArray? {
+        val magic = readExact(stream, 4) ?: return null
+        if (magic[0] != 'f'.code.toByte() || magic[1] != 'L'.code.toByte() ||
+            magic[2] != 'a'.code.toByte() || magic[3] != 'C'.code.toByte()
+        ) return null
+
+        var totalWalked = 4L
+        val maxWalk = maxBytes.toLong() + 2L * 1024 * 1024
+        while (totalWalked < maxWalk) {
+            val blockHeader = readExact(stream, 4) ?: return null
+            totalWalked += 4
+            val isLast = (blockHeader[0].toInt() and 0x80) != 0
+            val blockType = blockHeader[0].toInt() and 0x7F
+            val length = ((blockHeader[1].toInt() and 0xFF) shl 16) or
+                ((blockHeader[2].toInt() and 0xFF) shl 8) or
+                (blockHeader[3].toInt() and 0xFF)
+
+            if (blockType == 6 && length in 32..maxBytes) {
+                val payload = readExact(stream, length) ?: return null
+                var pos = 4 // picture type
+                if (pos + 4 > payload.size) return null
+                val mimeLen = be32(payload, pos)
+                pos += 4 + mimeLen
+                if (mimeLen < 0 || pos + 4 > payload.size) return null
+                val descLen = be32(payload, pos)
+                pos += 4 + descLen + 16 // desc + width/height/depth/colors
+                if (descLen < 0 || pos + 4 > payload.size) return null
+                val dataLen = be32(payload, pos)
+                pos += 4
+                if (dataLen in 1..maxBytes && pos + dataLen <= payload.size) {
+                    return payload.copyOfRange(pos, pos + dataLen)
+                }
+                return null
+            } else {
+                if (!skipExact(stream, length.toLong())) return null
+                totalWalked += length
+            }
+            if (isLast) break
+        }
+        return null
+    }
+
+    private fun readId3v2Picture(stream: InputStream, maxBytes: Int): ByteArray? {
+        val header = readExact(stream, 10) ?: return null
+        if (header[0] != 'I'.code.toByte() || header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()) {
+            return null
+        }
+        val majorVersion = header[3].toInt() and 0xFF
+        if (majorVersion !in 3..4) return null
+        val flags = header[5].toInt() and 0xFF
+        val tagSize = syncSafe32(header, 6)
+        if (tagSize <= 0 || tagSize > maxBytes + 512 * 1024) return null
+
+        var remaining = tagSize
+        if ((flags and 0x40) != 0 && remaining >= 4) {
+            val extHeader = readExact(stream, 4) ?: return null
+            val extSize = if (majorVersion == 4) syncSafe32(extHeader, 0) else be32(extHeader, 0)
+            val skipBytes = if (majorVersion == 4) extSize - 4 else extSize
+            if (skipBytes > 0 && !skipExact(stream, skipBytes.toLong())) return null
+            remaining -= (4 + skipBytes.coerceAtLeast(0))
+        }
+
+        while (remaining >= 10) {
+            val fh = readExact(stream, 10) ?: return null
+            remaining -= 10
+            if (fh[0] == 0.toByte()) return null
+            val frameId = String(fh, 0, 4, Charsets.ISO_8859_1)
+            val frameSize = if (majorVersion == 4) syncSafe32(fh, 4) else be32(fh, 4)
+            if (frameSize <= 0 || frameSize > remaining) return null
+            if (frameId == "APIC" && frameSize in 16..maxBytes) {
+                val payload = readExact(stream, frameSize) ?: return null
+                val encoding = payload[0].toInt() and 0xFF
+                var pos = 1
+                // Null-terminated MIME string (ISO-8859-1)
+                while (pos < payload.size && payload[pos] != 0.toByte()) pos++
+                pos += 1 // null terminator
+                if (pos >= payload.size) return null
+                pos += 1 // picture type byte
+                // Null-terminated description (1-byte null for ISO-8859-1/UTF-8, 2-byte null for UTF-16)
+                if (encoding == 1 || encoding == 2) {
+                    while (pos + 1 < payload.size && (payload[pos] != 0.toByte() || payload[pos + 1] != 0.toByte())) {
+                        pos += 2
+                    }
+                    pos += 2
+                } else {
+                    while (pos < payload.size && payload[pos] != 0.toByte()) pos++
+                    pos += 1
+                }
+                if (pos < payload.size) {
+                    val imgLen = payload.size - pos
+                    if (imgLen in 1..maxBytes) return payload.copyOfRange(pos, payload.size)
+                }
+                return null
+            } else {
+                if (!skipExact(stream, frameSize.toLong())) return null
+                remaining -= frameSize
+            }
+        }
+        return null
+    }
+
     // ── FLAC (STREAMINFO + VORBIS_COMMENT) ────────────────────────────────
 
     internal fun readFlac(stream: InputStream): FastTags? {

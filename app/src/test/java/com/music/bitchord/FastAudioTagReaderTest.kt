@@ -148,4 +148,41 @@ class FastAudioTagReaderTest {
         assertNotNull(tags)
         assertEquals(45_000L, tags!!.durationMs)
     }
+
+    @Test
+    fun parsesFlacEmbeddedPicture() {
+        val fakeJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 1, 2, 3, 4)
+        val pic = ByteArrayOutputStream()
+        fun writeBe32(v: Int) {
+            pic.write((v ushr 24) and 0xFF)
+            pic.write((v ushr 16) and 0xFF)
+            pic.write((v ushr 8) and 0xFF)
+            pic.write(v and 0xFF)
+        }
+        writeBe32(3) // front cover
+        val mime = "image/jpeg".toByteArray(Charsets.ISO_8859_1)
+        writeBe32(mime.size)
+        pic.write(mime)
+        writeBe32(0) // description len
+        writeBe32(500); writeBe32(500); writeBe32(24); writeBe32(0)
+        writeBe32(fakeJpeg.size)
+        pic.write(fakeJpeg)
+        val picBytes = pic.toByteArray()
+
+        val out = ByteArrayOutputStream()
+        out.write("fLaC".toByteArray(Charsets.ISO_8859_1))
+        out.write(
+            byteArrayOf(
+                0x86.toByte(), // last=1, type=6 (PICTURE)
+                ((picBytes.size ushr 16) and 0xFF).toByte(),
+                ((picBytes.size ushr 8) and 0xFF).toByte(),
+                (picBytes.size and 0xFF).toByte(),
+            ),
+        )
+        out.write(picBytes)
+
+        val extracted = FastAudioTagReader.readEmbeddedPictureStream(ByteArrayInputStream(out.toByteArray()), "flac")
+        assertNotNull(extracted)
+        assertEquals(fakeJpeg.toList(), extracted!!.toList())
+    }
 }

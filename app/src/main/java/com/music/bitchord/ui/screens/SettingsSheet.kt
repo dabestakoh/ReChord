@@ -1645,8 +1645,13 @@ fun SettingsScreen(
         }
 
         if (confirmClearLocalLibrary) {
+            val scheme = MaterialTheme.colorScheme
             AlertDialog(
                 onDismissRequest = { confirmClearLocalLibrary = false },
+                containerColor = scheme.surface,
+                titleContentColor = scheme.onSurface,
+                textContentColor = scheme.onSurfaceVariant,
+                tonalElevation = 0.dp,
                 title = { Text(stringResource(R.string.local_clear_library_confirm_title)) },
                 text = { Text(stringResource(R.string.local_clear_library_confirm_message)) },
                 confirmButton = {
@@ -1657,12 +1662,20 @@ fun SettingsScreen(
                                 com.music.bitchord.data.LocalLibraryIndex.clearLibrary(context)
                             }
                         },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = com.music.bitchord.ui.theme.AccentRed,
+                        ),
                     ) {
                         Text(stringResource(R.string.local_clear_library))
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { confirmClearLocalLibrary = false }) {
+                    TextButton(
+                        onClick = { confirmClearLocalLibrary = false },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = scheme.onSurface,
+                        ),
+                    ) {
                         Text(stringResource(R.string.cancel))
                     }
                 },

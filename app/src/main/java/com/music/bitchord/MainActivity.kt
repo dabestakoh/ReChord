@@ -1028,10 +1028,6 @@ private fun BitChordApp(
         }
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
-    LifecycleResumeEffect(viewModel) {
-        viewModel.refreshLocalLibraryIfConfigured()
-        onPauseOrDispose { }
-    }
     LaunchedEffect(viewModel) {
         com.music.bitchord.data.LocalLibraryIndex.changes(context).collectLatest {
             kotlinx.coroutines.delay(500)
@@ -1124,7 +1120,9 @@ private fun BitChordApp(
     val localMusicScanMode by AppSettings.localMusicScanMode.collectAsStateWithLifecycle()
     var showLocalFolderPicker by remember { mutableStateOf(false) }
     var showClearLocalConfirm by remember { mutableStateOf(false) }
-    var pendingLocalScanAll by remember { mutableStateOf(false) }
+    var pendingLocalScan by remember {
+        mutableStateOf<Triple<com.music.bitchord.data.settings.LocalMusicScanMode, List<com.music.bitchord.data.settings.LocalScanFolder>, List<com.music.bitchord.data.settings.LocalScanFolder>>?>(null)
+    }
     val webdavUrl by AppSettings.webdavUrl.collectAsStateWithLifecycle()
     val smbHost by AppSettings.smbHost.collectAsStateWithLifecycle()
     val librarySort by AppSettings.librarySort.collectAsStateWithLifecycle()
@@ -2345,11 +2343,11 @@ private fun BitChordApp(
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        val startAll = pendingLocalScanAll
-        pendingLocalScanAll = false
+        val pending = pendingLocalScan
+        pendingLocalScan = null
         if (granted) {
-            if (startAll) {
-                viewModel.startLocalScanAll()
+            if (pending != null) {
+                viewModel.startLocalScanFolders(pending.first, pending.second, pending.third)
             } else {
                 viewModel.refreshLocalLibraryIfConfigured()
             }
@@ -3512,7 +3510,11 @@ private fun BitChordApp(
                                         if (LocalMediaRepository.hasStoragePermission(context)) {
                                             viewModel.startLocalScanAll()
                                         } else {
-                                            pendingLocalScanAll = true
+                                            pendingLocalScan = Triple(
+                                                com.music.bitchord.data.settings.LocalMusicScanMode.ALL_FOLDERS,
+                                                AppSettings.localMusicFolders.value,
+                                                AppSettings.localMusicExcludedFolders.value,
+                                            )
                                             mediaPermissionLauncher.launch(mediaPermission)
                                         }
                                     }) else null,
@@ -6109,8 +6111,8 @@ private fun BitChordApp(
             showClearConfirm = showClearLocalConfirm,
             onDismissFolderPicker = { showLocalFolderPicker = false },
             onDismissClearConfirm = { showClearLocalConfirm = false },
-            onRequestStorageForAll = {
-                pendingLocalScanAll = true
+            onRequestStorageForScan = { mode, folders, excluded ->
+                pendingLocalScan = Triple(mode, folders, excluded)
                 mediaPermissionLauncher.launch(mediaPermission)
             },
         )

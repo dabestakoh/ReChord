@@ -500,6 +500,7 @@ private fun LocalMusicSetupView(
     onSearchAll: (() -> Unit)?,
     onSearchSpecific: (() -> Unit)?,
 ) {
+    val scheme = MaterialTheme.colorScheme
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -513,19 +514,20 @@ private fun LocalMusicSetupView(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(if (compactLandscape) 64.dp else 80.dp)
-                    .clip(CircleShape)
-                    .background(palette.accent.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
+            Surface(
+                modifier = Modifier.size(if (compactLandscape) 64.dp else 80.dp),
+                shape = CircleShape,
+                color = palette.onBackground.copy(alpha = 0.09f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, palette.onBackground.copy(alpha = 0.14f)),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Search,
-                    contentDescription = null,
-                    tint = palette.accent,
-                    modifier = Modifier.size(if (compactLandscape) 32.dp else 40.dp),
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = palette.onBackground,
+                        modifier = Modifier.size(if (compactLandscape) 32.dp else 40.dp),
+                    )
+                }
             }
 
             Spacer(Modifier.height(if (compactLandscape) 12.dp else 18.dp))
@@ -553,18 +555,24 @@ private fun LocalMusicSetupView(
                 Button(
                     onClick = onSearchAll,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = palette.accent,
-                        contentColor = Color.White,
+                        containerColor = scheme.primary,
+                        contentColor = scheme.onPrimary,
                     ),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = CircleShape,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp),
                 ) {
-                    Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = scheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = stringResource(R.string.local_search_all_folders),
+                        color = scheme.onPrimary,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -574,17 +582,31 @@ private fun LocalMusicSetupView(
 
             if (onSearchSpecific != null) {
                 Spacer(Modifier.height(10.dp))
-                FilledTonalButton(
+                androidx.compose.material3.OutlinedButton(
                     onClick = onSearchSpecific,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = palette.onBackground.copy(alpha = 0.10f),
+                        contentColor = palette.onBackground,
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        palette.onBackground.copy(alpha = 0.16f),
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 50.dp),
                 ) {
-                    Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Rounded.FolderOpen,
+                        contentDescription = null,
+                        tint = palette.onBackground,
+                        modifier = Modifier.size(18.dp),
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = stringResource(R.string.local_search_specific_folders),
+                        color = palette.onBackground,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -613,8 +635,9 @@ private fun LocalScanProgressBanner(
             .fillMaxWidth()
             .padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
         shape = RoundedCornerShape(16.dp),
-        color = palette.accent.copy(alpha = 0.14f),
+        color = palette.onBackground.copy(alpha = 0.08f),
         contentColor = palette.onBackground,
+        border = androidx.compose.foundation.BorderStroke(1.dp, palette.onBackground.copy(alpha = 0.14f)),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(
@@ -626,7 +649,7 @@ private fun LocalScanProgressBanner(
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = palette.accent,
+                            color = palette.onBackground,
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
@@ -647,7 +670,7 @@ private fun LocalScanProgressBanner(
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = palette.accent,
+                            color = palette.onBackground,
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
@@ -668,7 +691,7 @@ private fun LocalScanProgressBanner(
                         Icon(
                             imageVector = Icons.Rounded.ErrorOutline,
                             contentDescription = null,
-                            tint = palette.accent,
+                            tint = com.music.bitchord.ui.theme.AccentRed,
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(10.dp))
@@ -682,8 +705,11 @@ private fun LocalScanProgressBanner(
                             modifier = Modifier.weight(1f),
                         )
                         if (onRetry != null) {
-                            TextButton(onClick = onRetry) {
-                                Text(stringResource(R.string.retry), color = palette.accent)
+                            TextButton(
+                                onClick = onRetry,
+                                colors = ButtonDefaults.textButtonColors(contentColor = palette.onBackground),
+                            ) {
+                                Text(stringResource(R.string.retry))
                             }
                         }
                     }
@@ -692,7 +718,7 @@ private fun LocalScanProgressBanner(
                             Icon(
                                 imageVector = Icons.Rounded.ErrorOutline,
                                 contentDescription = null,
-                                tint = palette.accent,
+                                tint = com.music.bitchord.ui.theme.AccentRed,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(10.dp))
@@ -706,8 +732,11 @@ private fun LocalScanProgressBanner(
                                 modifier = Modifier.weight(1f),
                             )
                             if (onManageFolders != null) {
-                                TextButton(onClick = onManageFolders) {
-                                    Text(stringResource(R.string.local_manage_folders), color = palette.accent)
+                                TextButton(
+                                    onClick = onManageFolders,
+                                    colors = ButtonDefaults.textButtonColors(contentColor = palette.onBackground),
+                                ) {
+                                    Text(stringResource(R.string.local_manage_folders))
                                 }
                             }
                         }
@@ -715,8 +744,11 @@ private fun LocalScanProgressBanner(
                 }
 
                 if (progress.isActive && onCancel != null) {
-                    TextButton(onClick = onCancel) {
-                        Text(stringResource(R.string.local_scan_cancel), color = palette.accent)
+                    TextButton(
+                        onClick = onCancel,
+                        colors = ButtonDefaults.textButtonColors(contentColor = palette.onBackgroundVariant),
+                    ) {
+                        Text(stringResource(R.string.local_scan_cancel))
                     }
                 }
             }
@@ -725,16 +757,16 @@ private fun LocalScanProgressBanner(
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                    color = palette.accent,
-                    trackColor = palette.accent.copy(alpha = 0.22f),
+                    color = palette.onBackground,
+                    trackColor = palette.onBackground.copy(alpha = 0.18f),
                 )
             } else if (progress.phase == LocalLibraryIndex.ScanPhase.INDEXING && progress.total > 0) {
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     progress = { (progress.processed.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                    color = palette.accent,
-                    trackColor = palette.accent.copy(alpha = 0.22f),
+                    color = palette.onBackground,
+                    trackColor = palette.onBackground.copy(alpha = 0.18f),
                 )
             }
         }

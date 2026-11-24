@@ -3,6 +3,7 @@ package com.music.bitchord.ui.screens
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -38,8 +40,11 @@ import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.SdStorage
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,9 +52,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,21 +73,25 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.R
+import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.LocalMediaRepository
 import com.music.bitchord.data.LocalStorageVolumes
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.LocalMusicScanMode
 import com.music.bitchord.data.settings.LocalScanFolder
+import com.music.bitchord.ui.MainViewModel
+import com.music.bitchord.ui.theme.AccentRed
 import java.io.File
 import java.util.Locale
 
 /**
  * Multi-folder & subfolder picker dialog for Local Music.
  *
- * Adapts to Portrait phones (`360×800dp`), DAP Landscape (`560–720×360dp`),
- * 720p Car Head-Units (`640×360dp`, `853×480dp`, `1280×720dp`), and Tablets:
- * switches to a 2-column layout in landscape with primary actions always visible
- * inside `WindowInsets.safeDrawing`.
+ * Styled strictly with ReChord's monochrome glass color roles (`surface`,
+ * `primary`/`onPrimary`, `onSurface`, `onSurfaceVariant`, `outline`) so every
+ * element has crisp contrast in Light, Dark, and pure-black AMOLED themes, and
+ * adapts to Portrait phones (`360×800dp`), DAP Landscape (`560–720×360dp`),
+ * 720p Car Head-Units (`640×360dp`, `853×480dp`, `1280×720dp`), and Tablets.
  */
 @Composable
 internal fun LocalFolderPickerDialog(
@@ -91,6 +102,7 @@ internal fun LocalFolderPickerDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     val legacySetting by AppSettings.localLegacyScanMode.collectAsStateWithLifecycle()
     val useLegacyBrowser = remember(legacySetting) {
         LocalStorageVolumes.shouldUseLegacyScan(context, legacySetting)
@@ -171,8 +183,10 @@ internal fun LocalFolderPickerDialog(
                     .width(dialogMaxWidth)
                     .heightIn(max = dialogMaxHeight),
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
+                color = scheme.surface,
+                contentColor = scheme.onSurface,
+                border = BorderStroke(1.dp, scheme.outline),
+                tonalElevation = 0.dp,
             ) {
                 Column(Modifier.padding(16.dp)) {
                     // Header + Mode toggle
@@ -185,6 +199,7 @@ internal fun LocalFolderPickerDialog(
                                 text = stringResource(R.string.local_folder_picker_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -192,7 +207,7 @@ internal fun LocalFolderPickerDialog(
                                 Text(
                                     text = volumeSummary,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = scheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -200,7 +215,11 @@ internal fun LocalFolderPickerDialog(
                         }
                         Spacer(Modifier.width(8.dp))
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cancel))
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = stringResource(R.string.cancel),
+                                tint = scheme.onSurface,
+                            )
                         }
                     }
 
@@ -270,7 +289,6 @@ internal fun LocalFolderPickerDialog(
                                 .weight(1f, fill = true),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            // Left column: Browser + SAF button
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -294,7 +312,6 @@ internal fun LocalFolderPickerDialog(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            // Right column: Selected / Excluded list
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -325,7 +342,7 @@ internal fun LocalFolderPickerDialog(
                                     .heightIn(max = 190.dp),
                             )
                             Spacer(Modifier.height(10.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            HorizontalDivider(color = scheme.outline.copy(alpha = 0.6f))
                             Spacer(Modifier.height(10.dp))
                             FolderBrowserPane(
                                 useLegacyBrowser = useLegacyBrowser,
@@ -359,6 +376,7 @@ internal fun LocalFolderPickerDialog(
                     ) {
                         TextButton(
                             onClick = onDismiss,
+                            colors = ButtonDefaults.textButtonColors(contentColor = scheme.onSurface),
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(stringResource(R.string.cancel))
@@ -373,6 +391,13 @@ internal fun LocalFolderPickerDialog(
                                 onConfirm(mode, selectedFolders, excludedFolders)
                             },
                             enabled = canConfirm,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = scheme.primary,
+                                contentColor = scheme.onPrimary,
+                                disabledContainerColor = scheme.onSurface.copy(alpha = 0.12f),
+                                disabledContentColor = scheme.onSurface.copy(alpha = 0.38f),
+                            ),
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(
@@ -381,6 +406,7 @@ internal fun LocalFolderPickerDialog(
                                 } else {
                                     stringResource(R.string.local_start_scan_folders, selectedFolders.size)
                                 },
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -399,13 +425,16 @@ private fun ModeChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val scheme = MaterialTheme.colorScheme
+    val bg = if (selected) scheme.primary else scheme.onSurface.copy(alpha = 0.07f)
+    val fg = if (selected) scheme.onPrimary else scheme.onSurfaceVariant
+    val borderColor = if (selected) scheme.primary else scheme.outline
     Row(
         modifier = modifier
             .heightIn(min = 44.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(CircleShape)
             .background(bg)
+            .border(1.dp, borderColor, CircleShape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -418,6 +447,7 @@ private fun ModeChip(
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             color = fg,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -434,13 +464,14 @@ private fun SelectedFoldersPane(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     Column(modifier = modifier) {
         Text(
             text = stringResource(
                 if (isExcludedList) R.string.local_excluded_folders else R.string.local_music_folder,
             ),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = scheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 6.dp),
         )
         if (folders.isEmpty()) {
@@ -448,13 +479,14 @@ private fun SelectedFoldersPane(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .background(scheme.onSurface.copy(alpha = 0.06f))
+                    .border(1.dp, scheme.outline.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                     .padding(14.dp),
             ) {
                 Text(
                     text = stringResource(R.string.local_no_folders_selected),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = scheme.onSurfaceVariant,
                 )
             }
         } else {
@@ -470,14 +502,15 @@ private fun SelectedFoldersPane(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            .background(scheme.onSurface.copy(alpha = 0.07f))
+                            .border(1.dp, scheme.outline.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                             .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             imageVector = if (expired) Icons.Rounded.WarningAmber else Icons.Rounded.Folder,
                             contentDescription = null,
-                            tint = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            tint = if (expired) AccentRed else scheme.onSurface,
                             modifier = Modifier.size(20.dp),
                         )
                         Spacer(Modifier.width(10.dp))
@@ -486,6 +519,7 @@ private fun SelectedFoldersPane(
                                 text = folder.label,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
+                                color = scheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -493,7 +527,7 @@ private fun SelectedFoldersPane(
                                 Text(
                                     text = stringResource(R.string.local_folder_permission_expired),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = AccentRed,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -501,7 +535,7 @@ private fun SelectedFoldersPane(
                                 Text(
                                     text = stringResource(R.string.local_include_subfolders),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = scheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -510,11 +544,20 @@ private fun SelectedFoldersPane(
                         Switch(
                             checked = folder.includeSubfolders,
                             onCheckedChange = { onToggleSubfolders(folder, it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = scheme.onPrimary,
+                                checkedTrackColor = scheme.primary,
+                                checkedBorderColor = scheme.primary,
+                                uncheckedThumbColor = scheme.onSurfaceVariant,
+                                uncheckedTrackColor = scheme.onSurface.copy(alpha = 0.14f),
+                                uncheckedBorderColor = scheme.outline,
+                            ),
                         )
                         IconButton(onClick = { onRemove(folder) }) {
                             Icon(
                                 Icons.Rounded.Close,
                                 contentDescription = stringResource(R.string.cancel),
+                                tint = scheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -540,18 +583,31 @@ private fun FolderBrowserPane(
     internalLabel: String,
     modifier: Modifier = Modifier,
 ) {
+    val scheme = MaterialTheme.colorScheme
     Column(modifier = modifier) {
         if (safAvailable) {
             OutlinedButton(
                 onClick = onLaunchSaf,
+                shape = CircleShape,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = scheme.onSurface.copy(alpha = 0.06f),
+                    contentColor = scheme.onSurface,
+                ),
+                border = BorderStroke(1.dp, scheme.outline),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp),
             ) {
-                Icon(Icons.Rounded.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Rounded.CreateNewFolder,
+                    contentDescription = null,
+                    tint = scheme.onSurface,
+                    modifier = Modifier.size(18.dp),
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = stringResource(R.string.local_add_folder_system_picker),
+                    color = scheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -570,26 +626,31 @@ private fun FolderBrowserPane(
             ) {
                 detectedVolumes.forEachIndexed { idx, vol ->
                     val selected = idx == currentVolumeIndex
-                    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                    val bg = if (selected) scheme.primary else scheme.onSurface.copy(alpha = 0.06f)
+                    val fg = if (selected) scheme.onPrimary else scheme.onSurfaceVariant
+                    val border = if (selected) scheme.primary else scheme.outline
                     Row(
                         modifier = Modifier
                             .heightIn(min = 38.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, border, RoundedCornerShape(10.dp))
+                            .clip(CircleShape)
+                            .background(bg)
+                            .border(1.dp, border, CircleShape)
                             .clickable { onSelectVolume(idx) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             imageVector = if (vol.isPrimary) Icons.Rounded.Smartphone else Icons.Rounded.SdStorage,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = fg,
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
                             text = if (vol.isPrimary) internalLabel else vol.label,
                             style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = fg,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -606,7 +667,8 @@ private fun FolderBrowserPane(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .background(scheme.onSurface.copy(alpha = 0.07f))
+                    .border(1.dp, scheme.outline.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -615,13 +677,18 @@ private fun FolderBrowserPane(
                         onClick = { currentDir.parentFile?.let(onNavigate) },
                         modifier = Modifier.size(36.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = null,
+                            tint = scheme.onSurface,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
                 Text(
                     text = currentDir.path,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = scheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
@@ -636,7 +703,7 @@ private fun FolderBrowserPane(
                     Icon(
                         imageVector = if (isCurrentSelected) Icons.Rounded.Check else Icons.Rounded.Add,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = scheme.onSurface,
                         modifier = Modifier.size(18.dp),
                     )
                 }
@@ -678,17 +745,23 @@ private fun FolderBrowserPane(
                         Checkbox(
                             checked = checked,
                             onCheckedChange = { onToggleDir(dir) },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = scheme.primary,
+                                checkmarkColor = scheme.onPrimary,
+                                uncheckedColor = scheme.onSurfaceVariant,
+                            ),
                         )
                         Icon(
                             imageVector = if (checked) Icons.Rounded.FolderOpen else Icons.Rounded.Folder,
                             contentDescription = null,
-                            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (checked) scheme.onSurface else scheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = dir.name,
                             style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
@@ -707,15 +780,16 @@ private fun FolderBrowserPane(
  */
 @Composable
 internal fun LocalMusicEffectsAndDialogs(
-    viewModel: com.music.bitchord.ui.MainViewModel,
+    viewModel: MainViewModel,
     topDetailBrowseId: String?,
     showFolderPicker: Boolean,
     showClearConfirm: Boolean,
     onDismissFolderPicker: () -> Unit,
     onDismissClearConfirm: () -> Unit,
-    onRequestStorageForAll: () -> Unit,
+    onRequestStorageForScan: (LocalMusicScanMode, List<LocalScanFolder>, List<LocalScanFolder>) -> Unit,
 ) {
     val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
     val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
     val localMusicScanMode by AppSettings.localMusicScanMode.collectAsStateWithLifecycle()
     val localMusicFolders by AppSettings.localMusicFolders.collectAsStateWithLifecycle()
@@ -724,13 +798,13 @@ internal fun LocalMusicEffectsAndDialogs(
     val localMusicMinDurationSec by AppSettings.localMusicMinDurationSec.collectAsStateWithLifecycle()
     val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    LaunchedEffect(Unit) {
         LocalStorageVolumes.volumeChanges(context).collect {
             kotlinx.coroutines.delay(1_000)
             viewModel.refreshLocalLibraryIfConfigured()
         }
     }
-    androidx.compose.runtime.LaunchedEffect(
+    LaunchedEffect(
         localMusicFolderUri,
         localMusicScanMode,
         localMusicFolders,
@@ -742,13 +816,11 @@ internal fun LocalMusicEffectsAndDialogs(
         if (localMusicScanMode != LocalMusicScanMode.NOT_CONFIGURED) {
             viewModel.refreshLocalLibraryIfConfigured()
         }
-        if (topDetailBrowseId == "local:all" ||
-            com.music.bitchord.data.LocalGroups.folderOf(topDetailBrowseId) == "local:all"
-        ) {
+        if (topDetailBrowseId == "local:all" || LocalGroups.folderOf(topDetailBrowseId) == "local:all") {
             viewModel.reloadLocalDetail(topDetailBrowseId!!)
         }
     }
-    androidx.compose.runtime.LaunchedEffect(topDetailBrowseId) {
+    LaunchedEffect(topDetailBrowseId) {
         if (topDetailBrowseId == "local:all" && localMusicScanMode != LocalMusicScanMode.NOT_CONFIGURED) {
             viewModel.refreshLocalLibraryIfConfigured()
         }
@@ -760,12 +832,15 @@ internal fun LocalMusicEffectsAndDialogs(
             initialExcludedFolders = localMusicExcludedFolders,
             onConfirm = { mode, folders, excluded ->
                 onDismissFolderPicker()
-                if (mode == LocalMusicScanMode.ALL_FOLDERS &&
-                    !LocalMediaRepository.hasStoragePermission(context)
-                ) {
-                    AppSettings.setLocalMusicFolders(folders)
-                    AppSettings.setLocalMusicExcludedFolders(excluded)
-                    onRequestStorageForAll()
+                // Request audio/storage permission immediately for ALL_FOLDERS or any
+                // SPECIFIC_FOLDERS scan when not granted yet so scanning starts right away.
+                val needsPermission = !LocalMediaRepository.hasStoragePermission(context) && (
+                    mode == LocalMusicScanMode.ALL_FOLDERS ||
+                        folders.any { !it.isTreeUri } ||
+                        folders.any { it.isTreeUri }
+                    )
+                if (needsPermission) {
+                    onRequestStorageForScan(mode, folders, excluded)
                 } else {
                     viewModel.startLocalScanFolders(mode, folders, excluded)
                 }
@@ -774,8 +849,12 @@ internal fun LocalMusicEffectsAndDialogs(
         )
     }
     if (showClearConfirm) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = onDismissClearConfirm,
+            containerColor = scheme.surface,
+            titleContentColor = scheme.onSurface,
+            textContentColor = scheme.onSurfaceVariant,
+            tonalElevation = 0.dp,
             title = { Text(stringResource(R.string.local_clear_library_confirm_title)) },
             text = { Text(stringResource(R.string.local_clear_library_confirm_message)) },
             confirmButton = {
@@ -784,12 +863,16 @@ internal fun LocalMusicEffectsAndDialogs(
                         onDismissClearConfirm()
                         viewModel.clearLocalLibrary()
                     },
+                    colors = ButtonDefaults.textButtonColors(contentColor = AccentRed),
                 ) {
-                    Text(stringResource(R.string.local_clear_library))
+                    Text(stringResource(R.string.local_clear_library), fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismissClearConfirm) {
+                TextButton(
+                    onClick = onDismissClearConfirm,
+                    colors = ButtonDefaults.textButtonColors(contentColor = scheme.onSurface),
+                ) {
                     Text(stringResource(R.string.cancel))
                 }
             },
