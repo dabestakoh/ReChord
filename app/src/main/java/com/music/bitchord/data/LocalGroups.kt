@@ -242,10 +242,12 @@ object LocalGroups {
 
     private fun Song.albumCredit() = localAlbumArtist ?: artist
 
+    private val DISC_DIR_REGEX = Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""")
+
     private fun Song.releaseKey(): String {
         val title = albumName ?: return "untagged"
         val root = directory()?.let { path ->
-            if (Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""").matches(path.substringAfterLast('/'))) {
+            if (DISC_DIR_REGEX.matches(path.substringAfterLast('/'))) {
                 path.substringBeforeLast('/', path)
             } else path
         }.orEmpty()

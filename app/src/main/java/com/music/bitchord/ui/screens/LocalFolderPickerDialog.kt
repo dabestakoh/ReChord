@@ -844,6 +844,11 @@ private fun FolderBrowserPane(
  * `BitChordApp` to keep `MainActivityKt.BitChordApp` under the 64 KB JVM
  * method bytecode limit.
  */
+internal object LocalMusicDialogRequests {
+    val editTagsTarget = kotlinx.coroutines.flow.MutableStateFlow<com.music.bitchord.data.model.Song?>(null)
+    val deleteDeviceTargets = kotlinx.coroutines.flow.MutableStateFlow<List<com.music.bitchord.data.model.Song>>(emptyList())
+}
+
 @Composable
 internal fun LocalMusicEffectsAndDialogs(
     viewModel: MainViewModel,
@@ -853,6 +858,7 @@ internal fun LocalMusicEffectsAndDialogs(
     onDismissFolderPicker: () -> Unit,
     onDismissClearConfirm: () -> Unit,
     onRequestStorageForScan: (LocalMusicScanMode, List<LocalScanFolder>, List<LocalScanFolder>) -> Unit,
+    onSongsDeleted: (List<com.music.bitchord.data.model.Song>) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
@@ -863,6 +869,8 @@ internal fun LocalMusicEffectsAndDialogs(
     val localLegacyScanMode by AppSettings.localLegacyScanMode.collectAsStateWithLifecycle()
     val localMusicMinDurationSec by AppSettings.localMusicMinDurationSec.collectAsStateWithLifecycle()
     val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
+    val editTagsTarget by LocalMusicDialogRequests.editTagsTarget.collectAsStateWithLifecycle()
+    val deleteDeviceTargets by LocalMusicDialogRequests.deleteDeviceTargets.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         LocalStorageVolumes.volumeChanges(context).collect {
@@ -942,6 +950,20 @@ internal fun LocalMusicEffectsAndDialogs(
                     Text(stringResource(R.string.cancel))
                 }
             },
+        )
+    }
+    editTagsTarget?.let { target ->
+        com.music.bitchord.ui.components.LocalTagEditorDialog(
+            song = target,
+            onSaved = {},
+            onDismiss = { LocalMusicDialogRequests.editTagsTarget.value = null },
+        )
+    }
+    if (deleteDeviceTargets.isNotEmpty()) {
+        com.music.bitchord.ui.components.LocalDeleteFromDeviceDialog(
+            songs = deleteDeviceTargets,
+            onDeleted = onSongsDeleted,
+            onDismiss = { LocalMusicDialogRequests.deleteDeviceTargets.value = emptyList() },
         )
     }
 }

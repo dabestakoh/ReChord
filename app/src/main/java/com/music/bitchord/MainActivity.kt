@@ -1079,8 +1079,11 @@ private fun BitChordApp(
     val folderSortOf: (String) -> LocalMusicSort = { id ->
         if (id == "local:downloads") downloadedMusicSort else localMusicSort
     }
+    val localFolderStates = remember { mutableMapOf<String, LocalFolderState>() }
     val folderViewTypeOf: (String) -> LibraryViewType = { id ->
-        if (id == "local:downloads") downloadedMusicViewType else localMusicViewType
+        val st = localFolderStates[id]
+        st?.viewTypes?.get(st.tab)
+            ?: if (id == "local:downloads") downloadedMusicViewType else localMusicViewType
     }
     var folderMenuOpen by remember { mutableStateOf(false) }
     // Whether the open release page's filter box is up. Held out here with the
@@ -1403,7 +1406,6 @@ private fun BitChordApp(
     } ?: remember { LazyListState() }
     // A device folder's tab and selection, kept the same way and for the same
     // reason: an album opened from the folder replaces its page until Back.
-    val localFolderStates = remember { mutableMapOf<String, LocalFolderState>() }
     LaunchedEffect(detailStack.map { it.browseId }) {
         val open = detailStack.mapTo(HashSet()) { it.browseId }
         detailListStates.keys.retainAll(open)
@@ -3448,6 +3450,10 @@ private fun BitChordApp(
                                                 val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
                                                 group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
                                             }.toMap()
+                                            viewTypes = LocalFolderTab.entries.mapNotNull { group ->
+                                                val saved = preferences.getString("view:${page.browseId}:${group.name}", null)
+                                                LibraryViewType.entries.firstOrNull { it.name == saved }?.let { group to it }
+                                            }.toMap()
                                             if (localArtist) tab = LocalFolderTab.ALBUMS
                                             else if (isDevice) tab = context.getSharedPreferences("local_music_view", 0)
                                                 .getString("tab", null)?.let { name ->
@@ -3541,6 +3547,9 @@ private fun BitChordApp(
                                     onRemoveFromLibrary = if (isDevice) ({ sel ->
                                         com.music.bitchord.data.LocalLibraryIndex.hideSongs(sel)
                                         showQueueNotice(context.getString(R.string.local_removed_from_library))
+                                    }) else null,
+                                    onDeleteFromDevice = if (isDevice) ({ sel ->
+                                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.deleteDeviceTargets.value = sel
                                     }) else null,
                                 )
                             } else {
@@ -4963,6 +4972,22 @@ private fun BitChordApp(
                 } else {
                     null
                 },
+                onEditTags = if (song.localUri != null) {
+                    {
+                        songActions = null
+                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.editTagsTarget.value = song
+                    }
+                } else {
+                    null
+                },
+                onDeleteFromDevice = if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
+                    {
+                        songActions = null
+                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.deleteDeviceTargets.value = listOf(song)
+                    }
+                } else {
+                    null
+                },
                 onOpenAlbum = { id ->
                     openPage(
                         id,
@@ -6141,6 +6166,13 @@ private fun BitChordApp(
                 pendingLocalScan = Triple(mode, folders, excluded)
                 mediaPermissionLauncher.launch(mediaPermission)
             },
+            onSongsDeleted = { deleted ->
+                val c = controller ?: return@LocalMusicEffectsAndDialogs
+                val ids = deleted.flatMap { listOfNotNull(it.videoId, it.localUri) }.toSet()
+                for (i in (c.mediaItemCount - 1) downTo 0) {
+                    if (c.getMediaItemAt(i).mediaId in ids) c.removeMediaItem(i)
+                }
+            },
         )
 
         if (showAccountSelector) {
@@ -6730,7 +6762,11 @@ private fun FolderMenuOverlay(
         },
         onToggleViewType = {
             val next = if (viewType == LibraryViewType.GRID) LibraryViewType.LIST else LibraryViewType.GRID
-            if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
+            if (folderState != null) {
+                folderState.viewTypes = folderState.viewTypes + (tab to next)
+                context.getSharedPreferences("local_music_view", 0).edit()
+                    .putString("view:$menuFolder:${tab.name}", next.name).apply()
+            } else if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
             else AppSettings.setLocalMusicViewType(next)
             onDismiss()
         },

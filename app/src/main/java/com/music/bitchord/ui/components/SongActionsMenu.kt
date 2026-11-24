@@ -138,6 +138,8 @@ fun SongActionsMenu(
      * Null hides the row for online tracks and non-local contexts.
      */
     onRemoveFromLibrary: (() -> Unit)? = null,
+    onEditTags: (() -> Unit)? = null,
+    onDeleteFromDevice: (() -> Unit)? = null,
     showSleepTimer: Boolean = false,
     /**
      * Sends the playing track back to YouTube's own upload, and keeps it there.
@@ -384,11 +386,27 @@ fun SongActionsMenu(
                 onClick = it,
             )
         }
+        onEditTags?.let {
+            ActionRow(
+                icon = SfIcons.Pencil,
+                label = stringResource(R.string.local_edit_tags),
+                accent = palette.accent,
+                onClick = it,
+            )
+        }
         onRemoveFromLibrary?.let {
             ActionRow(
                 icon = SfIcons.Trash,
                 label = stringResource(R.string.local_remove_from_library),
                 accent = palette.accent,
+                onClick = it,
+            )
+        }
+        onDeleteFromDevice?.let {
+            ActionRow(
+                icon = SfIcons.DeleteSweep,
+                label = stringResource(R.string.local_delete_from_device),
+                accent = com.music.bitchord.ui.theme.AccentRed,
                 onClick = it,
             )
         }

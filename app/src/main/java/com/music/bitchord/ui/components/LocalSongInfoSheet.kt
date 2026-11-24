@@ -43,7 +43,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -97,8 +100,18 @@ internal fun LocalSongInfoDialog(
 ) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
-    val details by produceState(initialValue = initialDetails(song), key1 = song) {
-        value = withContext(Dispatchers.IO) { loadLocalSongDetails(context, song) }
+    var currentSong by remember(song) { mutableStateOf(song) }
+    var editingTags by remember { mutableStateOf(false) }
+    val details by produceState(initialValue = initialDetails(currentSong), key1 = currentSong) {
+        value = withContext(Dispatchers.IO) { loadLocalSongDetails(context, currentSong) }
+    }
+
+    if (editingTags) {
+        LocalTagEditorDialog(
+            song = currentSong,
+            onSaved = { updated -> currentSong = updated },
+            onDismiss = { editingTags = false },
+        )
     }
 
     Dialog(
@@ -240,32 +253,36 @@ internal fun LocalSongInfoDialog(
                     // Bottom action bar
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val copyTarget = details.fullPath ?: song.localUri
+                        val copyTarget = details.fullPath ?: currentSong.localUri
                         if (!copyTarget.isNullOrBlank()) {
-                            OutlinedButton(
+                            IconButton(
                                 onClick = {
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                     cm?.setPrimaryClip(ClipData.newPlainText("path", copyTarget))
                                     Toast.makeText(context, R.string.local_info_path_copied, Toast.LENGTH_SHORT).show()
                                 },
-                                shape = CircleShape,
-                                border = BorderStroke(1.dp, scheme.outline),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = scheme.onSurface.copy(alpha = 0.06f),
-                                    contentColor = scheme.onSurface,
-                                ),
-                                modifier = Modifier.heightIn(min = 44.dp),
                             ) {
-                                Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.local_info_copy_path), maxLines = 1)
+                                Icon(
+                                    Icons.Rounded.ContentCopy,
+                                    contentDescription = stringResource(R.string.local_info_copy_path),
+                                    tint = scheme.onSurface,
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                         }
+                        IconButton(onClick = { shareLocalSongs(context, listOf(currentSong)) }) {
+                            Icon(
+                                Icons.Rounded.Share,
+                                contentDescription = stringResource(R.string.local_share_files),
+                                tint = scheme.onSurface,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                         OutlinedButton(
-                            onClick = { shareLocalSongs(context, listOf(song)) },
+                            onClick = { editingTags = true },
                             shape = CircleShape,
                             border = BorderStroke(1.dp, scheme.outline),
                             colors = ButtonDefaults.outlinedButtonColors(
@@ -274,9 +291,7 @@ internal fun LocalSongInfoDialog(
                             ),
                             modifier = Modifier.heightIn(min = 44.dp),
                         ) {
-                            Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.local_share_files), maxLines = 1)
+                            Text(stringResource(R.string.local_edit_tags), maxLines = 1)
                         }
                         TextButton(
                             onClick = onDismiss,

@@ -4447,7 +4447,9 @@ class PlaybackService : MediaLibraryService() {
         // [Player.Listener.onMediaItemTransition] via [swappingMediaId] — which
         // is precisely what carries the applied gain across the swap.
         setupLoudness(mediaItem?.mediaId)
-        scheduleLoudnessRetry(mediaItem?.mediaId)
+        if (mediaItem == null || !isLocalPlayback(mediaItem.mediaId, mediaItem)) {
+            scheduleLoudnessRetry(mediaItem?.mediaId)
+        }
 
         // Keep a real, bounded history in the player rather than merely hiding
         // old rows in Compose. MediaController mirrors the playlist across the
@@ -5312,6 +5314,8 @@ class PlaybackService : MediaLibraryService() {
         val item = player.currentMediaItem ?: return
         val mediaId = item.mediaId
         val uri = item.localConfiguration?.uri
+        // Local device files play directly from storage — never hunt online for Hi-Res/Lossless/Opus.
+        if (isLocalPlayback(mediaId, item)) return
         // The loader selected an entire FLAC from disk. No further
         // catalogue search or "Upgrading Quality" request is necessary.
         if (AudioCache.isReplayingCachedFlac(mediaId)) return
@@ -7503,6 +7507,7 @@ class PlaybackService : MediaLibraryService() {
             // A video about to be converted plays under another id, so every
             // byte warmed for it now would be wasted.
             (nextIndex..end).map(player::getMediaItemAt)
+                .filterNot { isLocalPlayback(it.mediaId, it) }
                 .filterNot(MusicOnlyPlayback::wants)
                 .map { it.toSong() }
         } else {
@@ -7552,6 +7557,7 @@ class PlaybackService : MediaLibraryService() {
         MusicOnlyPlayback.forgetExcept(rows.map { exoPlayer.getMediaItemAt(it).mediaId }.toSet())
         for (index in rows) {
             val item = exoPlayer.getMediaItemAt(index)
+            if (isLocalPlayback(item.mediaId, item)) continue
             if (!MusicOnlyPlayback.wants(item)) continue
             val video = item.toSong()
             val audio = YtMusicRepository.cachedAudioVersion(video.videoId)
@@ -7724,6 +7730,7 @@ class PlaybackService : MediaLibraryService() {
         if (DirectSourceGate.onPlaying(audible)) AudioCache.cancelDirect()
         prepareDirectCurrent(exoPlayer)
         if (!DirectSourceGate.isActive() || !exoPlayer.isPlaying || AudioCache.isOffline() || next == null) return
+        if (isLocalPlayback(next.mediaId, next)) return
         if (MusicOnlyPlayback.wants(next)) return
         if (!DirectSourceGate.openNext(next.mediaId)) return
         val song = next.toSong()

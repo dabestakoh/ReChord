@@ -126,11 +126,73 @@ internal object LocalLibraryIndex {
     private fun fileV2(context: Context) = AtomicFile(File(context.filesDir, INDEX_V2_NAME))
     private fun fileV1(context: Context) = File(context.filesDir, INDEX_V1_NAME)
 
+    internal fun applyTagOverrides(
+        songs: List<Song>,
+        overrides: Map<String, com.music.bitchord.data.settings.LocalTagOverride> = AppSettings.localMusicTagOverrides.value,
+    ): List<Song> {
+        if (overrides.isEmpty()) return songs
+        return songs.map { song ->
+            val key = song.localUri ?: song.videoId
+            val ov = overrides[key] ?: overrides[song.videoId] ?: return@map song
+            song.copy(
+                title = ov.title?.takeIf { it.isNotBlank() } ?: song.title,
+                artist = ov.artist?.takeIf { it.isNotBlank() } ?: song.artist,
+                albumName = ov.albumName ?: song.albumName,
+                localAlbumArtist = ov.albumArtist ?: song.localAlbumArtist,
+                trackNumber = ov.trackNumber ?: song.trackNumber,
+                localDiscNumber = ov.discNumber ?: song.localDiscNumber,
+            )
+        }
+    }
+
     internal fun filterIgnored(songs: List<Song>, ignored: Set<String> = AppSettings.localMusicIgnoredUris.value): List<Song> {
-        if (ignored.isEmpty()) return songs
-        return songs.filter { song ->
+        val visible = if (ignored.isEmpty()) songs else songs.filter { song ->
             val key = song.localUri ?: song.videoId
             key !in ignored && song.videoId !in ignored
+        }
+        return applyTagOverrides(visible)
+    }
+
+    /** Updates a single edited song immediately in memory and disk index without rescanning. */
+    suspend fun updateSongInPlace(context: Context, updated: Song, newLastModifiedMs: Long? = null) = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val matchKey = updated.localUri ?: updated.videoId
+        mutableSongs.value = mutableSongs.value.map { s ->
+            if ((s.localUri ?: s.videoId) == matchKey || s.videoId == updated.videoId) updated else s
+        }
+        lock.withLock {
+            val saved = read(appContext) ?: return@withLock
+            val nextEntries = saved.entries.map { entry ->
+                val k = entry.song.localUri ?: entry.song.videoId
+                if (k == matchKey || entry.song.videoId == updated.videoId) {
+                    entry.copy(
+                        song = updated,
+                        lastModifiedMs = newLastModifiedMs ?: entry.lastModifiedMs,
+                    )
+                } else {
+                    entry
+                }
+            }
+            writeDisk(appContext, saved.copy(entries = nextEntries))
+        }
+    }
+
+    /** Removes permanently deleted songs from memory, disk index, ignore list, and tag overrides. */
+    suspend fun removeSongs(context: Context, deletedSongs: Collection<Song>) = withContext(Dispatchers.IO) {
+        if (deletedSongs.isEmpty()) return@withContext
+        val appContext = context.applicationContext
+        val keys = deletedSongs.flatMap { listOfNotNull(it.localUri, it.videoId) }.toSet()
+        AppSettings.removeLocalTagOverrides(keys)
+        keys.forEach { AppSettings.removeIgnoredLocalSongUri(it) }
+        mutableSongs.value = mutableSongs.value.filterNot { s ->
+            (s.localUri != null && s.localUri in keys) || s.videoId in keys
+        }
+        lock.withLock {
+            val saved = read(appContext) ?: return@withLock
+            val nextEntries = saved.entries.filterNot { entry ->
+                (entry.song.localUri != null && entry.song.localUri in keys) || entry.song.videoId in keys
+            }
+            writeDisk(appContext, saved.copy(entries = nextEntries))
         }
     }
 

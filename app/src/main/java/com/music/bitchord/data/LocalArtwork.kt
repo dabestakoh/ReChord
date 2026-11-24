@@ -32,7 +32,8 @@ internal object LocalArtwork {
     internal val coverBaseNames = listOf("cover", "folder", "album")
     internal val coverExtensions = setOf("jpg", "jpeg", "png", "webp")
     private val artworkDispatcher = Dispatchers.IO.limitedParallelism(2)
-    private const val THUMB_PX = 384
+    private const val THUMB_PX = 256
+    private const val THUMB_FETCH_MAX_PX = 768
     private const val THUMB_CACHE_BYTES = 256L * 1024 * 1024
     private const val THUMB_CACHE_DIR = "local-thumbnails"
     private const val TRASH_SUFFIX = ".trash-"
@@ -116,21 +117,9 @@ internal object LocalArtwork {
         }.orEmpty()
     }.getOrDefault(emptyList())
 
-    fun albumCover(tracks: List<Song>): String? {
-        val models = tracks.mapNotNull { it.localAlbumArtwork }.filter { it.startsWith(PREFIX) }
-        if (models.isEmpty()) return tracks.firstNotNullOfOrNull { it.thumbnailUrl }
-        val parts = models.map { it.removePrefix(PREFIX).split('|') }
-        val candidates = parts.flatMap { it.drop(1) }.distinct().sortedBy {
-            when {
-                Uri.decode(it).startsWith("file:") -> 0
-                Uri.decode(it).startsWith("content:") -> 0
-                Uri.decode(it).startsWith("embedded:") -> 1
-                else -> 2
-            }
-        }
-        val revision = parts.map { it.first() }.distinct().joinToString(",")
-        return PREFIX + (listOf(revision) + candidates).joinToString("|")
-    }
+    fun albumCover(tracks: List<Song>): String? =
+        tracks.firstNotNullOfOrNull { it.localAlbumArtwork?.takeIf { u -> u.startsWith(PREFIX) } }
+            ?: tracks.firstNotNullOfOrNull { it.thumbnailUrl }
 
     fun clearThumbnailCache(context: Context) {
         synchronized(cacheLock) {
@@ -240,7 +229,7 @@ internal object LocalArtwork {
                     val thumbnails = thumbnailCache(context)
                     val width = options.size.width as? Dimension.Pixels
                     val height = options.size.height as? Dimension.Pixels
-                    val small = width != null && height != null && width.px <= THUMB_PX && height.px <= THUMB_PX
+                    val small = width != null && height != null && width.px <= THUMB_FETCH_MAX_PX && height.px <= THUMB_FETCH_MAX_PX
                     val cached = if (small) runCatching {
                         thumbnails.openSnapshot(url)?.use { thumbnails.fileSystem.read(it.data) { readByteArray() } }
                     }.getOrNull() else null
@@ -293,7 +282,7 @@ internal object LocalArtwork {
         return try {
             val output = ByteArrayOutputStream()
             val format = if (resized.hasAlpha()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-            if (resized.compress(format, 85, output)) output.toByteArray() else null
+            if (resized.compress(format, 80, output)) output.toByteArray() else null
         } finally {
             if (resized !== bitmap) resized.recycle()
             bitmap.recycle()

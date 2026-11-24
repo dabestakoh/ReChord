@@ -1659,4 +1659,27 @@
     <string name="local_shuffle_selected">Shuffle selected</string>
     <string name="local_favorite_selected">Add to favorites</string>
     <string name="local_more_actions">More actions</string>
+    <string name="local_edit_tags">Edit tags</string>
+    <string name="local_edit_tags_title">Edit tags</string>
+    <string name="local_edit_tags_app_only_badge">App-only edit (file is not modified)</string>
+    <string name="local_edit_tags_saved">Tags saved</string>
+    <string name="local_edit_tags_failed">Could not save tags</string>
+    <string name="local_edit_tags_field_title">Title</string>
+    <string name="local_edit_tags_field_artist">Artist</string>
+    <string name="local_edit_tags_field_album">Album</string>
+    <string name="local_edit_tags_field_album_artist">Album artist</string>
+    <string name="local_edit_tags_field_track">Track #</string>
+    <string name="local_edit_tags_field_disc">Disc #</string>
+    <string name="local_edit_tags_field_genre">Genre</string>
+    <string name="local_edit_tags_field_year">Year</string>
+    <string name="local_delete_from_device">Delete from device</string>
+    <string name="local_delete_confirm_title">Delete from device?</string>
+    <string name="local_delete_confirm_single">This permanently deletes "%1$s" (%2$s) from your device storage. This cannot be undone.</string>
+    <string name="local_delete_confirm_multi">This permanently deletes %1$d audio files (%2$s) from your device storage. This cannot be undone.</string>
+    <string name="local_delete_done">Deleted from device</string>
+    <string name="local_delete_failed">Could not delete file(s)</string>
+    <string name="local_all_files_prompt_title">Allow file management access?</string>
+    <string name="local_all_files_prompt_message">Granting All files access lets ReChord edit tags and delete local audio files directly without a system prompt each time. You can also continue without it and approve each action.</string>
+    <string name="local_all_files_open_settings">Open Settings</string>
+    <string name="local_all_files_continue_prompt">Ask each time</string>
 </resources>

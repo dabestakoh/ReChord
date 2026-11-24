@@ -14,6 +14,9 @@ import coil3.request.ImageRequest
 /** Asks Coil for a bitmap the CPU can read — a software bitmap on Android. */
 expect fun ImageRequest.Builder.forPixelAccess(): ImageRequest.Builder
 
+/** Compact RAM-saving decode for opaque list/grid thumbnails (RGB_565 on Android, no crossfade flash). */
+expect fun ImageRequest.Builder.forCompactThumbnail(): ImageRequest.Builder
+
 /** The decoded image as a Compose bitmap. */
 expect fun Image.toImageBitmap(): ImageBitmap
 

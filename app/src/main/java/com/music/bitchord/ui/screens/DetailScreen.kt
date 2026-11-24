@@ -72,6 +72,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -514,16 +517,38 @@ fun DetailScreen(
     // Each surviving row still knows where it sat in the full running order, so
     // an album's track numbers stay the album's rather than becoming positions
     // in the filtered list.
-    val matches = remember(songs, query) { songs.matching(query) }
+    // Debounce search on large libraries (> 400 tracks) so typing never blocks the UI thread on DAPs/Head-Units.
+    val effectiveQuery by produceState(initialValue = query, key1 = query, key2 = songs.size > 400) {
+        if (query.isBlank() || songs.size <= 400) {
+            value = query
+        } else {
+            delay(120L)
+            value = query
+        }
+    }
+    val matches by produceState(
+        initialValue = if (effectiveQuery.isBlank()) songs.withIndex().toList() else songs.matching(effectiveQuery),
+        key1 = songs,
+        key2 = effectiveQuery,
+    ) {
+        value = if (effectiveQuery.isBlank()) {
+            songs.withIndex().toList()
+        } else if (songs.size > 400) {
+            withContext(Dispatchers.Default) { songs.matching(effectiveQuery) }
+        } else {
+            songs.matching(effectiveQuery)
+        }
+    }
     // What a tap plays: the filtered set of tracks currently standing in the
     // list. When no filter is active, matches contains the full running order
     // and plays the complete release/playlist from the tapped position.
     val queue = remember(matches) { matches.map { it.value } }
+    val localSongKeys = remember(queue) { uniqueKeys(queue) { "local-song:${it.videoId}" } }
     // Resolve the highlighted track only when the queue or current song changes,
     // not whenever the lazy list recomposes while scrolling.
     val currentQueueRow = remember(queue, currentSong) { playingRowMatcher(queue, currentSong) }
-    val suggested = remember(page.suggestedSongs, query) {
-        page.suggestedSongs.matching(query).map { it.value }
+    val suggested = remember(page.suggestedSongs, effectiveQuery) {
+        page.suggestedSongs.matching(effectiveQuery).map { it.value }
     }
 
     val suggestedKeys = remember(suggested) { uniqueKeys(suggested) { it.videoId } }
@@ -534,12 +559,21 @@ fun DetailScreen(
     // first while it is on.
     val folderState = folder?.state
     val rawFolderGroups = if (folder != null && folderState != null) {
-        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, rawSongs, query)
+        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, rawSongs, effectiveQuery)
     } else {
         emptyList()
     }
-    val folderGroups = remember(rawFolderGroups, groupAlphabet, groupSort) {
-        rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
+    val folderGroups by produceState(
+        initialValue = rawFolderGroups,
+        key1 = rawFolderGroups,
+        key2 = groupAlphabet,
+        key3 = groupSort,
+    ) {
+        value = if (rawFolderGroups.size > 150) {
+            withContext(Dispatchers.Default) { rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet) }
+        } else {
+            rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
+        }
     }
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
@@ -841,13 +875,15 @@ fun DetailScreen(
                         state = folderState,
                         songs = queue,
                         groups = folderGroups,
-                        query = query,
+                        query = effectiveQuery,
                         columns = gridColumns,
                         indexGutter = gutter,
                         scanProgress = scanProgress,
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        songKeys = localSongKeys,
+                        isCurrentSong = currentQueueRow,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
                         onSongSwipe = onSongSwipe,
@@ -1048,6 +1084,40 @@ fun DetailScreen(
                     ) {
                         Text(label, Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                             style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+
+                // Sticky tab pill bar: header (title + Play/Shuffle) scrolls away while the
+                // Songs/Albums/Artists/Folders pill bar pins right below the top bar so users
+                // can switch tabs mid-scroll without scrolling back to the top.
+                if (folder != null && folderState != null && folder.tabs.size > 1 && !folder.isNotConfigured && !folderState.selecting) {
+                    val stickyTopPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
+                    val showStickyTabs by remember(listState, stickyTopPx) {
+                        derivedStateOf {
+                            val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
+                            if (tabsInfo != null) {
+                                tabsInfo.offset < stickyTopPx
+                            } else {
+                                listState.firstVisibleItemIndex > 0
+                            }
+                        }
+                    }
+                    if (showStickyTabs) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .padding(top = topBarContentPadding())
+                                .background(pageColor),
+                        ) {
+                            SegmentedControl(
+                                options = folder.tabs.map { it.label() },
+                                selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
+                                onSelect = { folderState.tab = folder.tabs[it] },
+                                modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                            )
+                            HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
+                        }
                     }
                 }
 
