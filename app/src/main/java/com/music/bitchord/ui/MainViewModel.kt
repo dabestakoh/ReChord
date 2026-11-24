@@ -1746,15 +1746,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         _librarySongs.value = UiState.Success(songs)
                     }
                 }
-                if (_detailStack.value.any { it.browseId == "local:all" || LocalGroups.folderOf(it.browseId) == "local:all" }) {
-                    _detailStack.value = _detailStack.value.map { page ->
-                        when {
-                            page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
-                            LocalGroups.folderOf(page.browseId) == "local:all" ->
-                                page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
-                            else -> page
+                val currentStack = _detailStack.value
+                if (currentStack.any { it.browseId == "local:all" || LocalGroups.folderOf(it.browseId) == "local:all" }) {
+                    val updatedStack = withContext(Dispatchers.Default) {
+                        currentStack.map { page ->
+                            when {
+                                page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
+                                LocalGroups.folderOf(page.browseId) == "local:all" ->
+                                    page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
+                                else -> page
+                            }
                         }
                     }
+                    _detailStack.value = updatedStack
                 }
             }
         }
@@ -3492,7 +3496,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // has nothing of its own to read, and whatever the folder says
             // when it can't be listed is what this page says too.
             return when (val folder = localPageState(folderId)) {
-                is UiState.Success -> nonEmpty(LocalGroups.songsOf(browseId, folder.data)) { text(R.string.no_tracks_here) }
+                is UiState.Success -> nonEmpty(withContext(Dispatchers.Default) { LocalGroups.songsOf(browseId, folder.data) }) { text(R.string.no_tracks_here) }
                 null -> UiState.Error(text(R.string.no_tracks_here))
                 else -> folder
             }

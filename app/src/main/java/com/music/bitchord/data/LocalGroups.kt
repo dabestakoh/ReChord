@@ -242,6 +242,53 @@ object LocalGroups {
 
     private fun Song.albumCredit() = localAlbumArtist ?: artist
 
+    // Process-scoped cache keyed by the current songs list identity so pushing into
+    // a nested Album/Artist/Folder and pressing Back returns in 0 ms without re-sorting
+    // or re-grouping 5,000+ songs. Only the latest songs list is retained (no memory leak).
+    @Volatile private var cachedSongsRef: List<Song>? = null
+    private val groupTabCache = java.util.concurrent.ConcurrentHashMap<String, List<LocalGroup>>()
+    private val sortedSongsCache = java.util.concurrent.ConcurrentHashMap<String, List<Song>>()
+
+    private fun ensureCacheFor(songs: List<Song>) {
+        if (cachedSongsRef !== songs) {
+            synchronized(this) {
+                if (cachedSongsRef !== songs) {
+                    groupTabCache.clear()
+                    sortedSongsCache.clear()
+                    cachedSongsRef = songs
+                }
+            }
+        }
+    }
+
+    internal fun peekCachedTabGroups(songs: List<Song>, key: String): List<LocalGroup>? {
+        if (cachedSongsRef !== songs) return null
+        return groupTabCache[key]
+    }
+
+    internal fun getOrComputeTabGroups(
+        songs: List<Song>,
+        key: String,
+        compute: () -> List<LocalGroup>,
+    ): List<LocalGroup> {
+        ensureCacheFor(songs)
+        return groupTabCache.computeIfAbsent(key) { compute() }
+    }
+
+    internal fun peekCachedSortedSongs(songs: List<Song>, key: String): List<Song>? {
+        if (cachedSongsRef !== songs) return null
+        return sortedSongsCache[key]
+    }
+
+    internal fun getOrComputeSortedSongs(
+        songs: List<Song>,
+        key: String,
+        compute: () -> List<Song>,
+    ): List<Song> {
+        ensureCacheFor(songs)
+        return sortedSongsCache.computeIfAbsent(key) { compute() }
+    }
+
     private val DISC_DIR_REGEX = Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""")
 
     private fun Song.releaseKey(): String {

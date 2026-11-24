@@ -422,7 +422,8 @@ fun DetailScreen(
     val recentSongs = remember(rawSongs, recent) {
         if (recent) recentlyAddedTracks(rawSongs) else rawSongs
     }
-    val songs = remember(recentSongs, songSort, folderSort, recent, localPage, trackAlphabet) {
+    val sortCacheKey = "${page.browseId}|${folderSort?.name}|${songSort.name}|$recent|${locale.toLanguageTag()}"
+    fun computeSorted(): List<Song> = LocalGroups.getOrComputeSortedSongs(recentSongs, sortCacheKey) {
         val ascending = folderSort == LocalMusicSort.TITLE_ASC || (folderSort == null && songSort == SongSort.TITLE_ASC)
         val descending = folderSort == LocalMusicSort.TITLE_DESC || (folderSort == null && songSort == SongSort.TITLE_DESC)
         if (localPage && (ascending || descending)) recentSongs.sortedWith { a, b ->
@@ -430,6 +431,19 @@ fun DetailScreen(
         }
         else if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
         else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
+    }
+    val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
+    val songs by produceState(
+        initialValue = cachedSorted ?: if (recentSongs.size <= 400) computeSorted() else recentSongs,
+        key1 = recentSongs,
+        key2 = sortCacheKey,
+    ) {
+        val hit = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
+        value = hit ?: if (recentSongs.size > 400) {
+            withContext(Dispatchers.Default) { computeSorted() }
+        } else {
+            computeSorted()
+        }
     }
     val scanProgress = if (folder?.onRefreshIndex != null) {
         com.music.bitchord.data.LocalLibraryIndex.progress.collectAsStateWithLifecycle().value
@@ -439,9 +453,12 @@ fun DetailScreen(
     // wherever a sort put the row. An album grouped off a device's files
     // numbers from its tags where they say, since a release with a track
     // missing must not renumber the rest.
-    val originalTrackNumbers = remember(rawSongs) {
-        val byTag = rawSongs.useTrackTags()
-        rawSongs.withIndex().associate { (i, s) -> s.videoId to ((if (byTag) s.trackNumber else null) ?: (i + 1)) }
+    val originalTrackNumbers = remember(rawSongs, folder != null) {
+        if (folder != null) emptyMap()
+        else {
+            val byTag = rawSongs.useTrackTags()
+            rawSongs.withIndex().associate { (i, s) -> s.videoId to ((if (byTag) s.trackNumber else null) ?: (i + 1)) }
+        }
     }
     val isArtist = page.type == BrowseType.ARTIST
     // Whether the top release card's album is already saved isn't on the shelf
@@ -457,7 +474,7 @@ fun DetailScreen(
     }
     val songsLoading = page.songs is UiState.Loading
     LaunchedEffect(page.browseId, page.title, songsLoading) {
-        if (isArtist && !songsLoading) {
+        if (isArtist && !songsLoading && !localPage) {
             appleArt = AppleArtistArtRepository.artFor(page.browseId, page.title) { page.appleCatalogue() } ?: appleArt
         }
     }
@@ -473,7 +490,7 @@ fun DetailScreen(
     // other name starts the moment the page opens.
     val nameSettled = !page.title.looksLikeCredit() || page.songs !is UiState.Loading
     LaunchedEffect(page.browseId, page.title, nameSettled, signatureEnabled, signatureBaseUrl, signatureUpdates) {
-        if (!isArtist || !nameSettled) return@LaunchedEffect
+        if (!isArtist || !nameSettled || localPage) return@LaunchedEffect
         val base = ArtistSignatureRepository.effectiveBaseUrl(signatureEnabled, signatureBaseUrl)
         if (base == null) {
             signature = null
@@ -598,7 +615,7 @@ fun DetailScreen(
     LaunchedEffect(page.browseId, page.title, credit, canvasEnabled, prioritizeSpotifyCanvas, disableSpotifyCanvas) {
         // An artist's clip is set below, by the lookup that finds it.
         if (isArtist) return@LaunchedEffect
-        if (!canvasEnabled || page.type != BrowseType.ALBUM) {
+        if (!canvasEnabled || page.type != BrowseType.ALBUM || localPage) {
             canvas = null
             return@LaunchedEffect
         }

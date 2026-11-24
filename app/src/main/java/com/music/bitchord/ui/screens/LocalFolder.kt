@@ -292,28 +292,28 @@ fun rememberLocalFolderGroups(
     query: String,
 ): List<LocalGroup> {
     val singlesTitle = if (LocalGroups.isArtist(browseId)) stringResource(R.string.local_singles_other) else null
-    val tabCache = remember(browseId, songs, folder.collections, folder.playlists, singlesTitle) {
-        ConcurrentHashMap<LocalFolderTab, List<LocalGroup>>()
-    }
+    fun cacheKey(targetTab: LocalFolderTab): String =
+        "$browseId|${targetTab.name}|${folder.collections.size}|${folder.playlists.size}|${singlesTitle.orEmpty()}"
 
-    fun computeUnfiltered(targetTab: LocalFolderTab): List<LocalGroup> = tabCache.getOrPut(targetTab) {
-        when (targetTab) {
-            LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> emptyList()
-            LocalFolderTab.ALBUM_ARTISTS -> LocalGroups.artistsOf(browseId, songs, albumArtists = true)
-            LocalFolderTab.ARTISTS -> LocalGroups.artistsOf(browseId, songs)
-            LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(
-                LocalGroups.folderOf(browseId) ?: browseId,
-                songs,
-                folder.collections,
-                singlesTitle,
-            )
-            LocalFolderTab.PLAYLISTS -> folder.playlists.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, songs)
+    fun computeUnfiltered(targetTab: LocalFolderTab): List<LocalGroup> =
+        LocalGroups.getOrComputeTabGroups(songs, cacheKey(targetTab)) {
+            when (targetTab) {
+                LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> emptyList()
+                LocalFolderTab.ALBUM_ARTISTS -> LocalGroups.artistsOf(browseId, songs, albumArtists = true)
+                LocalFolderTab.ARTISTS -> LocalGroups.artistsOf(browseId, songs)
+                LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(
+                    LocalGroups.folderOf(browseId) ?: browseId,
+                    songs,
+                    folder.collections,
+                    singlesTitle,
+                )
+                LocalFolderTab.PLAYLISTS -> folder.playlists.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, songs)
+            }
         }
-    }
 
     // Lazily pre-warm the other tabs in the background so even the first tap is instant.
-    LaunchedEffect(tabCache) {
+    LaunchedEffect(browseId, songs, folder.collections, folder.playlists, singlesTitle) {
         if (songs.isEmpty()) return@LaunchedEffect
         withContext(Dispatchers.Default) {
             for (t in folder.tabs) {
@@ -324,10 +324,10 @@ fun rememberLocalFolderGroups(
         }
     }
 
-    val cachedForTab = tabCache[tab]
+    val cachedForTab = LocalGroups.peekCachedTabGroups(songs, cacheKey(tab))
     val state = produceState(
         initialValue = if (cachedForTab != null && query.isBlank()) cachedForTab else emptyList(),
-        key1 = tabCache,
+        key1 = songs,
         key2 = tab,
         key3 = query,
     ) {
@@ -335,7 +335,7 @@ fun rememberLocalFolderGroups(
             value = emptyList()
             return@produceState
         }
-        val cached = tabCache[tab]
+        val cached = LocalGroups.peekCachedTabGroups(songs, cacheKey(tab))
         if (cached != null && query.isBlank()) {
             value = cached
             return@produceState
