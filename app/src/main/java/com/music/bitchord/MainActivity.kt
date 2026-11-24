@@ -1029,13 +1029,13 @@ private fun BitChordApp(
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
     LifecycleResumeEffect(viewModel) {
-        viewModel.refreshLocalLibrary()
+        viewModel.refreshLocalLibraryIfConfigured()
         onPauseOrDispose { }
     }
     LaunchedEffect(viewModel) {
         com.music.bitchord.data.LocalLibraryIndex.changes(context).collectLatest {
             kotlinx.coroutines.delay(500)
-            viewModel.refreshLocalLibrary()
+            viewModel.refreshLocalLibraryIfConfigured()
         }
     }
     val selectedChannelName by viewModel.selectedChannelName.collectAsStateWithLifecycle()
@@ -1121,8 +1121,10 @@ private fun BitChordApp(
     // stale counts and a missing row in three places rather than one. So it is
     // taken again whenever the record of what's on disk changes.
     val savedDownloads by Downloads.saved.collectAsStateWithLifecycle()
-    val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
-    val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
+    val localMusicScanMode by AppSettings.localMusicScanMode.collectAsStateWithLifecycle()
+    var showLocalFolderPicker by remember { mutableStateOf(false) }
+    var showClearLocalConfirm by remember { mutableStateOf(false) }
+    var pendingLocalScanAll by remember { mutableStateOf(false) }
     val webdavUrl by AppSettings.webdavUrl.collectAsStateWithLifecycle()
     val smbHost by AppSettings.smbHost.collectAsStateWithLifecycle()
     val librarySort by AppSettings.librarySort.collectAsStateWithLifecycle()
@@ -1180,12 +1182,6 @@ private fun BitChordApp(
         val openPage = topDetail ?: return@LaunchedEffect
         if (openPage.songs !is UiState.Loading && OfflinePlaylists.isOfflinePlaylist(openPage.browseId)) {
             viewModel.reloadLocalDetail(openPage.browseId)
-        }
-    }
-    LaunchedEffect(localMusicFolderUri, filterNonMusicAudio) {
-        val open = topDetail?.browseId
-        if (open == "local:all" || LocalGroups.folderOf(open) == "local:all") {
-            viewModel.reloadLocalDetail(open!!)
         }
     }
     LaunchedEffect(webdavUrl) {
@@ -2349,7 +2345,14 @@ private fun BitChordApp(
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        val startAll = pendingLocalScanAll
+        pendingLocalScanAll = false
         if (granted) {
+            if (startAll) {
+                viewModel.startLocalScanAll()
+            } else {
+                viewModel.refreshLocalLibraryIfConfigured()
+            }
             viewModel.reloadLocalDetail("local:all")
             viewModel.reloadLocalDetail("local:downloads")
             viewModel.loadLibrarySongs()
@@ -2362,10 +2365,13 @@ private fun BitChordApp(
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
-    // The Search tab's Library source reads the Local Music folder, so it asks
-    // for the same permission opening that folder does.
+    // The Search tab's Library source reads the Local Music folder; only ask
+    // for storage permission if Local Music has already been configured.
     val onSearchSourceChange: (SearchSource) -> Unit = { source ->
-        if (source == SearchSource.LIBRARY && !LocalMediaRepository.hasStoragePermission(context)) {
+        if (source == SearchSource.LIBRARY &&
+            localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED &&
+            !LocalMediaRepository.hasStoragePermission(context)
+        ) {
             mediaPermissionLauncher.launch(mediaPermission)
         }
         viewModel.setSearchSource(source)
@@ -2378,7 +2384,15 @@ private fun BitChordApp(
                 navigator.push(AppRoute.Spotify)
                 return@let
             }
-            if ((id == "local:all" || id == "local:downloads") && !LocalMediaRepository.hasStoragePermission(context)) {
+            val needsPerm = when (id) {
+                "local:downloads" -> !LocalMediaRepository.hasStoragePermission(context)
+                "local:all" -> localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED &&
+                    !LocalMediaRepository.hasStoragePermission(context) &&
+                    !(localMusicScanMode == com.music.bitchord.data.settings.LocalMusicScanMode.SPECIFIC_FOLDERS &&
+                        AppSettings.localMusicFolders.value.any { it.isTreeUri })
+                else -> false
+            }
+            if (needsPerm) {
                 mediaPermissionLauncher.launch(mediaPermission)
             }
             // Opened from a shelf's "Show all" page, it stacks over the grid
@@ -3492,6 +3506,23 @@ private fun BitChordApp(
                                     playlists = if (isDevice) offlinePlaylistGroups else emptyList(),
                                     onCreatePlaylist = if (isDevice) ({ creatingOfflinePlaylist = true }) else null,
                                     onRefreshIndex = if (isDevice) viewModel::refreshLocalLibrary else null,
+                                    isNotConfigured = isDevice &&
+                                        localMusicScanMode == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED,
+                                    onSearchAllFolders = if (isDevice) ({
+                                        if (LocalMediaRepository.hasStoragePermission(context)) {
+                                            viewModel.startLocalScanAll()
+                                        } else {
+                                            pendingLocalScanAll = true
+                                            mediaPermissionLauncher.launch(mediaPermission)
+                                        }
+                                    }) else null,
+                                    onSearchSpecificFolders = if (isDevice) ({
+                                        showLocalFolderPicker = true
+                                    }) else null,
+                                    onCancelScan = if (isDevice) viewModel::cancelLocalScan else null,
+                                    onManageFolders = if (isDevice) ({
+                                        showLocalFolderPicker = true
+                                    }) else null,
                                 )
                             } else {
                                 null
@@ -6057,44 +6088,32 @@ private fun BitChordApp(
 
         val menuFolder = detail?.browseId?.takeIf { it.isDeviceFolder() }
         if (folderMenuOpen && menuFolder != null) {
-            BackHandler { folderMenuOpen = false }
-            val downloadsFolder = menuFolder == "local:downloads"
-            val viewType = folderViewTypeOf(menuFolder)
-            val folderState = localFolderStates[menuFolder]
-            val tab = folderState?.tab ?: LocalFolderTab.SONGS
-            val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
-            val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
-            FrostedFolderMenu(
+            FolderMenuOverlay(
+                menuFolder = menuFolder,
                 hazeState = hazeState,
-                sort = recentState?.let {
-                    if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-                } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSortOf(menuFolder),
-                sorts = tab.sortOptions,
-                onRefresh = if (menuFolder == "local:all") ({
-                    folderMenuOpen = false
-                    viewModel.refreshLocalLibrary()
-                }) else null,
-                viewType = viewType,
-                onSort = { option ->
-                    if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
-                    else if (groupState != null) {
-                        groupState.groupSorts = groupState.groupSorts + (tab to option)
-                        context.getSharedPreferences("local_music_view", 0).edit()
-                            .putString("sort:$menuFolder:${tab.name}", option.name).apply()
-                    }
-                    else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
-                    else AppSettings.setLocalMusicSort(option)
-                    folderMenuOpen = false
-                },
-                onToggleViewType = {
-                    val next = if (viewType == LibraryViewType.GRID) LibraryViewType.LIST else LibraryViewType.GRID
-                    if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
-                    else AppSettings.setLocalMusicViewType(next)
-                    folderMenuOpen = false
-                },
+                viewType = folderViewTypeOf(menuFolder),
+                folderSort = folderSortOf(menuFolder),
+                folderState = localFolderStates[menuFolder],
+                localMusicScanMode = localMusicScanMode,
+                viewModel = viewModel,
+                onOpenFolderPicker = { showLocalFolderPicker = true },
+                onOpenClearConfirm = { showClearLocalConfirm = true },
                 onDismiss = { folderMenuOpen = false },
             )
         }
+
+        com.music.bitchord.ui.screens.LocalMusicEffectsAndDialogs(
+            viewModel = viewModel,
+            topDetailBrowseId = topDetail?.browseId,
+            showFolderPicker = showLocalFolderPicker,
+            showClearConfirm = showClearLocalConfirm,
+            onDismissFolderPicker = { showLocalFolderPicker = false },
+            onDismissClearConfirm = { showClearLocalConfirm = false },
+            onRequestStorageForAll = {
+                pendingLocalScanAll = true
+                mediaPermissionLauncher.launch(mediaPermission)
+            },
+        )
 
         if (showAccountSelector) {
             BackHandler { showAccountSelector = false }
@@ -6628,12 +6647,79 @@ private fun FrostedSortMenu(
  * its sort orders — the Files app's arrangement, view first and order under it.
  */
 @Composable
+private fun FolderMenuOverlay(
+    menuFolder: String,
+    hazeState: HazeState,
+    viewType: LibraryViewType,
+    folderSort: LocalMusicSort,
+    folderState: LocalFolderState?,
+    localMusicScanMode: com.music.bitchord.data.settings.LocalMusicScanMode,
+    viewModel: MainViewModel,
+    onOpenFolderPicker: () -> Unit,
+    onOpenClearConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    BackHandler { onDismiss() }
+    val downloadsFolder = menuFolder == "local:downloads"
+    val tab = folderState?.tab ?: LocalFolderTab.SONGS
+    val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
+    val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
+    val isConfiguredLocal = menuFolder == "local:all" &&
+        localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED
+    FrostedFolderMenu(
+        hazeState = hazeState,
+        sort = recentState?.let {
+            if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
+        } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSort,
+        sorts = tab.sortOptions,
+        onRefresh = if (isConfiguredLocal) ({
+            onDismiss()
+            viewModel.refreshLocalLibrary()
+        }) else null,
+        onFullRescan = if (isConfiguredLocal) ({
+            onDismiss()
+            viewModel.forceFullLocalRescan()
+        }) else null,
+        onManageFolders = if (menuFolder == "local:all") ({
+            onDismiss()
+            onOpenFolderPicker()
+        }) else null,
+        onClearLibrary = if (isConfiguredLocal) ({
+            onDismiss()
+            onOpenClearConfirm()
+        }) else null,
+        viewType = viewType,
+        onSort = { option ->
+            if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+            else if (groupState != null) {
+                groupState.groupSorts = groupState.groupSorts + (tab to option)
+                context.getSharedPreferences("local_music_view", 0).edit()
+                    .putString("sort:$menuFolder:${tab.name}", option.name).apply()
+            } else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
+            else AppSettings.setLocalMusicSort(option)
+            onDismiss()
+        },
+        onToggleViewType = {
+            val next = if (viewType == LibraryViewType.GRID) LibraryViewType.LIST else LibraryViewType.GRID
+            if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
+            else AppSettings.setLocalMusicViewType(next)
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
 private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
     sorts: List<LocalMusicSort>,
     onRefresh: (() -> Unit)?,
+    onFullRescan: (() -> Unit)? = null,
+    onManageFolders: (() -> Unit)? = null,
+    onClearLibrary: (() -> Unit)? = null,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
     onDismiss: () -> Unit,
@@ -6658,17 +6744,40 @@ private fun FrostedFolderMenu(
                 onClick = { onSort(option) },
             )
         }
-        onRefresh?.let { refresh ->
+        if (onRefresh != null || onFullRescan != null || onManageFolders != null || onClearLibrary != null) {
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 4.dp),
                 thickness = 0.5.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
-            FrostedMenuRow(
-                label = stringResource(R.string.local_refresh_index),
-                checked = false,
-                onClick = refresh,
-            )
+            onRefresh?.let { refresh ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_refresh_index),
+                    checked = false,
+                    onClick = refresh,
+                )
+            }
+            onFullRescan?.let { rescan ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_full_rescan),
+                    checked = false,
+                    onClick = rescan,
+                )
+            }
+            onManageFolders?.let { manage ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_manage_folders),
+                    checked = false,
+                    onClick = manage,
+                )
+            }
+            onClearLibrary?.let { clear ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_clear_library),
+                    checked = false,
+                    onClick = clear,
+                )
+            }
         }
     }
 }

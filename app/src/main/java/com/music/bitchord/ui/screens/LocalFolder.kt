@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,9 +15,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
@@ -33,16 +37,24 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.LocalLibraryIndex
 import androidx.compose.runtime.Composable
@@ -149,6 +161,11 @@ class LocalFolder(
     /** Puts "New playlist" at the head of the Playlists tab. */
     val onCreatePlaylist: (() -> Unit)? = null,
     val onRefreshIndex: (() -> Unit)? = null,
+    val isNotConfigured: Boolean = false,
+    val onSearchAllFolders: (() -> Unit)? = null,
+    val onSearchSpecificFolders: (() -> Unit)? = null,
+    val onCancelScan: (() -> Unit)? = null,
+    val onManageFolders: (() -> Unit)? = null,
 )
 
 enum class LocalFolderTab {
@@ -280,7 +297,7 @@ internal fun LazyListScope.localFolderItems(
     query: String,
     columns: Int,
     indexGutter: Dp,
-    scanStatus: LocalLibraryIndex.ScanStatus,
+    scanProgress: LocalLibraryIndex.ScanProgress,
     palette: ArtworkPalette,
     currentSong: Song?,
     isPlaying: Boolean,
@@ -288,6 +305,19 @@ internal fun LazyListScope.localFolderItems(
     onSongLongPress: (Song) -> Unit,
     onSongSwipe: (Song) -> Unit,
 ) {
+    // First-time opt-in view: shown when Local Music has not been configured yet
+    // and no scan is running. Never auto-scans on first visit.
+    if (folder.isNotConfigured && !scanProgress.isActive && songs.isEmpty() && query.isBlank()) {
+        item(key = "local-setup-optin") {
+            LocalMusicSetupView(
+                palette = palette,
+                onSearchAll = folder.onSearchAllFolders,
+                onSearchSpecific = folder.onSearchSpecificFolders,
+            )
+        }
+        return
+    }
+
     val tabs = folder.tabs
     if (tabs.size > 1) item(key = "folder-tabs") {
         SegmentedControl(
@@ -298,20 +328,17 @@ internal fun LazyListScope.localFolderItems(
         )
     }
 
-    if (scanStatus != LocalLibraryIndex.ScanStatus.IDLE) {
+    val showScanBanner = scanProgress.phase != LocalLibraryIndex.ScanPhase.IDLE ||
+        scanProgress.revokedFolders.isNotEmpty()
+    if (showScanBanner) {
         item(key = "local-scan-status") {
-            if (scanStatus == LocalLibraryIndex.ScanStatus.UNAVAILABLE && folder.onRefreshIndex != null) {
-                TextButton(onClick = folder.onRefreshIndex, modifier = Modifier.padding(horizontal = PAGE_GUTTER)) {
-                    Text(stringResource(R.string.local_scan_unavailable))
-                }
-            } else {
-                Text(
-                    stringResource(R.string.local_scan_running),
-                    Modifier.padding(horizontal = PAGE_GUTTER, vertical = 6.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.onBackgroundVariant,
-                )
-            }
+            LocalScanProgressBanner(
+                progress = scanProgress,
+                palette = palette,
+                onRetry = folder.onRefreshIndex,
+                onCancel = folder.onCancelScan,
+                onManageFolders = folder.onManageFolders,
+            )
         }
     }
 
@@ -332,18 +359,20 @@ internal fun LazyListScope.localFolderItems(
         else -> groups.isEmpty()
     }
     if (empty) {
-        item(key = "folder-empty") {
-            MessageState(
-                if (query.isNotBlank()) {
-                    stringResource(R.string.nothing_matches, query)
-                } else if (state.tab == LocalFolderTab.ALBUMS) {
-                    stringResource(R.string.no_local_albums)
-                } else if (state.tab == LocalFolderTab.FOLDERS) {
-                    stringResource(R.string.no_local_folders)
-                } else {
-                    stringResource(R.string.no_tracks_here)
-                },
-            )
+        if (!scanProgress.isActive) {
+            item(key = "folder-empty") {
+                MessageState(
+                    if (query.isNotBlank()) {
+                        stringResource(R.string.nothing_matches, query)
+                    } else if (state.tab == LocalFolderTab.ALBUMS) {
+                        stringResource(R.string.no_local_albums)
+                    } else if (state.tab == LocalFolderTab.FOLDERS) {
+                        stringResource(R.string.no_local_folders)
+                    } else {
+                        stringResource(R.string.no_tracks_here)
+                    },
+                )
+            }
         }
         return
     }
@@ -459,6 +488,258 @@ private fun LocalFolderTab.label(): String = stringResource(
         LocalFolderTab.RECENTLY_ADDED -> R.string.local_recently_added
     },
 )
+
+/**
+ * First-time opt-in view shown before Local Music has been scanned.
+ * Features a centered search icon with "Search all folders" and "Search specific
+ * folders" actions below it, adapting cleanly to Landscape DAPs and Car Head-Units.
+ */
+@Composable
+private fun LocalMusicSetupView(
+    palette: ArtworkPalette,
+    onSearchAll: (() -> Unit)?,
+    onSearchSpecific: (() -> Unit)?,
+) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PAGE_GUTTER, vertical = 24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val compactLandscape = maxWidth >= 520.dp
+        Column(
+            modifier = Modifier
+                .widthIn(max = if (compactLandscape) 520.dp else 360.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(if (compactLandscape) 64.dp else 80.dp)
+                    .clip(CircleShape)
+                    .background(palette.accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = palette.accent,
+                    modifier = Modifier.size(if (compactLandscape) 32.dp else 40.dp),
+                )
+            }
+
+            Spacer(Modifier.height(if (compactLandscape) 12.dp else 18.dp))
+
+            Text(
+                text = stringResource(R.string.local_setup_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.onBackground,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = stringResource(R.string.local_setup_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.onBackgroundVariant,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(Modifier.height(if (compactLandscape) 16.dp else 24.dp))
+
+            if (onSearchAll != null) {
+                Button(
+                    onClick = onSearchAll,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.accent,
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 50.dp),
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.local_search_all_folders),
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (onSearchSpecific != null) {
+                Spacer(Modifier.height(10.dp))
+                FilledTonalButton(
+                    onClick = onSearchSpecific,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 50.dp),
+                ) {
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.local_search_specific_folders),
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Prominent progress card shown at the top of Local Music while discovering or
+ * indexing tracks (e.g. "Adding music 124 out of 2,480"), or when external
+ * storage is temporarily unmounted / SAF permissions have expired.
+ */
+@Composable
+private fun LocalScanProgressBanner(
+    progress: LocalLibraryIndex.ScanProgress,
+    palette: ArtworkPalette,
+    onRetry: (() -> Unit)?,
+    onCancel: (() -> Unit)?,
+    onManageFolders: (() -> Unit)?,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = palette.accent.copy(alpha = 0.14f),
+        contentColor = palette.onBackground,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                when (progress.phase) {
+                    LocalLibraryIndex.ScanPhase.DISCOVERING -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = palette.accent,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = if (progress.discovered > 0) {
+                                stringResource(R.string.local_scan_discovering, progress.discovered)
+                            } else {
+                                stringResource(R.string.local_scan_running)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    LocalLibraryIndex.ScanPhase.INDEXING -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = palette.accent,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(
+                                R.string.local_scan_adding_progress,
+                                progress.processed.coerceAtLeast(1).coerceAtMost(progress.total.coerceAtLeast(1)),
+                                progress.total.coerceAtLeast(1),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    LocalLibraryIndex.ScanPhase.UNAVAILABLE -> {
+                        Icon(
+                            imageVector = Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            tint = palette.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.local_scan_unavailable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (onRetry != null) {
+                            TextButton(onClick = onRetry) {
+                                Text(stringResource(R.string.retry), color = palette.accent)
+                            }
+                        }
+                    }
+                    LocalLibraryIndex.ScanPhase.IDLE -> {
+                        if (progress.revokedFolders.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Rounded.ErrorOutline,
+                                contentDescription = null,
+                                tint = palette.accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                text = stringResource(R.string.local_folder_permission_expired),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = palette.onBackground,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (onManageFolders != null) {
+                                TextButton(onClick = onManageFolders) {
+                                    Text(stringResource(R.string.local_manage_folders), color = palette.accent)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (progress.isActive && onCancel != null) {
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.local_scan_cancel), color = palette.accent)
+                    }
+                }
+            }
+
+            if (progress.phase == LocalLibraryIndex.ScanPhase.DISCOVERING) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = palette.accent,
+                    trackColor = palette.accent.copy(alpha = 0.22f),
+                )
+            } else if (progress.phase == LocalLibraryIndex.ScanPhase.INDEXING && progress.total > 0) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { (progress.processed.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = palette.accent,
+                    trackColor = palette.accent.copy(alpha = 0.22f),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun NewPlaylistRow(palette: ArtworkPalette, onClick: () -> Unit) {

@@ -428,9 +428,9 @@ fun DetailScreen(
         else if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
         else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
     }
-    val scanStatus = if (folder?.onRefreshIndex != null) {
-        com.music.bitchord.data.LocalLibraryIndex.scanStatus.collectAsStateWithLifecycle().value
-    } else com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE
+    val scanProgress = if (folder?.onRefreshIndex != null) {
+        com.music.bitchord.data.LocalLibraryIndex.progress.collectAsStateWithLifecycle().value
+    } else com.music.bitchord.data.LocalLibraryIndex.ScanProgress()
     // What a numbered row shows regardless of [songSort] — an album's track
     // numbers are the sleeve's own and must not relabel themselves to match
     // wherever a sort put the row. An album grouped off a device's files
@@ -793,8 +793,48 @@ fun DetailScreen(
             if (!isArtist) aboutItem()
 
             when (val state = page.songs) {
-                is UiState.Loading -> detailSkeleton(isArtist)
-                is UiState.Error -> item { MessageState(state.message) }
+                is UiState.Loading -> if (page.browseId == "local:all" && folder != null && folderState != null) {
+                    localFolderItems(
+                        folder = folder,
+                        state = folderState,
+                        songs = emptyList(),
+                        groups = emptyList(),
+                        query = query,
+                        columns = gridColumns,
+                        indexGutter = gutter,
+                        scanProgress = scanProgress,
+                        palette = palette,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        onSongClick = onSongClick,
+                        onSongLongPress = onSongLongPress,
+                        onSongSwipe = onSongSwipe,
+                    )
+                } else {
+                    detailSkeleton(isArtist)
+                }
+                is UiState.Error -> if (page.browseId == "local:all" && folder != null && folderState != null &&
+                    (folder.isNotConfigured || scanProgress.isActive)
+                ) {
+                    localFolderItems(
+                        folder = folder,
+                        state = folderState,
+                        songs = emptyList(),
+                        groups = emptyList(),
+                        query = query,
+                        columns = gridColumns,
+                        indexGutter = gutter,
+                        scanProgress = scanProgress,
+                        palette = palette,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        onSongClick = onSongClick,
+                        onSongLongPress = onSongLongPress,
+                        onSongSwipe = onSongSwipe,
+                    )
+                } else {
+                    item { MessageState(state.message) }
+                }
                 is UiState.Success -> if (folder != null && folderState != null) {
                     localFolderItems(
                         folder = folder,
@@ -804,7 +844,7 @@ fun DetailScreen(
                         query = query,
                         columns = gridColumns,
                         indexGutter = gutter,
-                        scanStatus = scanStatus,
+                        scanProgress = scanProgress,
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
@@ -980,7 +1020,9 @@ fun DetailScreen(
                     val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
                     val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
                         (if ((folder?.tabs?.size ?: 0) > 1) 1 else 0) +
-                        (if (scanStatus != com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE) 1 else 0) +
+                        (if (scanProgress.phase != com.music.bitchord.data.LocalLibraryIndex.ScanPhase.IDLE ||
+                                scanProgress.revokedFolders.isNotEmpty()
+                            ) 1 else 0) +
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0)
                     val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
                     val positions = remember(names, start, columns, indexAlphabet) {

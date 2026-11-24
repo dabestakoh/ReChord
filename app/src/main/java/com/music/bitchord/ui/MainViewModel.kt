@@ -1734,8 +1734,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             AppSettings.filterNonMusicAudio.drop(1).collect {
-                if (_detailStack.value.any { page -> page.browseId == "local:all" }) {
-                    reloadLocalDetail("local:all")
+                if (AppSettings.localMusicScanMode.value != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                    refreshLocalLibraryIfConfigured()
+                }
+            }
+        }
+        viewModelScope.launch {
+            com.music.bitchord.data.LocalLibraryIndex.songs.collect { songs ->
+                if (AppSettings.localMusicScanMode.value != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                    if (songs.isNotEmpty() || _librarySongs.value is UiState.Success) {
+                        _librarySongs.value = UiState.Success(songs)
+                    }
+                }
+                if (_detailStack.value.any { it.browseId == "local:all" || LocalGroups.folderOf(it.browseId) == "local:all" }) {
+                    _detailStack.value = _detailStack.value.map { page ->
+                        when {
+                            page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
+                            LocalGroups.folderOf(page.browseId) == "local:all" ->
+                                page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
+                            else -> page
+                        }
+                    }
                 }
             }
         }
@@ -2540,7 +2559,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun loadLibrarySongs() {
         viewModelScope.launch {
             val context = getApplication<Application>()
-            _librarySongs.value = if (!LocalMediaRepository.hasStoragePermission(context)) {
+            if (AppSettings.localMusicScanMode.value == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                _librarySongs.value = UiState.Error(text(R.string.local_not_scanned_yet))
+                return@launch
+            }
+            val useLegacy = com.music.bitchord.data.LocalStorageVolumes.shouldUseLegacyScan(
+                context,
+                AppSettings.localLegacyScanMode.value,
+            )
+            val hasSaf = AppSettings.localMusicScanMode.value == com.music.bitchord.data.settings.LocalMusicScanMode.SPECIFIC_FOLDERS &&
+                AppSettings.localMusicFolders.value.any { it.isTreeUri }
+            _librarySongs.value = if (!LocalMediaRepository.hasStoragePermission(context) && !hasSaf && !useLegacy) {
                 UiState.Error(text(R.string.storage_required_read))
             } else {
                 runCatching { LocalMediaRepository.getLocalMusic(context) }.fold(
@@ -3366,28 +3395,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _detailStack.value = _detailStack.value.map { if (it.browseId == browseId) it.copy(title = title) else it }
     }
 
-    private var localRefresh: kotlinx.coroutines.Job? = null
-    private var localRefreshPending = false
-
     fun refreshLocalLibrary() {
-        localRefreshPending = true
-        if (localRefresh?.isActive == true) return
-        localRefresh = viewModelScope.launch {
-            val context = getApplication<Application>()
-            while (localRefreshPending) {
-                localRefreshPending = false
-                val songs = com.music.bitchord.data.LocalLibraryIndex.refresh(context)
-                if (_librarySongs.value is UiState.Success || songs.isNotEmpty()) {
-                    _librarySongs.value = UiState.Success(songs)
-                }
-                _detailStack.value = _detailStack.value.map { page ->
-                    when {
-                        page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
-                        LocalGroups.folderOf(page.browseId) == "local:all" ->
-                            page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
-                        else -> page
-                    }
-                }
+        val context = getApplication<Application>()
+        if (AppSettings.localMusicScanMode.value == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) return
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+    }
+
+    fun refreshLocalLibraryIfConfigured() {
+        com.music.bitchord.data.LocalLibraryIndex.refreshIfConfigured(getApplication())
+    }
+
+    fun forceFullLocalRescan() {
+        val context = getApplication<Application>()
+        if (AppSettings.localMusicScanMode.value == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) return
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = true)
+    }
+
+    fun startLocalScanAll() {
+        val context = getApplication<Application>()
+        AppSettings.setLocalMusicScanMode(com.music.bitchord.data.settings.LocalMusicScanMode.ALL_FOLDERS)
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+    }
+
+    fun startLocalScanFolders(
+        mode: com.music.bitchord.data.settings.LocalMusicScanMode,
+        folders: List<com.music.bitchord.data.settings.LocalScanFolder>,
+        excluded: List<com.music.bitchord.data.settings.LocalScanFolder>,
+    ) {
+        val context = getApplication<Application>()
+        AppSettings.setLocalMusicFolders(folders)
+        AppSettings.setLocalMusicExcludedFolders(excluded)
+        AppSettings.setLocalMusicScanMode(mode)
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+    }
+
+    fun cancelLocalScan() {
+        com.music.bitchord.data.LocalLibraryIndex.cancelScan()
+    }
+
+    fun clearLocalLibrary() {
+        viewModelScope.launch {
+            com.music.bitchord.data.LocalLibraryIndex.clearLibrary(getApplication())
+            _librarySongs.value = UiState.Error(text(R.string.local_not_scanned_yet))
+            _detailStack.value = _detailStack.value.map { page ->
+                if (page.browseId == "local:all") page.copy(songs = UiState.Success(emptyList())) else page
             }
         }
     }
@@ -3452,8 +3503,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             browseId == "local:downloads" ->
                 nonEmpty(Downloads.getDownloadedSongs(context)) { "No downloaded tracks" }
             browseId == CACHE_FOLDER_BROWSE_ID -> cachedSongsState()
-            browseId == "local:all" -> nonEmpty(LocalMediaRepository.getLocalMusic(context)) {
-                text(if (LocalMediaRepository.hasStoragePermission(context)) R.string.no_local_audio_found else R.string.storage_required_read)
+            browseId == "local:all" -> {
+                val mode = AppSettings.localMusicScanMode.value
+                if (mode == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                    UiState.Success(emptyList())
+                } else {
+                    val current = LocalMediaRepository.getLocalMusic(context)
+                    if (current.isNotEmpty() || com.music.bitchord.data.LocalLibraryIndex.progress.value.isActive) {
+                        UiState.Success(current)
+                    } else {
+                        val useLegacy = com.music.bitchord.data.LocalStorageVolumes.shouldUseLegacyScan(
+                            context,
+                            AppSettings.localLegacyScanMode.value,
+                        )
+                        val hasSaf = mode == com.music.bitchord.data.settings.LocalMusicScanMode.SPECIFIC_FOLDERS &&
+                            AppSettings.localMusicFolders.value.any { it.isTreeUri }
+                        if (LocalMediaRepository.hasStoragePermission(context) || hasSaf || useLegacy) {
+                            UiState.Success(emptyList())
+                        } else {
+                            UiState.Error(text(R.string.storage_required_read))
+                        }
+                    }
+                }
             }
             else -> null
         }
