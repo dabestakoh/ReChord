@@ -3414,7 +3414,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun startLocalScanAll() {
         val context = getApplication<Application>()
         AppSettings.setLocalMusicScanMode(com.music.bitchord.data.settings.LocalMusicScanMode.ALL_FOLDERS)
-        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false, restart = true)
     }
 
     fun startLocalScanFolders(
@@ -3426,7 +3426,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         AppSettings.setLocalMusicFolders(folders)
         AppSettings.setLocalMusicExcludedFolders(excluded)
         AppSettings.setLocalMusicScanMode(mode)
-        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+        com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false, restart = true)
     }
 
     fun cancelLocalScan() {

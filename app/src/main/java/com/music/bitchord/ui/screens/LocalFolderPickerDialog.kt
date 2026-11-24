@@ -24,17 +24,18 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.SdStorage
@@ -58,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -282,6 +284,41 @@ internal fun LocalFolderPickerDialog(
                         )
                     }
 
+                    val isAllMode = mode == LocalMusicScanMode.ALL_FOLDERS
+                    var excludeExpanded by remember { mutableStateOf(false) }
+                    val selectedPaths = activeList.filter { !it.isTreeUri }
+                        .mapTo(HashSet()) { it.id.lowercase(Locale.ROOT) }
+                    val browser: @Composable (Modifier) -> Unit = { m ->
+                        FolderBrowserPane(
+                            useLegacyBrowser = useLegacyBrowser,
+                            detectedVolumes = detectedVolumes,
+                            currentVolumeIndex = currentVolumeIndex,
+                            onSelectVolume = { idx ->
+                                currentVolumeIndex = idx
+                                currentDir = detectedVolumes.getOrNull(idx)?.let { File(it.canonicalPath) }
+                            },
+                            currentDir = currentDir,
+                            onNavigate = { currentDir = it },
+                            selectedPaths = selectedPaths,
+                            onToggleDir = toggleDirectory,
+                            safAvailable = safAvailable,
+                            onLaunchSaf = { safLauncher.launch(null) },
+                            internalLabel = internalLabel,
+                            modifier = m,
+                        )
+                    }
+                    val selectedPane: @Composable (Modifier) -> Unit = { m ->
+                        SelectedFoldersPane(
+                            isExcludedList = isAllMode,
+                            folders = activeList,
+                            onToggleSubfolders = toggleSubfolders,
+                            onRemove = removeFolder,
+                            modifier = m,
+                        )
+                    }
+
+                    // The whole body scrolls (nothing nested), so any number of selected folders
+                    // can never squeeze the browser away; header and action bar stay pinned.
                     if (isLandscape) {
                         Row(
                             modifier = Modifier
@@ -292,77 +329,53 @@ internal fun LocalFolderPickerDialog(
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxHeight(),
+                                    .fillMaxHeight()
+                                    .verticalScroll(rememberScrollState()),
                             ) {
-                                FolderBrowserPane(
-                                    useLegacyBrowser = useLegacyBrowser,
-                                    detectedVolumes = detectedVolumes,
-                                    currentVolumeIndex = currentVolumeIndex,
-                                    onSelectVolume = { idx ->
-                                        currentVolumeIndex = idx
-                                        currentDir = detectedVolumes.getOrNull(idx)?.let { File(it.canonicalPath) }
-                                    },
-                                    currentDir = currentDir,
-                                    onNavigate = { currentDir = it },
-                                    selectedPaths = activeList.filter { !it.isTreeUri }.mapTo(HashSet()) { it.id.lowercase(Locale.ROOT) },
-                                    onToggleDir = toggleDirectory,
-                                    safAvailable = safAvailable,
-                                    onLaunchSaf = { safLauncher.launch(null) },
-                                    internalLabel = internalLabel,
-                                    modifier = Modifier.weight(1f),
-                                )
+                                if (isAllMode) AllFoldersHint()
+                                if (!isAllMode || excludeExpanded) browser(Modifier.fillMaxWidth())
+                                if (isAllMode) {
+                                    ExcludeFoldersHeader(
+                                        count = excludedFolders.size,
+                                        expanded = excludeExpanded,
+                                        onToggle = { excludeExpanded = !excludeExpanded },
+                                    )
+                                }
                             }
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                            ) {
-                                SelectedFoldersPane(
-                                    isExcludedList = mode == LocalMusicScanMode.ALL_FOLDERS,
-                                    folders = activeList,
-                                    onToggleSubfolders = toggleSubfolders,
-                                    onRemove = removeFolder,
-                                    modifier = Modifier.weight(1f),
-                                )
+                            if (!isAllMode || excludeExpanded) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .verticalScroll(rememberScrollState()),
+                                ) {
+                                    selectedPane(Modifier.fillMaxWidth())
+                                }
                             }
                         }
                     } else {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f, fill = false),
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState()),
                         ) {
-                            SelectedFoldersPane(
-                                isExcludedList = mode == LocalMusicScanMode.ALL_FOLDERS,
-                                folders = activeList,
-                                onToggleSubfolders = toggleSubfolders,
-                                onRemove = removeFolder,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 190.dp),
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            HorizontalDivider(color = scheme.outline.copy(alpha = 0.6f))
-                            Spacer(Modifier.height(10.dp))
-                            FolderBrowserPane(
-                                useLegacyBrowser = useLegacyBrowser,
-                                detectedVolumes = detectedVolumes,
-                                currentVolumeIndex = currentVolumeIndex,
-                                onSelectVolume = { idx ->
-                                    currentVolumeIndex = idx
-                                    currentDir = detectedVolumes.getOrNull(idx)?.let { File(it.canonicalPath) }
-                                },
-                                currentDir = currentDir,
-                                onNavigate = { currentDir = it },
-                                selectedPaths = activeList.filter { !it.isTreeUri }.mapTo(HashSet()) { it.id.lowercase(Locale.ROOT) },
-                                onToggleDir = toggleDirectory,
-                                safAvailable = safAvailable,
-                                onLaunchSaf = { safLauncher.launch(null) },
-                                internalLabel = internalLabel,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f, fill = false),
-                            )
+                            if (isAllMode) {
+                                AllFoldersHint()
+                                ExcludeFoldersHeader(
+                                    count = excludedFolders.size,
+                                    expanded = excludeExpanded,
+                                    onToggle = { excludeExpanded = !excludeExpanded },
+                                )
+                            }
+                            if (!isAllMode || excludeExpanded) {
+                                Spacer(Modifier.height(8.dp))
+                                selectedPane(Modifier.fillMaxWidth())
+                                Spacer(Modifier.height(10.dp))
+                                HorizontalDivider(color = scheme.outline.copy(alpha = 0.6f))
+                                Spacer(Modifier.height(10.dp))
+                                browser(Modifier.fillMaxWidth())
+                            }
                         }
                     }
 
@@ -469,7 +482,7 @@ private fun SelectedFoldersPane(
         Text(
             text = stringResource(
                 if (isExcludedList) R.string.local_excluded_folders else R.string.local_music_folder,
-            ),
+            ) + if (folders.isNotEmpty()) " (${folders.size})" else "",
             style = MaterialTheme.typography.labelMedium,
             color = scheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 6.dp),
@@ -490,11 +503,12 @@ private fun SelectedFoldersPane(
                 )
             }
         } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                items(folders, key = { "${it.isTreeUri}:${it.id}" }) { folder ->
+                folders.forEach { folder ->
+                    key("${folder.isTreeUri}:${folder.id}") {
                     val expired = remember(folder) {
                         folder.isTreeUri && !LocalStorageVolumes.hasPersistedSafPermission(context, folder.id)
                     }
@@ -504,7 +518,8 @@ private fun SelectedFoldersPane(
                             .clip(RoundedCornerShape(12.dp))
                             .background(scheme.onSurface.copy(alpha = 0.07f))
                             .border(1.dp, scheme.outline.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                            .heightIn(min = 44.dp)
+                            .padding(start = 10.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
@@ -520,7 +535,7 @@ private fun SelectedFoldersPane(
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium,
                                 color = scheme.onSurface,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (expired) {
@@ -553,7 +568,7 @@ private fun SelectedFoldersPane(
                                 uncheckedBorderColor = scheme.outline,
                             ),
                         )
-                        IconButton(onClick = { onRemove(folder) }) {
+                        IconButton(onClick = { onRemove(folder) }, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 Icons.Rounded.Close,
                                 contentDescription = stringResource(R.string.cancel),
@@ -562,9 +577,53 @@ private fun SelectedFoldersPane(
                             )
                         }
                     }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AllFoldersHint() {
+    Text(
+        text = stringResource(R.string.local_all_folders_hint),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
+}
+
+/** Collapsed-by-default "Exclude folders (optional)" row for All folders mode. */
+@Composable
+private fun ExcludeFoldersHeader(count: Int, expanded: Boolean, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(scheme.onSurface.copy(alpha = 0.07f))
+            .border(1.dp, scheme.outline.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.local_exclude_folders_optional) +
+                if (count > 0) " ($count)" else "",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = scheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -724,12 +783,10 @@ private fun FolderBrowserPane(
                 }.getOrDefault(emptyList())
             }
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false),
-            ) {
-                items(subdirs, key = { it.path }) { dir ->
+            var visibleLimit by remember(currentDir.path) { mutableStateOf(200) }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                subdirs.take(visibleLimit).forEach { dir ->
+                  key(dir.path) {
                     val canonicalLower = remember(dir.path) {
                         runCatching { dir.canonicalPath }.getOrDefault(dir.absolutePath).lowercase(Locale.ROOT)
                     }
@@ -765,6 +822,15 @@ private fun FolderBrowserPane(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
+                        )
+                    }
+                  }
+                }
+                if (subdirs.size > visibleLimit) {
+                    TextButton(onClick = { visibleLimit += 200 }) {
+                        Text(
+                            text = "+${subdirs.size - visibleLimit}",
+                            color = scheme.onSurface,
                         )
                     }
                 }

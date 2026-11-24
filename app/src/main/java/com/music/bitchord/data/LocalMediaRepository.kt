@@ -530,6 +530,12 @@ object LocalMediaRepository {
             ?: item.displayName
         val modSec = item.lastModifiedMs.takeIf { it > 0L }?.div(1_000L)
 
+        val sampleRateHz = fastTags?.sampleRateHz
+        val bitsPerSample = fastTags?.bitsPerSample
+        val channels = fastTags?.channels
+        val formatLabel = ext.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT)
+        val hiRes = FastAudioTagReader.isHiResAudio(ext, sampleRateHz, bitsPerSample)
+
         val baseSong = Song(
             videoId = videoIdByUri[item.uri] ?: item.uri,
             title = resolvedTitle,
@@ -542,10 +548,44 @@ object LocalMediaRepository {
             localDateAddedSeconds = modSec,
             localDateModifiedSeconds = modSec,
             trackNumber = trackNumber,
+            sourceHiRes = hiRes,
             localAlbumArtist = albumArtist,
             localDiscNumber = discNumber,
+            localSampleRateHz = sampleRateHz,
+            localBitsPerSample = bitsPerSample,
+            localChannels = channels,
+            localFormat = formatLabel,
+            localFileSizeBytes = item.sizeBytes.takeIf { it > 0L },
         )
         return LocalArtwork.decorateOne(baseSong, item.sidecarCovers)
+    }
+
+    /**
+     * Reads fast binary header specs (~0.1 ms) for MediaStore lossless files so
+     * they carry `localSampleRateHz`, `localBitsPerSample`, `localChannels`,
+     * `localFormat`, `localFileSizeBytes`, and `sourceHiRes` without slowing indexing.
+     */
+    internal fun enrichMediaStoreSpecs(song: Song, sizeBytes: Long): Song {
+        val ext = song.localPath?.substringAfterLast('.', "")?.lowercase(Locale.ROOT).orEmpty()
+        val formatLabel = ext.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT)
+        val file = song.localPath?.let(::File)?.takeIf { it.canRead() }
+        val fast = if (file != null && ext in setOf("flac", "wav", "aiff", "aif", "dsf")) {
+            FastAudioTagReader.readFile(file)
+        } else {
+            null
+        }
+        val sr = fast?.sampleRateHz ?: song.localSampleRateHz
+        val bps = fast?.bitsPerSample ?: song.localBitsPerSample
+        val ch = fast?.channels ?: song.localChannels
+        val hiRes = FastAudioTagReader.isHiResAudio(ext, sr, bps)
+        return song.copy(
+            sourceHiRes = hiRes,
+            localSampleRateHz = sr,
+            localBitsPerSample = bps,
+            localChannels = ch,
+            localFormat = formatLabel ?: song.localFormat,
+            localFileSizeBytes = sizeBytes.takeIf { it > 0L } ?: song.localFileSizeBytes,
+        )
     }
 
     private fun queryMediaStore(
@@ -1026,6 +1066,30 @@ object LocalMediaRepository {
             matchesFolderPath(candidate, root, folder.includeSubfolders)
         }
     }
+
+    /**
+     * True when an already-indexed [song] still belongs to the given scan scope.
+     * Used to instantly drop songs of removed folders (and keep the rest on screen)
+     * before the verification scan finishes. A song also covered by another selected
+     * folder stays.
+     */
+    internal fun isSongInScope(
+        song: Song,
+        mode: LocalMusicScanMode,
+        folders: List<LocalScanFolder>,
+        excluded: List<LocalScanFolder>,
+    ): Boolean {
+        if (isPathExcluded(song.localPath, excluded)) return false
+        return when (mode) {
+            LocalMusicScanMode.ALL_FOLDERS -> true
+            LocalMusicScanMode.SPECIFIC_FOLDERS -> folders.any { folder ->
+                isPathInFolder(song.localPath, folder) ||
+                    (folder.isTreeUri && song.localUri?.startsWith(folder.id) == true)
+            }
+            else -> false
+        }
+    }
+
 
     internal fun matchesFolderPath(candidateNormalized: String, rootNormalized: String, includeSubfolders: Boolean): Boolean {
         if (candidateNormalized == rootNormalized) return true

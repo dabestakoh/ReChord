@@ -26,7 +26,26 @@ object FastAudioTagReader {
         val durationMs: Long? = null,
         val trackNumber: Int? = null,
         val discNumber: Int? = null,
+        val sampleRateHz: Int? = null,
+        val bitsPerSample: Int? = null,
+        val channels: Int? = null,
     )
+
+    private val LOSSLESS_EXTENSIONS = setOf("flac", "wav", "aiff", "aif", "wv", "ape", "alac", "dsf", "dff")
+    private val DSD_EXTENSIONS = setOf("dsf", "dff")
+
+    /**
+     * Hi-Res rule: lossless format AND (bit depth > 16-bit OR sample rate > 44.1 kHz).
+     * DSD (`dsf`/`dff`) is always Hi-Res. Lossy formats never get the badge.
+     */
+    fun isHiResAudio(extension: String?, sampleRateHz: Int?, bitsPerSample: Int?): Boolean {
+        val ext = extension?.lowercase(Locale.ROOT)?.trimStart('.') ?: return false
+        if (ext !in LOSSLESS_EXTENSIONS) return false
+        if (ext in DSD_EXTENSIONS) return true
+        val highBitDepth = bitsPerSample != null && bitsPerSample > 16
+        val highSampleRate = sampleRateHz != null && sampleRateHz > 44_100
+        return highBitDepth || highSampleRate
+    }
 
     private const val MAX_HEADER_BYTES = 512 * 1024
 
@@ -196,6 +215,9 @@ object FastAudioTagReader {
         var albumArtist: String? = null
         var trackNumber: Int? = null
         var discNumber: Int? = null
+        var sampleRateHz: Int? = null
+        var bitsPerSample: Int? = null
+        var channels: Int? = null
 
         var bytesRead = 4
         while (bytesRead < MAX_HEADER_BYTES) {
@@ -214,11 +236,16 @@ object FastAudioTagReader {
                 val sampleRate = ((payload[10].toInt() and 0xFF) shl 12) or
                     ((payload[11].toInt() and 0xFF) shl 4) or
                     ((payload[12].toInt() and 0xF0) ushr 4)
+                val ch = ((payload[12].toInt() and 0x0E) ushr 1) + 1
+                val bps = (((payload[12].toInt() and 0x01) shl 4) or ((payload[13].toInt() and 0xF0) ushr 4)) + 1
                 val totalSamples = ((payload[13].toLong() and 0x0F) shl 32) or
                     ((payload[14].toLong() and 0xFF) shl 24) or
                     ((payload[15].toLong() and 0xFF) shl 16) or
                     ((payload[16].toLong() and 0xFF) shl 8) or
                     (payload[17].toLong() and 0xFF)
+                if (sampleRate > 0) sampleRateHz = sampleRate
+                if (bps in 1..64) bitsPerSample = bps
+                if (ch in 1..16) channels = ch
                 if (sampleRate > 0 && totalSamples > 0) {
                     durationMs = (totalSamples * 1_000L) / sampleRate
                 }
@@ -251,6 +278,9 @@ object FastAudioTagReader {
             durationMs = durationMs,
             trackNumber = trackNumber,
             discNumber = discNumber,
+            sampleRateHz = sampleRateHz,
+            bitsPerSample = bitsPerSample,
+            channels = channels,
         )
     }
 
@@ -407,6 +437,9 @@ object FastAudioTagReader {
 
         var byteRate = 0
         var dataSize = 0L
+        var sampleRateHz: Int? = null
+        var bitsPerSample: Int? = null
+        var channels: Int? = null
         var title: String? = null
         var artist: String? = null
         var album: String? = null
@@ -423,7 +456,13 @@ object FastAudioTagReader {
             when (chunkId) {
                 "fmt " -> if (chunkSize >= 16 && chunkSize <= 4096) {
                     val fmt = readExact(stream, chunkSize.toInt()) ?: break
+                    val ch = (fmt[2].toInt() and 0xFF) or ((fmt[3].toInt() and 0xFF) shl 8)
+                    val sr = le32(fmt, 4)
                     byteRate = le32(fmt, 8)
+                    val bps = (fmt[14].toInt() and 0xFF) or ((fmt[15].toInt() and 0xFF) shl 8)
+                    if (ch in 1..16) channels = ch
+                    if (sr > 0) sampleRateHz = sr
+                    if (bps in 1..64) bitsPerSample = bps
                     if (paddedSize > chunkSize) skipExact(stream, paddedSize - chunkSize)
                     scanned += paddedSize.toInt()
                 } else {
@@ -476,6 +515,9 @@ object FastAudioTagReader {
             album = album,
             durationMs = durationMs,
             trackNumber = trackNumber,
+            sampleRateHz = sampleRateHz,
+            bitsPerSample = bitsPerSample,
+            channels = channels,
         )
     }
 
@@ -488,6 +530,9 @@ object FastAudioTagReader {
         if (magic != "FORM" || (formType != "AIFF" && formType != "AIFC")) return null
 
         var durationMs: Long? = null
+        var sampleRateHz: Int? = null
+        var bitsPerSample: Int? = null
+        var channels: Int? = null
         var title: String? = null
         var artist: String? = null
         var scanned = 12
@@ -500,8 +545,13 @@ object FastAudioTagReader {
             when (chunkId) {
                 "COMM" -> if (chunkSize >= 18 && chunkSize <= 4096) {
                     val comm = readExact(stream, chunkSize.toInt()) ?: break
+                    val ch = ((comm[0].toInt() and 0xFF) shl 8) or (comm[1].toInt() and 0xFF)
                     val sampleFrames = be32(comm, 2).toLong() and 0xFFFFFFFFL
+                    val bps = ((comm[6].toInt() and 0xFF) shl 8) or (comm[7].toInt() and 0xFF)
                     val sampleRate = parseExtended80(comm, 8)
+                    if (ch in 1..16) channels = ch
+                    if (bps in 1..64) bitsPerSample = bps
+                    if (sampleRate > 0.0) sampleRateHz = sampleRate.toInt()
                     if (sampleFrames > 0 && sampleRate > 0.0) {
                         durationMs = ((sampleFrames.toDouble() / sampleRate) * 1_000.0).toLong()
                     }
@@ -537,7 +587,14 @@ object FastAudioTagReader {
             }
         }
         if (durationMs == null && title == null && artist == null) return null
-        return FastTags(title = title, artist = artist, durationMs = durationMs)
+        return FastTags(
+            title = title,
+            artist = artist,
+            durationMs = durationMs,
+            sampleRateHz = sampleRateHz,
+            bitsPerSample = bitsPerSample,
+            channels = channels,
+        )
     }
 
     // ── Byte helpers ──────────────────────────────────────────────────────

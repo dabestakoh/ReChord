@@ -59,6 +59,10 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- Optional All-Files access for direct tag editing & file deletion (Batch 2); never requested on first launch. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <uses-permission
         android:name="android.permission.READ_PHONE_STATE"
         tools:node="remove" />

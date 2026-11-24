@@ -185,4 +185,15 @@ class FastAudioTagReaderTest {
         assertNotNull(extracted)
         assertEquals(fakeJpeg.toList(), extracted!!.toList())
     }
+
+    @Test
+    fun hiResAudioDetectionRules() {
+        org.junit.Assert.assertFalse(FastAudioTagReader.isHiResAudio("flac", 44_100, 16))
+        org.junit.Assert.assertTrue(FastAudioTagReader.isHiResAudio("flac", 44_100, 24))
+        org.junit.Assert.assertTrue(FastAudioTagReader.isHiResAudio("flac", 96_000, 16))
+        org.junit.Assert.assertTrue(FastAudioTagReader.isHiResAudio("wav", 192_000, 24))
+        org.junit.Assert.assertTrue(FastAudioTagReader.isHiResAudio("dsf", null, null))
+        org.junit.Assert.assertFalse(FastAudioTagReader.isHiResAudio("mp3", 96_000, 24))
+        org.junit.Assert.assertFalse(FastAudioTagReader.isHiResAudio("flac", null, null))
+    }
 }

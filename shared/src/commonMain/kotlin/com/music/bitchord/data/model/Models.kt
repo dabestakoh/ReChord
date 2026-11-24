@@ -160,6 +160,12 @@ data class Song(
     val localAlbumArtist: String? = null,
     val localDiscNumber: Int? = null,
     val localAlbumArtwork: String? = null,
+    /** Audio stream specs captured at index time for local files (info sheet & Hi-Res badge). */
+    val localSampleRateHz: Int? = null,
+    val localBitsPerSample: Int? = null,
+    val localChannels: Int? = null,
+    val localFormat: String? = null,
+    val localFileSizeBytes: Long? = null,
 ) {
     /** Legacy derived property: true if and only if [queueTier] is [QueueTier.AUTOPLAY]. */
     val fromAutoplay: Boolean get() = queueTier == QueueTier.AUTOPLAY

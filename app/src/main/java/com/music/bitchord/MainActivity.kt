@@ -832,7 +832,7 @@ private fun BitChordApp(
     var creatingPlaylist by remember { mutableStateOf(false) }
     // The same two, over the device's own playlists — for a track that is a
     // file on it, and for "New playlist" on Local Music's Playlists tab.
-    var offlinePlaylistTarget by remember { mutableStateOf<Song?>(null) }
+    var offlinePlaylistTarget by remember { mutableStateOf<List<Song>>(emptyList()) }
     var creatingOfflinePlaylist by remember { mutableStateOf(false) }
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
     // Which album or playlist the collection menu is open on, or null when it
@@ -3463,7 +3463,7 @@ private fun BitChordApp(
                                     sort = folderSortOf(page.browseId),
                                     viewType = folderViewTypeOf(page.browseId),
                                     collections = downloadCollections,
-                                    selectable = isDownloads || isCache,
+                                    selectable = isDownloads || isCache || isDevice,
                                     onOpenGroup = viewModel::openLocalGroup,
                                     onGroupLongPress = { group ->
                                         openBrowseMenu(
@@ -3524,6 +3524,23 @@ private fun BitChordApp(
                                     onCancelScan = if (isDevice) viewModel::cancelLocalScan else null,
                                     onManageFolders = if (isDevice) ({
                                         showLocalFolderPicker = true
+                                    }) else null,
+                                    onPlayNext = if (isDevice) ({ sel -> sel.asReversed().forEach(playNext) }) else null,
+                                    onAddToQueue = if (isDevice) ({ sel -> sel.forEach(addToQueue) }) else null,
+                                    onAddToPlaylist = if (isDevice) ({ sel -> offlinePlaylistTarget = sel }) else null,
+                                    onFavoriteSelected = if (isDevice) ({ sel ->
+                                        sel.forEach { s -> if (!OfflinePlaylists.isLiked(s)) OfflinePlaylists.toggleLike(s) }
+                                    }) else null,
+                                    onShuffleSelected = if (isDevice) ({ sel ->
+                                        val shuffled = sel.shuffled()
+                                        if (shuffled.isNotEmpty()) playFrom(shuffled, 0, QueueSource(page.title, PlaybackSourceType.BROWSE, page.browseId))
+                                    }) else null,
+                                    onShareSelected = if (isDevice) ({ sel ->
+                                        com.music.bitchord.ui.components.shareLocalSongs(context, sel)
+                                    }) else null,
+                                    onRemoveFromLibrary = if (isDevice) ({ sel ->
+                                        com.music.bitchord.data.LocalLibraryIndex.hideSongs(sel)
+                                        showQueueNotice(context.getString(R.string.local_removed_from_library))
                                     }) else null,
                                 )
                             } else {
@@ -4894,7 +4911,7 @@ private fun BitChordApp(
                 onAddToPlaylist = {
                     songActions = null
                     if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
-                        offlinePlaylistTarget = song
+                        offlinePlaylistTarget = listOf(song)
                     } else {
                         viewModel.loadPlaylists()
                         playlistTarget = song
@@ -4936,6 +4953,15 @@ private fun BitChordApp(
                             Toast.makeText(context, R.string.remove_from_history_failed, Toast.LENGTH_SHORT).show()
                         })
                     }
+                },
+                onRemoveFromLibrary = if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
+                    {
+                        songActions = null
+                        com.music.bitchord.data.LocalLibraryIndex.hideSongs(listOf(song))
+                        showQueueNotice(context.getString(R.string.local_removed_from_library))
+                    }
+                } else {
+                    null
                 },
                 onOpenAlbum = { id ->
                     openPage(
@@ -5523,10 +5549,10 @@ private fun BitChordApp(
         // The sheet above over the offline player's own playlists, for a track
         // that is a file on this device. Nothing here waits on a network, so
         // there is no loading state and the outcome is known on the tap.
-        if (offlinePlaylistTarget != null || creatingOfflinePlaylist) {
-            val target = offlinePlaylistTarget
+        if (offlinePlaylistTarget.isNotEmpty() || creatingOfflinePlaylist) {
+            val targets = offlinePlaylistTarget
             val dismiss = {
-                offlinePlaylistTarget = null
+                offlinePlaylistTarget = emptyList()
                 creatingOfflinePlaylist = false
             }
             val choices = remember(offlinePlaylists) {
@@ -5547,13 +5573,13 @@ private fun BitChordApp(
             PlaylistPickerSheet(
                 playlists = choices,
                 loading = false,
-                song = target,
-                startCreating = target == null,
+                song = targets.firstOrNull(),
+                startCreating = targets.isEmpty(),
                 offline = true,
                 onDismiss = dismiss,
                 onAdd = { picked ->
-                    target?.let { song ->
-                        val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, listOf(song))
+                    if (targets.isNotEmpty()) {
+                        val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, targets)
                         showQueueNotice(
                             when {
                                 result.added > 1 -> context.resources.getQuantityString(
@@ -5567,8 +5593,8 @@ private fun BitChordApp(
                     }
                 },
                 onCreate = { title, _ ->
-                    OfflinePlaylists.create(title, listOfNotNull(target))
-                    if (target != null) showQueueNotice(context.getString(R.string.song_added_to_playlist))
+                    OfflinePlaylists.create(title, targets)
+                    if (targets.isNotEmpty()) showQueueNotice(context.getString(R.string.song_added_to_playlist))
                 },
             )
         }

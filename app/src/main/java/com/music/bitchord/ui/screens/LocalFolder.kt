@@ -2,6 +2,7 @@ package com.music.bitchord.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Check
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Search
@@ -166,6 +169,13 @@ class LocalFolder(
     val onSearchSpecificFolders: (() -> Unit)? = null,
     val onCancelScan: (() -> Unit)? = null,
     val onManageFolders: (() -> Unit)? = null,
+    val onPlayNext: ((List<Song>) -> Unit)? = null,
+    val onAddToQueue: ((List<Song>) -> Unit)? = null,
+    val onAddToPlaylist: ((List<Song>) -> Unit)? = null,
+    val onFavoriteSelected: ((List<Song>) -> Unit)? = null,
+    val onShuffleSelected: ((List<Song>) -> Unit)? = null,
+    val onShareSelected: ((List<Song>) -> Unit)? = null,
+    val onRemoveFromLibrary: ((List<Song>) -> Unit)? = null,
 )
 
 enum class LocalFolderTab {
@@ -338,6 +348,14 @@ internal fun LazyListScope.localFolderItems(
                 onRetry = folder.onRefreshIndex,
                 onCancel = folder.onCancelScan,
                 onManageFolders = folder.onManageFolders,
+            )
+        }
+    }
+    if (folder.onManageFolders != null) {
+        item(key = "local-bg-status") {
+            LocalBackgroundStatusLine(
+                palette = palette,
+                scanActive = scanProgress.isActive,
             )
         }
     }
@@ -687,6 +705,23 @@ private fun LocalScanProgressBanner(
                             modifier = Modifier.weight(1f),
                         )
                     }
+                    LocalLibraryIndex.ScanPhase.BUILDING_INDEX -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = palette.onBackground,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = stringResource(R.string.local_scan_building_index),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = palette.onBackground,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     LocalLibraryIndex.ScanPhase.UNAVAILABLE -> {
                         Icon(
                             imageVector = Icons.Rounded.ErrorOutline,
@@ -753,7 +788,9 @@ private fun LocalScanProgressBanner(
                 }
             }
 
-            if (progress.phase == LocalLibraryIndex.ScanPhase.DISCOVERING) {
+            if (progress.phase == LocalLibraryIndex.ScanPhase.DISCOVERING ||
+                progress.phase == LocalLibraryIndex.ScanPhase.BUILDING_INDEX
+            ) {
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
@@ -769,7 +806,53 @@ private fun LocalScanProgressBanner(
                     trackColor = palette.onBackground.copy(alpha = 0.18f),
                 )
             }
+            val bigLibrary = progress.total > 1_000 || progress.discovered > 1_000
+            if (bigLibrary && progress.isActive) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.local_scan_large_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.onBackgroundVariant,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun LocalBackgroundStatusLine(
+    palette: ArtworkPalette,
+    scanActive: Boolean,
+) {
+    val isClearing by LocalLibraryIndex.clearing.collectAsStateWithLifecycle()
+    val artworkProgress by LocalLibraryIndex.artworkProgress.collectAsStateWithLifecycle()
+    val text = when {
+        isClearing -> stringResource(R.string.local_clearing_library)
+        !scanActive && artworkProgress != null -> {
+            val (done, total) = artworkProgress!!
+            stringResource(R.string.local_caching_artwork, done, total)
+        }
+        else -> null
+    } ?: return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PAGE_GUTTER, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(12.dp),
+            strokeWidth = 1.5.dp,
+            color = palette.onBackgroundVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.onBackgroundVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1177,13 +1260,21 @@ internal fun LocalFolderSelectionBar(
     val allSelected = songs.isNotEmpty() && songs.all { it.videoId in state.selectedIds }
     fun chosen() = songs.filter { it.videoId in state.selectedIds }.also { state.clear() }
     val shape = RoundedCornerShape(14.dp)
-    val dark = isSystemInDarkTheme()
+    val scheme = MaterialTheme.colorScheme
+    var overflowOpen by remember { mutableStateOf(false) }
+    val hasOverflow = folder.onPlayNext != null ||
+        folder.onShuffleSelected != null ||
+        folder.onFavoriteSelected != null ||
+        folder.onShareSelected != null ||
+        folder.onRemoveFromLibrary != null
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(52.dp)
             .shadow(10.dp, shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant, shape)
+            .background(scheme.surface, shape)
+            .border(1.dp, scheme.outline, shape)
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1191,21 +1282,41 @@ internal fun LocalFolderSelectionBar(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = stringResource(R.string.select_all),
-                tint = if (dark) Color.White else MaterialTheme.colorScheme.primary,
+                tint = if (allSelected) scheme.onSurface.copy(alpha = 0.35f) else scheme.onSurface,
                 modifier = Modifier.size(20.dp),
             )
         }
         Text(
             text = "$count ${stringResource(R.string.selected)}",
             style = MaterialTheme.typography.titleSmall,
-            color = if (dark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = scheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        folder.onAddToPlaylist?.let { addPlaylist ->
+            SelectionAction(
+                icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                label = stringResource(R.string.add_to_playlist),
+                color = scheme.onSurface,
+                enabled = count > 0,
+                onClick = { addPlaylist(chosen()) },
+            )
+        }
+        folder.onAddToQueue?.let { addQueue ->
+            SelectionAction(
+                icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                label = stringResource(R.string.add_to_queue),
+                color = scheme.onSurface,
+                enabled = count > 0,
+                onClick = { addQueue(chosen()) },
+            )
+        }
         folder.onUpload?.let { upload ->
             SelectionAction(
                 icon = Icons.Rounded.FileUpload,
                 label = stringResource(R.string.upload_to_webdav),
-                color = MaterialTheme.colorScheme.primary,
+                color = scheme.onSurface,
                 enabled = count > 0,
                 onClick = { upload(chosen()) },
             )
@@ -1214,7 +1325,7 @@ internal fun LocalFolderSelectionBar(
             SelectionAction(
                 icon = Icons.Rounded.Download,
                 label = stringResource(R.string.download),
-                color = MaterialTheme.colorScheme.primary,
+                color = scheme.onSurface,
                 enabled = count > 0,
                 onClick = { download(chosen()) },
             )
@@ -1237,7 +1348,60 @@ internal fun LocalFolderSelectionBar(
                 onClick = { delete(chosen()) },
             )
         }
-        TextButton(onClick = state::clear) { Text(stringResource(R.string.cancel)) }
+        if (hasOverflow) {
+            Box {
+                IconButton(onClick = { overflowOpen = true }, enabled = count > 0) {
+                    Icon(
+                        Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.local_more_actions),
+                        tint = if (count > 0) scheme.onSurface else scheme.onSurface.copy(alpha = 0.35f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                androidx.compose.material3.DropdownMenu(
+                    expanded = overflowOpen,
+                    onDismissRequest = { overflowOpen = false },
+                    containerColor = scheme.surface,
+                ) {
+                    folder.onPlayNext?.let { playNext ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.play_next), color = scheme.onSurface) },
+                            onClick = { overflowOpen = false; playNext(chosen()) },
+                        )
+                    }
+                    folder.onShuffleSelected?.let { shuffle ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_shuffle_selected), color = scheme.onSurface) },
+                            onClick = { overflowOpen = false; shuffle(chosen()) },
+                        )
+                    }
+                    folder.onFavoriteSelected?.let { fav ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_favorite_selected), color = scheme.onSurface) },
+                            onClick = { overflowOpen = false; fav(chosen()) },
+                        )
+                    }
+                    folder.onShareSelected?.let { share ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_share_files), color = scheme.onSurface) },
+                            onClick = { overflowOpen = false; share(chosen()) },
+                        )
+                    }
+                    folder.onRemoveFromLibrary?.let { remove ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.local_remove_from_library), color = DESTRUCTIVE) },
+                            onClick = { overflowOpen = false; remove(chosen()) },
+                        )
+                    }
+                }
+            }
+        }
+        TextButton(
+            onClick = state::clear,
+            colors = ButtonDefaults.textButtonColors(contentColor = scheme.onSurfaceVariant),
+        ) {
+            Text(stringResource(R.string.cancel))
+        }
     }
 }
 

@@ -19,6 +19,8 @@ import com.music.bitchord.data.model.Song
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.buffer
@@ -33,6 +35,7 @@ internal object LocalArtwork {
     private const val THUMB_PX = 384
     private const val THUMB_CACHE_BYTES = 256L * 1024 * 1024
     private const val THUMB_CACHE_DIR = "local-thumbnails"
+    private const val TRASH_SUFFIX = ".trash-"
 
     @Volatile private var sharedDiskCache: DiskCache? = null
     private val cacheLock = Any()
@@ -142,51 +145,90 @@ internal object LocalArtwork {
         }
     }
 
+    private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(2)
+
+    private fun isLowBatteryOrPowerSave(context: Context): Boolean = runCatching {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (pm?.isPowerSaveMode == true) return@runCatching true
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+        val pct = bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
+        val charging = bm?.isCharging == true
+        !charging && pct in 1..15
+    }.getOrDefault(false)
+
     /**
      * Low-priority (`THREAD_PRIORITY_BACKGROUND`) background caching for EVERY
      * unique song thumbnail and album cover in the local library so scrolling
      * 5,000+ songs and albums hits the shared 256 MB DiskCache in `< 1 ms`.
+     * Uses at most 2 workers, skips already-cached covers, and yields/stops
+     * when battery saver is active or battery is critically low.
      */
-    suspend fun prewarmThumbnails(context: Context, songs: List<Song>) = withContext(artworkDispatcher) {
+    suspend fun prewarmThumbnails(
+        context: Context,
+        songs: List<Song>,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ) = withContext(prewarmDispatcher) {
+        if (isLowBatteryOrPowerSave(context)) return@withContext
         val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext
-        val previousPriority = runCatching {
-            android.os.Process.getThreadPriority(android.os.Process.myTid())
-        }.getOrNull()
-        runCatching {
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        val urls = LinkedHashSet<String>(songs.size * 2)
+        for (song in songs) {
+            song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
+            song.localAlbumArtwork?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
         }
-        try {
-            val urls = LinkedHashSet<String>(songs.size * 2)
-            for (song in songs) {
-                song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
-                song.localAlbumArtwork?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
-            }
-            for (url in urls) {
-                kotlinx.coroutines.yield()
-                val exists = runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
-                if (exists) continue
-                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
-                    .firstNotNullOfOrNull { encoded ->
-                        read(context, Uri.decode(encoded))?.let { image -> decodeCover(image, thumbnail = true) }
-                    } ?: continue
-                runCatching {
-                    cache.openEditor(url)?.let { editor ->
+        val missing = urls.filter { url ->
+            !runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
+        }
+        if (missing.isEmpty()) return@withContext
+        val total = missing.size
+        val nextIdx = java.util.concurrent.atomic.AtomicInteger(0)
+        val doneCounter = java.util.concurrent.atomic.AtomicInteger(0)
+        onProgress(0, total)
+        coroutineScope {
+            List(2) {
+                async(prewarmDispatcher) {
+                        val previousPriority = runCatching {
+                            android.os.Process.getThreadPriority(android.os.Process.myTid())
+                        }.getOrNull()
+                        runCatching {
+                            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                        }
                         try {
-                            cache.fileSystem.write(editor.metadata) {}
-                            cache.fileSystem.write(editor.data) { write(bytes) }
-                            editor.commit()
-                        } catch (e: Exception) {
-                            editor.abort()
-                            throw e
+                            while (true) {
+                                kotlinx.coroutines.yield()
+                                val i = nextIdx.getAndIncrement()
+                                if (i >= total) break
+                                if (i % 40 == 0 && isLowBatteryOrPowerSave(context)) break
+                                val url = missing[i]
+                                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
+                                    .firstNotNullOfOrNull { encoded ->
+                                        read(context, Uri.decode(encoded))?.let { image -> decodeCover(image, thumbnail = true) }
+                                    }
+                                if (bytes != null) {
+                                    runCatching {
+                                        cache.openEditor(url)?.let { editor ->
+                                            try {
+                                                cache.fileSystem.write(editor.metadata) {}
+                                                cache.fileSystem.write(editor.data) { write(bytes) }
+                                                editor.commit()
+                                            } catch (e: Exception) {
+                                                editor.abort()
+                                                throw e
+                                            }
+                                        }
+                                    }
+                                }
+                                val done = doneCounter.incrementAndGet()
+                                if (done == total || done % 20 == 0) onProgress(done, total)
+                            }
+                        } finally {
+                            if (previousPriority != null) {
+                                runCatching { android.os.Process.setThreadPriority(previousPriority) }
+                            }
                         }
                     }
-                }
-            }
-        } finally {
-            if (previousPriority != null) {
-                runCatching { android.os.Process.setThreadPriority(previousPriority) }
-            }
+            }.forEach { it.await() }
         }
+        onProgress(total, total)
     }
 
     class Factory(private val context: Context) : Fetcher.Factory<coil3.Uri> {

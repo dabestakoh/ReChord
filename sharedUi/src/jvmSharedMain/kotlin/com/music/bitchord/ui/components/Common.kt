@@ -631,12 +631,18 @@ private fun SongRowContent(
                 color = subtitleColor,
             )
         } else {
+            if (song.localUri != null && song.sourceHiRes) {
+                Spacer(Modifier.width(6.dp))
+                HiResBadge(tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f))
+            }
             song.durationText?.let {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     text = it,
                     style = MaterialTheme.typography.labelMedium,
                     color = subtitleColor,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }

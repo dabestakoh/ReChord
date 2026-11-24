@@ -1616,13 +1616,61 @@ fun SettingsScreen(
                         },
                     )
                 }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val allFilesIntent = remember(context) {
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            android.net.Uri.parse("package:${context.packageName}"),
+                        )
+                    }
+                    val canOpenAllFiles = remember(context) {
+                        allFilesIntent.resolveActivity(context.packageManager) != null
+                    }
+                    if (canOpenAllFiles) {
+                        val allFilesGranted = android.os.Environment.isExternalStorageManager()
+                        val allFilesTitle = stringResource(R.string.local_all_files_access_title)
+                        row(allFilesTitle, "all files", "storage", "permission", "tags", "local") {
+                            SettingsRow(
+                                icon = SfIcons.Folder,
+                                title = allFilesTitle,
+                                subtitle = stringResource(
+                                    if (allFilesGranted) R.string.local_all_files_access_granted
+                                    else R.string.local_all_files_access_not_granted,
+                                ),
+                                onClick = { runCatching { context.startActivity(allFilesIntent) } },
+                            )
+                        }
+                    }
+                }
+                val ignoredLocalUris by AppSettings.localMusicIgnoredUris.collectAsStateWithLifecycle()
+                if (ignoredLocalUris.isNotEmpty()) {
+                    val restoreTitle = stringResource(R.string.local_restore_hidden_songs)
+                    row(restoreTitle, "hidden", "ignored", "restore", "local") {
+                        SettingsRow(
+                            icon = SfIcons.Cached,
+                            title = restoreTitle,
+                            subtitle = stringResource(R.string.local_restore_hidden_subtitle, ignoredLocalUris.size),
+                            onClick = {
+                                backupScope.launch {
+                                    com.music.bitchord.data.LocalLibraryIndex.restoreHiddenSongs(context)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        R.string.local_hidden_songs_restored,
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        )
+                    }
+                }
                 val clearLocalTitle = stringResource(R.string.local_clear_library)
+                val isClearingLocal by com.music.bitchord.data.LocalLibraryIndex.clearing.collectAsStateWithLifecycle()
                 row(clearLocalTitle, "clear", "reset", "local", "library") {
                     SettingsRow(
                         icon = SfIcons.DeleteSweep,
-                        title = clearLocalTitle,
+                        title = if (isClearingLocal) stringResource(R.string.local_clearing_library) else clearLocalTitle,
                         subtitle = stringResource(R.string.local_clear_library_confirm_message),
-                        onClick = { confirmClearLocalLibrary = true },
+                        onClick = { if (!isClearingLocal) confirmClearLocalLibrary = true },
                     )
                 }
             }
@@ -1638,7 +1686,7 @@ fun SettingsScreen(
                     AppSettings.setLocalMusicFolders(folders)
                     AppSettings.setLocalMusicExcludedFolders(excluded)
                     AppSettings.setLocalMusicScanMode(mode)
-                    com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false)
+                    com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false, restart = true)
                 },
                 onDismiss = { showLocalFolderPicker = false },
             )

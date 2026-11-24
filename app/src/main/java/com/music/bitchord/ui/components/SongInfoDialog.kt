@@ -46,6 +46,10 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
  */
 @Composable
 internal fun SongInfoDialog(song: Song, onDismiss: () -> Unit) {
+    if (song.localUri != null) {
+        LocalSongInfoDialog(song = song, onDismiss = onDismiss)
+        return
+    }
     var retry by remember(song.videoId) { mutableIntStateOf(0) }
     val info by produceState<SongInfo?>(null, song, retry) {
         value = null

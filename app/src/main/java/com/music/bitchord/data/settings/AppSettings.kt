@@ -771,6 +771,8 @@ object AppSettings {
     val localLegacyScanMode = MutableStateFlow(LocalLegacyScanMode.AUTO)
     /** Minimum audio duration in seconds (0..60, step 5) when [filterNonMusicAudio] is enabled. */
     val localMusicMinDurationSec = MutableStateFlow(DEFAULT_LOCAL_MIN_DURATION_SEC)
+    /** Local song URIs hidden via "Remove from library" (survives rescans, never deletes files). */
+    val localMusicIgnoredUris = MutableStateFlow<Set<String>>(emptySet())
 
     // ── WebDAV ────────────────────────────────────────────────────────────
 
@@ -1298,6 +1300,8 @@ object AppSettings {
         localMusicMinDurationSec.value = normalizeLocalMinDurationSec(
             prefs.getInt(KEY_LOCAL_MUSIC_MIN_DURATION_SEC, DEFAULT_LOCAL_MIN_DURATION_SEC),
         )
+        localMusicIgnoredUris.value = prefs.getStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, emptySet())
+            ?.filter { it.isNotBlank() }?.toSet().orEmpty()
         webdavUrl.value = prefs.getString(KEY_WEBDAV_URL, "").orEmpty()
         webdavUsername.value = prefs.getString(KEY_WEBDAV_USERNAME, "").orEmpty()
         webdavPassword.value = authStore.webdavPassword.orEmpty()
@@ -2423,17 +2427,42 @@ object AppSettings {
         }
     }
 
+    fun addIgnoredLocalSongUris(uris: Collection<String>) {
+        val next = localMusicIgnoredUris.value + uris.filter { it.isNotBlank() }
+        localMusicIgnoredUris.value = next
+        if (this::prefs.isInitialized) {
+            prefs.edit().putStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, next).apply()
+        }
+    }
+
+    fun removeIgnoredLocalSongUri(uri: String) {
+        val next = localMusicIgnoredUris.value - uri
+        localMusicIgnoredUris.value = next
+        if (this::prefs.isInitialized) {
+            prefs.edit().putStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, next).apply()
+        }
+    }
+
+    fun clearIgnoredLocalSongUris() {
+        localMusicIgnoredUris.value = emptySet()
+        if (this::prefs.isInitialized) {
+            prefs.edit().remove(KEY_LOCAL_MUSIC_IGNORED_URIS).apply()
+        }
+    }
+
     /** Resets Local Music scan configuration back to the first-time opt-in screen. */
     fun resetLocalMusicConfig() {
         localMusicScanMode.value = LocalMusicScanMode.NOT_CONFIGURED
         localMusicFolders.value = emptyList()
         localMusicExcludedFolders.value = emptyList()
         localMusicFolderUri.value = ""
+        localMusicIgnoredUris.value = emptySet()
         if (this::prefs.isInitialized) {
             prefs.edit()
                 .putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.NOT_CONFIGURED.name)
                 .remove(KEY_LOCAL_MUSIC_FOLDERS)
                 .remove(KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS)
+                .remove(KEY_LOCAL_MUSIC_IGNORED_URIS)
                 .putString(KEY_LOCAL_MUSIC_FOLDER_URI, "")
                 .apply()
         }
@@ -2854,6 +2883,7 @@ object AppSettings {
     private const val KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS = "local_music_excluded_folders"
     private const val KEY_LOCAL_LEGACY_SCAN_MODE = "local_legacy_scan_mode"
     private const val KEY_LOCAL_MUSIC_MIN_DURATION_SEC = "local_music_min_duration_sec"
+    private const val KEY_LOCAL_MUSIC_IGNORED_URIS = "local_music_ignored_uris"
     private const val KEY_WEBDAV_URL = "webdav_url"
     private const val KEY_WEBDAV_USERNAME = "webdav_username"
     private const val KEY_SMB_HOST = "smb_host"
