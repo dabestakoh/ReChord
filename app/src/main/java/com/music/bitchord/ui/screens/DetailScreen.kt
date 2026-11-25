@@ -72,6 +72,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -374,6 +379,7 @@ fun DetailScreen(
      * [LocalFolder].
      */
     folder: LocalFolder? = null,
+    floatingBarsHeightPx: () -> Int = { 0 },
     /**
      * Set while this playlist's songs are being rearranged: drawn in place of
      * the track list, over the same page colour, and handed the page's
@@ -415,11 +421,16 @@ fun DetailScreen(
         if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
     } else folder?.sort
     val groupSort = folder?.state?.let { it.groupSorts[it.tab] } ?: LocalMusicSort.TITLE_ASC
-    val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
-    val recentSongs = remember(rawSongs, recent) {
-        if (recent) recentlyAddedTracks(rawSongs) else rawSongs
+    val hiResActive = folder?.state?.let { it.tab == LocalFolderTab.HI_RES || it.hiResOnly } == true
+    val filteredRawSongs = remember(rawSongs, hiResActive) {
+        if (hiResActive) rawSongs.filter { it.sourceHiRes } else rawSongs
     }
-    val songs = remember(recentSongs, songSort, folderSort, recent, localPage, trackAlphabet) {
+    val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
+    val recentSongs = remember(filteredRawSongs, recent) {
+        if (recent) recentlyAddedTracks(filteredRawSongs) else filteredRawSongs
+    }
+    val sortCacheKey = "${page.browseId}|${folderSort?.name}|${songSort.name}|$recent|$hiResActive|${locale.toLanguageTag()}"
+    fun computeSorted(): List<Song> = LocalGroups.getOrComputeSortedSongs(recentSongs, sortCacheKey) {
         val ascending = folderSort == LocalMusicSort.TITLE_ASC || (folderSort == null && songSort == SongSort.TITLE_ASC)
         val descending = folderSort == LocalMusicSort.TITLE_DESC || (folderSort == null && songSort == SongSort.TITLE_DESC)
         if (localPage && (ascending || descending)) recentSongs.sortedWith { a, b ->
@@ -428,17 +439,31 @@ fun DetailScreen(
         else if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
         else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
     }
-    val scanStatus = if (folder?.onRefreshIndex != null) {
-        com.music.bitchord.data.LocalLibraryIndex.scanStatus.collectAsStateWithLifecycle().value
-    } else com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE
+    val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
+        ?: if (recentSongs.size <= 400) computeSorted() else null
+    var asyncSorted by remember(recentSongs, sortCacheKey) { mutableStateOf<List<Song>?>(cachedSorted) }
+    LaunchedEffect(recentSongs, sortCacheKey, cachedSorted) {
+        if (cachedSorted != null) {
+            asyncSorted = cachedSorted
+            return@LaunchedEffect
+        }
+        asyncSorted = withContext(Dispatchers.Default) { computeSorted() }
+    }
+    val songs = cachedSorted ?: asyncSorted ?: recentSongs
+    val scanProgress = if (folder?.onRefreshIndex != null) {
+        com.music.bitchord.data.LocalLibraryIndex.progress.collectAsStateWithLifecycle().value
+    } else com.music.bitchord.data.LocalLibraryIndex.ScanProgress()
     // What a numbered row shows regardless of [songSort] — an album's track
     // numbers are the sleeve's own and must not relabel themselves to match
     // wherever a sort put the row. An album grouped off a device's files
     // numbers from its tags where they say, since a release with a track
     // missing must not renumber the rest.
-    val originalTrackNumbers = remember(rawSongs) {
-        val byTag = rawSongs.useTrackTags()
-        rawSongs.withIndex().associate { (i, s) -> s.videoId to ((if (byTag) s.trackNumber else null) ?: (i + 1)) }
+    val originalTrackNumbers = remember(rawSongs, folder != null) {
+        if (folder != null) emptyMap()
+        else {
+            val byTag = rawSongs.useTrackTags()
+            rawSongs.withIndex().associate { (i, s) -> s.videoId to ((if (byTag) s.trackNumber else null) ?: (i + 1)) }
+        }
     }
     val isArtist = page.type == BrowseType.ARTIST
     // Whether the top release card's album is already saved isn't on the shelf
@@ -454,7 +479,7 @@ fun DetailScreen(
     }
     val songsLoading = page.songs is UiState.Loading
     LaunchedEffect(page.browseId, page.title, songsLoading) {
-        if (isArtist && !songsLoading) {
+        if (isArtist && !songsLoading && !localPage) {
             appleArt = AppleArtistArtRepository.artFor(page.browseId, page.title) { page.appleCatalogue() } ?: appleArt
         }
     }
@@ -470,7 +495,7 @@ fun DetailScreen(
     // other name starts the moment the page opens.
     val nameSettled = !page.title.looksLikeCredit() || page.songs !is UiState.Loading
     LaunchedEffect(page.browseId, page.title, nameSettled, signatureEnabled, signatureBaseUrl, signatureUpdates) {
-        if (!isArtist || !nameSettled) return@LaunchedEffect
+        if (!isArtist || !nameSettled || localPage) return@LaunchedEffect
         val base = ArtistSignatureRepository.effectiveBaseUrl(signatureEnabled, signatureBaseUrl)
         if (base == null) {
             signature = null
@@ -514,16 +539,52 @@ fun DetailScreen(
     // Each surviving row still knows where it sat in the full running order, so
     // an album's track numbers stay the album's rather than becoming positions
     // in the filtered list.
-    val matches = remember(songs, query) { songs.matching(query) }
+    // Debounce search on large libraries (> 400 tracks) so typing never blocks the UI thread on DAPs/Head-Units.
+    val effectiveQuery by produceState(initialValue = query, key1 = query, key2 = songs.size > 400) {
+        if (query.isBlank() || songs.size <= 400) {
+            value = query
+        } else {
+            delay(120L)
+            value = query
+        }
+    }
+    val isScrolling = listState.isScrollInProgress
+    LaunchedEffect(localPage, isScrolling) {
+        if (localPage && isScrolling) {
+            while (true) {
+                com.music.bitchord.data.LocalArtwork.notifyUserScrolling(400L)
+                delay(200L)
+            }
+        }
+    }
+    val matches by produceState(
+        initialValue = when {
+            folder != null && effectiveQuery.isBlank() -> emptyList()
+            effectiveQuery.isBlank() -> songs.withIndex().toList()
+            else -> songs.matching(effectiveQuery)
+        },
+        key1 = songs,
+        key2 = effectiveQuery,
+        key3 = folder != null,
+    ) {
+        value = when {
+            folder != null && effectiveQuery.isBlank() -> emptyList()
+            effectiveQuery.isBlank() -> songs.withIndex().toList()
+            songs.size > 400 -> withContext(Dispatchers.Default) { songs.matching(effectiveQuery) }
+            else -> songs.matching(effectiveQuery)
+        }
+    }
     // What a tap plays: the filtered set of tracks currently standing in the
-    // list. When no filter is active, matches contains the full running order
-    // and plays the complete release/playlist from the tapped position.
-    val queue = remember(matches) { matches.map { it.value } }
+    // list. When no filter is active, use `songs` directly (zero wrapper allocations).
+    val queue = remember(songs, matches, effectiveQuery) {
+        if (effectiveQuery.isBlank()) songs else matches.map { it.value }
+    }
+    val localSongKeys = remember(queue) { uniqueKeys(queue) { "local-song:${it.videoId}" } }
     // Resolve the highlighted track only when the queue or current song changes,
     // not whenever the lazy list recomposes while scrolling.
     val currentQueueRow = remember(queue, currentSong) { playingRowMatcher(queue, currentSong) }
-    val suggested = remember(page.suggestedSongs, query) {
-        page.suggestedSongs.matching(query).map { it.value }
+    val suggested = remember(page.suggestedSongs, effectiveQuery) {
+        page.suggestedSongs.matching(effectiveQuery).map { it.value }
     }
 
     val suggestedKeys = remember(suggested) { uniqueKeys(suggested) { it.videoId } }
@@ -533,13 +594,10 @@ fun DetailScreen(
     // Back before the search does: it is registered after it, so it is asked
     // first while it is on.
     val folderState = folder?.state
-    val rawFolderGroups = if (folder != null && folderState != null) {
-        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, rawSongs, query)
+    val (folderGroups, folderGroupsLoading) = if (folder != null && folderState != null) {
+        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, filteredRawSongs, effectiveQuery)
     } else {
-        emptyList()
-    }
-    val folderGroups = remember(rawFolderGroups, groupAlphabet, groupSort) {
-        rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
+        emptyList<com.music.bitchord.data.LocalGroup>() to false
     }
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
@@ -564,7 +622,7 @@ fun DetailScreen(
     LaunchedEffect(page.browseId, page.title, credit, canvasEnabled, prioritizeSpotifyCanvas, disableSpotifyCanvas) {
         // An artist's clip is set below, by the lookup that finds it.
         if (isArtist) return@LaunchedEffect
-        if (!canvasEnabled || page.type != BrowseType.ALBUM) {
+        if (!canvasEnabled || page.type != BrowseType.ALBUM || localPage) {
             canvas = null
             return@LaunchedEffect
         }
@@ -622,10 +680,11 @@ fun DetailScreen(
                 val artHeight = (maxWidth / ARTIST_PHOTO_RATIO).coerceAtMost(maxHeight * 0.6f)
                 val sleeveSize = (maxWidth * SLEEVE_FRACTION).coerceAtMost(maxHeight * SLEEVE_MAX_HEIGHT)
                 val fullBleedSleeve = fullBleedArtwork && maxWidth <= maxHeight * FULL_BLEED_MAX_HEIGHT
+                val isCompactLandscape = maxWidth > maxHeight && maxHeight < 480.dp
                 // A folder's grid view: the same column count the Library's
                 // "Show all" grids reach at this width.
                 val tab = folderState?.tab
-                val grouped = tab != null && tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED
+                val grouped = tab != null && !tab.isTrackList
                 val titleSort = if (grouped) groupSort else folderSort
                 val alphabetic = titleSort == LocalMusicSort.TITLE_ASC || titleSort == LocalMusicSort.TITLE_DESC ||
                     (titleSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
@@ -634,13 +693,53 @@ fun DetailScreen(
                     else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
                 }
                 val indexAlphabet = if (grouped) groupAlphabet else trackAlphabet
-                val sections = remember(names, indexAlphabet) { localLetterPositions(names, 0, 1, indexAlphabet).size }
-                var letterPreview by remember(page.browseId, tab) { mutableStateOf<String?>(null) }
-                val scrollable by remember(listState) {
-                    derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
+                val baseLetterOffsets = remember(names, indexAlphabet) {
+                    localLetterPositions(names, 0, 1, indexAlphabet)
                 }
-                val gutter = if (localPage && scrollable && sections > 1 && !isArtist && reorder == null) 18.dp else 0.dp
+                val sections = baseLetterOffsets.size
+                var letterPreview by remember(page.browseId, tab) { mutableStateOf<String?>(null) }
+                // Reserve the 32.dp right gutter at all times whenever the list has an
+                // alphabetical index (> 1 section), so rows and grid cards never shift
+                // horizontally when the A-Z rail fades in as the user starts scrolling.
+                val gutter = if (localPage && sections > 1 && !isArtist && reorder == null) 32.dp else 0.dp
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
+                val tabScrollScope = rememberCoroutineScope()
+                val tabStickyPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
+                // The pill bar's row is fixed by what sits above it, so it is computed
+                // rather than remembered from when it last happened to be on screen.
+                val tabsRowIndex = 1 + (if (searching) 1 else 0) +
+                    (if (!page.description.isNullOrBlank() && page.type == BrowseType.ALBUM) 1 else 0)
+                val onSelectFolderTab: (LocalFolderTab) -> Unit = { nextTab ->
+                    if (folderState != null && folderState.tab != nextTab) {
+                        val prev = folderState.tab
+                        val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
+                        val pinned = if (tabsInfo != null) tabsInfo.offset < tabStickyPx
+                        else listState.firstVisibleItemIndex > 0
+                        folderState.savedScrollByTab = folderState.savedScrollByTab +
+                            (prev to (listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset))
+                        val saved = folderState.savedScrollByTab[nextTab]
+                        folderState.tab = nextTab
+                        // Request the target scroll position synchronously in the exact same
+                        // state change so Frame 1 of the new tab lays out directly at its
+                        // destination without rendering an intermediate frame at the old offset.
+                        if (saved != null && (saved.first > 0 || saved.second > 0)) {
+                            listState.requestScrollToItem(saved.first, saved.second)
+                        } else if (pinned) {
+                            listState.requestScrollToItem(tabsRowIndex, -tabStickyPx)
+                        }
+                    }
+                }
+                val onReselectFolderTab: (LocalFolderTab) -> Unit = { tab ->
+                    if (folderState != null) {
+                        folderState.savedScrollByTab = folderState.savedScrollByTab - tab
+                        if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                            tabScrollScope.launch {
+                                if (listState.firstVisibleItemIndex > 12) listState.scrollToItem(12)
+                                listState.animateScrollToItem(0)
+                            }
+                        }
+                    }
+                }
 
                 // The artist photo is drawn behind the list rather than in it, so
                 // both need to agree on its height without being able to ask each
@@ -677,6 +776,7 @@ fun DetailScreen(
                         sleeveSize = sleeveSize,
                         fullBleed = fullBleedSleeve,
                         showSleeve = page.browseId != "local:all" && !localArtistPage,
+                        compactLandscape = isCompactLandscape && localPage,
                         localArtistPhoto = localArtistPhoto,
                         artistAlbumCount = if (localArtistPage && !searching) {
                             folderGroups.count { it.songs.firstOrNull()?.albumName != null }
@@ -793,21 +893,70 @@ fun DetailScreen(
             if (!isArtist) aboutItem()
 
             when (val state = page.songs) {
-                is UiState.Loading -> detailSkeleton(isArtist)
-                is UiState.Error -> item { MessageState(state.message) }
+                is UiState.Loading -> if (page.browseId == "local:all" && folder != null && folderState != null) {
+                    localFolderItems(
+                        folder = folder,
+                        state = folderState,
+                        songs = emptyList(),
+                        groups = emptyList(),
+                        query = query,
+                        columns = gridColumns,
+                        indexGutter = gutter,
+                        scanProgress = scanProgress,
+                        palette = palette,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        onTabReselected = onReselectFolderTab,
+                        onTabSelected = onSelectFolderTab,
+                        onSongClick = onSongClick,
+                        onSongLongPress = onSongLongPress,
+                        onSongSwipe = onSongSwipe,
+                    )
+                } else {
+                    detailSkeleton(isArtist)
+                }
+                is UiState.Error -> if (page.browseId == "local:all" && folder != null && folderState != null &&
+                    (folder.isNotConfigured || scanProgress.isActive)
+                ) {
+                    localFolderItems(
+                        folder = folder,
+                        state = folderState,
+                        songs = emptyList(),
+                        groups = emptyList(),
+                        query = query,
+                        columns = gridColumns,
+                        indexGutter = gutter,
+                        scanProgress = scanProgress,
+                        palette = palette,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        onTabReselected = onReselectFolderTab,
+                        onTabSelected = onSelectFolderTab,
+                        onSongClick = onSongClick,
+                        onSongLongPress = onSongLongPress,
+                        onSongSwipe = onSongSwipe,
+                    )
+                } else {
+                    item { MessageState(state.message) }
+                }
                 is UiState.Success -> if (folder != null && folderState != null) {
                     localFolderItems(
                         folder = folder,
                         state = folderState,
                         songs = queue,
                         groups = folderGroups,
-                        query = query,
+                        query = effectiveQuery,
                         columns = gridColumns,
                         indexGutter = gutter,
-                        scanStatus = scanStatus,
+                        scanProgress = scanProgress,
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        songKeys = localSongKeys,
+                        isCurrentSong = currentQueueRow,
+                        groupsLoading = folderGroupsLoading,
+                        onTabReselected = onReselectFolderTab,
+                        onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
                         onSongSwipe = onSongSwipe,
@@ -976,24 +1125,58 @@ fun DetailScreen(
             if (isArtist) aboutItem()
         }
 
+                val canPinTabs = folder != null && folderState != null && folder.tabs.size > 1 &&
+                    !folder.isNotConfigured && !folderState.selecting
+                val stickyTopPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
+                val showStickyTabs by remember(listState, stickyTopPx, canPinTabs) {
+                    derivedStateOf {
+                        if (!canPinTabs) {
+                            false
+                        } else {
+                            val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
+                            if (tabsInfo != null) {
+                                tabsInfo.offset < stickyTopPx
+                            } else {
+                                listState.firstVisibleItemIndex > 0
+                            }
+                        }
+                    }
+                }
+                val showLetterIndex by remember(listState, showStickyTabs) {
+                    derivedStateOf {
+                        showStickyTabs || listState.firstVisibleItemIndex > 0
+                    }
+                }
+
                 if (gutter > 0.dp) {
                     val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
                     val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
                         (if ((folder?.tabs?.size ?: 0) > 1) 1 else 0) +
-                        (if (scanStatus != com.music.bitchord.data.LocalLibraryIndex.ScanStatus.IDLE) 1 else 0) +
+                        (if (scanProgress.phase != com.music.bitchord.data.LocalLibraryIndex.ScanPhase.IDLE ||
+                                scanProgress.revokedFolders.isNotEmpty()
+                            ) 1 else 0) +
+                        (if (folder?.onManageFolders != null) 1 else 0) +
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0)
-                    val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
-                    val positions = remember(names, start, columns, indexAlphabet) {
-                        localLetterPositions(names, start, columns, indexAlphabet)
+                    val activeViewType = folderState?.let { it.viewTypes[it.tab] } ?: folder?.viewType
+                    val columns = (if (activeViewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1).coerceAtLeast(1)
+                    val positions = remember(baseLetterOffsets, start, columns) {
+                        baseLetterOffsets.mapValues { (_, rawIdx) -> start + rawIdx / columns }
                     }
+                    val pinnedBarHeight = if (isCompactLandscape) 48.dp else 56.dp
+                    val pinnedHeaderExtra = if (showStickyTabs || folderState?.selecting == true) pinnedBarHeight else 0.dp
                     LocalLetterIndex(
                         positions = positions,
                         list = listState,
                         firstRowIndex = start,
-                        topInset = topBarContentPadding(),
+                        topInset = topBarContentPadding() + pinnedHeaderExtra,
                         bottomInset = contentPadding.calculateBottomPadding(),
+                        visible = showLetterIndex,
+                        floatingBarsHeightPx = floatingBarsHeightPx,
                         onPreview = { letterPreview = it },
-                        modifier = Modifier.align(Alignment.TopEnd).width(gutter),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = if (maxWidth > maxHeight) 8.dp else 6.dp)
+                            .width(24.dp),
                     )
                 }
 
@@ -1009,15 +1192,48 @@ fun DetailScreen(
                     }
                 }
 
-                if (folder != null && folderState != null && folderState.selecting) {
-                    LocalFolderSelectionBar(
-                        folder = folder,
-                        state = folderState,
-                        songs = songs,
+                // Sticky tab pill bar: header (title + Play/Shuffle) scrolls away while the
+                // Songs/Albums/Artists/Folders pill bar pins right below the top bar so users
+                // can switch tabs mid-scroll without scrolling back to the top.
+                // `.background(pageColor)` comes BEFORE `.padding(top = topBarContentPadding())`
+                // so the entire zone behind the top bar and above the pill bar is solid pageColor
+                // and scrolled rows never peek through behind the top bar buttons.
+                if (showStickyTabs && folder != null && folderState != null) {
+                    Column(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER),
-                    )
+                            .fillMaxWidth()
+                            .background(pageColor)
+                            .padding(top = topBarContentPadding()),
+                    ) {
+                        SegmentedControl(
+                            options = folder.tabs.map { it.label() },
+                            selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
+                            onSelect = { onSelectFolderTab(folder.tabs[it]) },
+                            onReselect = { onReselectFolderTab(folder.tabs[it]) },
+                            modifier = Modifier.padding(
+                                horizontal = PAGE_GUTTER,
+                                vertical = if (isCompactLandscape) 4.dp else 8.dp,
+                            ),
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
+                    }
+                }
+
+                if (folder != null && folderState != null && folderState.selecting) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .background(pageColor)
+                            .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER, bottom = 6.dp),
+                    ) {
+                        LocalFolderSelectionBar(
+                            folder = folder,
+                            state = folderState,
+                            songs = songs,
+                        )
+                    }
                 }
 
     }
@@ -1065,6 +1281,7 @@ private fun ReleaseHeader(
     onToggleLibrary: (() -> Unit)?,
     /** The Cached songs folder's: saves every track on it to Downloads. Null hides it. */
     onDownloadAll: (() -> Unit)? = null,
+    compactLandscape: Boolean = false,
 ) {
     val (credit, details) = page.headerLines(songs.size, songs.playtime())
     val meta = artistAlbumCount?.let { count ->
@@ -1080,11 +1297,119 @@ private fun ReleaseHeader(
     // to the page's width it would only tint the top of the screen.
     val bleed = showSleeve && fullBleed && page.thumbnailUrl != null && !artFailed
 
+    if (compactLandscape && showSleeve && page.browseId.startsWith("local:")) {
+        val sideSleeveSize = 96.dp
+        val buttonSize = 42.dp
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    top = topBarContentPadding(),
+                    start = HEADER_GUTTER,
+                    end = HEADER_GUTTER,
+                    bottom = 12.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(sideSleeveSize)
+                    .shadow(10.dp, SLEEVE_SHAPE)
+                    .background(palette.elevated)
+                    .thumbnailBorder(SLEEVE_SHAPE),
+            ) {
+                if (page.thumbnailUrl == null || artFailed) {
+                    CoverPlaceholder(
+                        icon = page.placeholderIcon(),
+                        base = palette.elevated,
+                        tint = palette.onBackgroundVariant,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
+                AsyncImage(
+                    model = page.thumbnailUrl.artworkAt(HEADER_ART_PX),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    onState = { artFailed = it is AsyncImagePainter.State.Error },
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = page.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (credit.isNotBlank()) {
+                    Text(
+                        text = credit,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (songs.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(RELEASE_ACTION_GAP),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ActionPill(
+                            icon = BitChordIcons.Play,
+                            label = stringResource(R.string.play),
+                            onClick = onPlay,
+                            filled = true,
+                            size = buttonSize,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ActionPill(
+                            icon = BitChordIcons.Shuffle,
+                            label = stringResource(R.string.shuffle),
+                            onClick = onShuffle,
+                            filled = false,
+                            size = buttonSize,
+                            modifier = Modifier.weight(1f),
+                        )
+                        onDownloadAll?.let {
+                            CircleIconButton(
+                                icon = Icons.Rounded.Download,
+                                contentDescription = stringResource(R.string.download_all),
+                                onClick = it,
+                                size = buttonSize,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    val actionButtonSize = if (compactLandscape) 42.dp else RELEASE_SIDE_BUTTON
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             // Clear of the floating bar, which only a full-bleed sleeve runs under.
-            .padding(top = if (bleed) 0.dp else topBarContentPadding(), bottom = 18.dp),
+            .padding(
+                top = if (bleed) 0.dp else topBarContentPadding(),
+                bottom = if (compactLandscape) 10.dp else 18.dp,
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (bleed) {
@@ -1192,16 +1517,16 @@ private fun ReleaseHeader(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 onState = { artFailed = it is AsyncImagePainter.State.Error },
-                modifier = Modifier.size(64.dp).clip(CircleShape),
+                modifier = Modifier.size(if (compactLandscape) 48.dp else 64.dp).clip(CircleShape),
             )
         }
-        Spacer(Modifier.height(if (showSleeve) 20.dp else 8.dp))
+        Spacer(Modifier.height(if (showSleeve) 20.dp else if (compactLandscape) 4.dp else 8.dp))
         Text(
             text = page.title,
-            style = MaterialTheme.typography.headlineMedium,
+            style = if (compactLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
             color = palette.onBackground,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = if (compactLandscape) 1 else 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = HEADER_GUTTER),
         )
@@ -1211,7 +1536,7 @@ private fun ReleaseHeader(
                 text = credit,
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Normal,
-                    fontSize = 19.sp,
+                    fontSize = if (compactLandscape) 15.sp else 19.sp,
                 ),
                 color = palette.onBackgroundVariant,
                 textAlign = TextAlign.Center,
@@ -1231,7 +1556,7 @@ private fun ReleaseHeader(
             )
         }
         if (meta.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(if (compactLandscape) 2.dp else 4.dp))
             Text(
                 text = meta,
                 style = MaterialTheme.typography.labelMedium,
@@ -1247,7 +1572,7 @@ private fun ReleaseHeader(
             // Only where YouTube said the release can be saved and the caller
             // is willing to take the write — see [onToggleLibrary].
             val library = page.library?.takeIf { onToggleLibrary != null }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(if (compactLandscape) 10.dp else 18.dp))
             Row(
                 modifier = Modifier
                     .widthIn(max = RELEASE_ACTIONS_MAX_WIDTH)
@@ -1266,7 +1591,7 @@ private fun ReleaseHeader(
                         label = stringResource(R.string.play),
                         onClick = onPlay,
                         filled = true,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         modifier = Modifier.weight(1f),
                     )
                     ActionPill(
@@ -1274,7 +1599,7 @@ private fun ReleaseHeader(
                         label = stringResource(R.string.shuffle),
                         onClick = onShuffle,
                         filled = false,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         modifier = Modifier.weight(1f),
                     )
                     // The song cache's copies, saved to Downloads in one go —
@@ -1284,7 +1609,7 @@ private fun ReleaseHeader(
                             icon = Icons.Rounded.Download,
                             contentDescription = stringResource(R.string.download_all),
                             onClick = it,
-                            size = RELEASE_SIDE_BUTTON,
+                            size = actionButtonSize,
                         )
                     }
                     return@Row
@@ -1294,14 +1619,14 @@ private fun ReleaseHeader(
                     contentDescription = stringResource(R.string.shuffle),
                     onClick = onShuffle,
                     haptic = Haptic.Resume,
-                    size = RELEASE_SIDE_BUTTON,
+                    size = actionButtonSize,
                 )
                 ActionPill(
                     icon = BitChordIcons.Play,
                     label = stringResource(R.string.play),
                     onClick = onPlay,
                     filled = true,
-                    size = RELEASE_SIDE_BUTTON,
+                    size = actionButtonSize,
                     modifier = Modifier.weight(1f),
                 )
                 if (library != null) {
@@ -1316,7 +1641,7 @@ private fun ReleaseHeader(
                         },
                         onClick = { onToggleLibrary?.invoke() },
                         haptic = if (library.saved) Haptic.ToggleOff else Haptic.ToggleOn,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                     )
                 } else {
                     // Shown but greyed out for a guest, rather than leaving a
@@ -1325,7 +1650,7 @@ private fun ReleaseHeader(
                         icon = BitChordIcons.Plus,
                         contentDescription = stringResource(R.string.add_to_library),
                         onClick = {},
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         enabled = false,
                     )
                 }
@@ -2672,7 +2997,7 @@ private fun BrowseType.localizedLabel(): String? = when (this) {
  */
 @Composable
 private fun List<Song>.playtime(): String? {
-    val minutes = sumOf { it.durationMillis() } / 60_000
+    val minutes = remember(this) { sumOf { it.durationMillis() } / 60_000 }
     return when {
         minutes <= 0 -> null
         minutes < 60 -> stringResource(R.string.minutes_short, minutes.toInt())

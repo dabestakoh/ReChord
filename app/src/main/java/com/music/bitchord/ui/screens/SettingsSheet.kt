@@ -313,6 +313,13 @@ fun SettingsScreen(
     val smartVersionAlignment by AppSettings.smartVersionAlignment.collectAsStateWithLifecycle()
     val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
     val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
+    val localMusicScanMode by AppSettings.localMusicScanMode.collectAsStateWithLifecycle()
+    val localMusicFolders by AppSettings.localMusicFolders.collectAsStateWithLifecycle()
+    val localMusicExcludedFolders by AppSettings.localMusicExcludedFolders.collectAsStateWithLifecycle()
+    val localLegacyScanMode by AppSettings.localLegacyScanMode.collectAsStateWithLifecycle()
+    val localMusicMinDurationSec by AppSettings.localMusicMinDurationSec.collectAsStateWithLifecycle()
+    var showLocalFolderPicker by remember { mutableStateOf(false) }
+    var confirmClearLocalLibrary by remember { mutableStateOf(false) }
     val highPerformanceMode by AppSettings.highPerformanceMode.collectAsStateWithLifecycle()
     val performanceRefreshRate by AppSettings.performanceRefreshRate.collectAsStateWithLifecycle()
     val currentDisplay = LocalView.current.display
@@ -1503,28 +1510,63 @@ fun SettingsScreen(
 
         if (shows(SettingsCategory.LOCAL_MUSIC)) SearchableSettingsGroup(search, header = stringResource(R.string.local_music)) {
             val localMusicFolderTitle = stringResource(R.string.local_music_folder)
-            row(localMusicFolderTitle, "folder", "offline", "files") {
+            val folderSummary = when (localMusicScanMode) {
+                com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED ->
+                    stringResource(R.string.local_not_scanned_yet)
+                com.music.bitchord.data.settings.LocalMusicScanMode.ALL_FOLDERS ->
+                    stringResource(R.string.all_audio_folders)
+                com.music.bitchord.data.settings.LocalMusicScanMode.SPECIFIC_FOLDERS -> when (localMusicFolders.size) {
+                    0 -> stringResource(R.string.local_no_folders_selected)
+                    1 -> localMusicFolders.first().label
+                    else -> stringResource(R.string.local_start_scan_folders, localMusicFolders.size)
+                }
+            }
+            row(localMusicFolderTitle, "folder", "offline", "files", "sd", "usb", "ssd") {
                 SettingsRow(
                     icon = SfIcons.Folder,
                     title = localMusicFolderTitle,
-                    subtitle = LocalMediaRepository.selectedFolderLabel(localMusicFolderUri)
-                        ?: stringResource(R.string.all_audio_folders),
-                    onClick = { localMusicFolderPicker.launch(null) },
+                    subtitle = folderSummary,
+                    onClick = { showLocalFolderPicker = true },
                 )
             }
-            if (localMusicFolderUri.isNotBlank()) {
-                val useAllAudioFoldersTitle = stringResource(R.string.use_all_audio_folders)
-                row(useAllAudioFoldersTitle, "folder") {
-                    SettingsRow(
-                        icon = SfIcons.LibraryMusic,
-                        title = useAllAudioFoldersTitle,
-                        subtitle = stringResource(R.string.use_all_audio_folders_subtitle),
-                        onClick = { AppSettings.setLocalMusicFolderUri("") },
-                    )
-                }
+            val legacyScanTitle = stringResource(R.string.local_legacy_scan_title)
+            val internalLabel = stringResource(R.string.local_storage_internal)
+            val legacyModeLabel = when (localLegacyScanMode) {
+                com.music.bitchord.data.settings.LocalLegacyScanMode.AUTO -> stringResource(R.string.local_legacy_scan_auto)
+                com.music.bitchord.data.settings.LocalLegacyScanMode.ENABLED -> stringResource(R.string.local_legacy_scan_enabled)
+                com.music.bitchord.data.settings.LocalLegacyScanMode.DISABLED -> stringResource(R.string.local_legacy_scan_disabled)
+            }
+            val detectedSummary = remember(localLegacyScanMode, internalLabel) {
+                com.music.bitchord.data.LocalStorageVolumes.readableVolumeSummary(context, internalLabel)
+            }
+            val legacyActive = remember(localLegacyScanMode) {
+                com.music.bitchord.data.LocalStorageVolumes.shouldUseLegacyScan(context, localLegacyScanMode)
+            }
+            val legacySubtitle = if (legacyActive && detectedSummary != null) {
+                stringResource(R.string.local_legacy_scan_subtitle_detected, legacyModeLabel, detectedSummary)
+            } else {
+                stringResource(R.string.local_legacy_scan_subtitle_standard, legacyModeLabel)
+            }
+            row(legacyScanTitle, "legacy", "external", "ssd", "sd", "usb", "car", "storage") {
+                SettingsRow(
+                    icon = SfIcons.Storage,
+                    title = legacyScanTitle,
+                    subtitle = legacySubtitle,
+                    onClick = {
+                        val next = when (localLegacyScanMode) {
+                            com.music.bitchord.data.settings.LocalLegacyScanMode.AUTO ->
+                                com.music.bitchord.data.settings.LocalLegacyScanMode.ENABLED
+                            com.music.bitchord.data.settings.LocalLegacyScanMode.ENABLED ->
+                                com.music.bitchord.data.settings.LocalLegacyScanMode.DISABLED
+                            com.music.bitchord.data.settings.LocalLegacyScanMode.DISABLED ->
+                                com.music.bitchord.data.settings.LocalLegacyScanMode.AUTO
+                        }
+                        AppSettings.setLocalLegacyScanMode(next)
+                    },
+                )
             }
             val filterNonMusicAudioTitle = stringResource(R.string.filter_non_music_audio)
-            row(filterNonMusicAudioTitle, "podcast", "recording") {
+            row(filterNonMusicAudioTitle, "podcast", "recording", "voice") {
                 SettingsRow(
                     icon = SfIcons.FilterAlt,
                     title = filterNonMusicAudioTitle,
@@ -1538,6 +1580,154 @@ fun SettingsScreen(
                     onClick = { AppSettings.setFilterNonMusicAudio(!filterNonMusicAudio) },
                 )
             }
+            if (filterNonMusicAudio) {
+                val minDurTitle = stringResource(R.string.local_min_duration_title)
+                val minDurLabel = if (localMusicMinDurationSec == 0) {
+                    stringResource(R.string.local_min_duration_off)
+                } else {
+                    stringResource(R.string.local_min_duration_seconds, localMusicMinDurationSec)
+                }
+                row(minDurTitle, "duration", "short", "tolerance", "seconds", "recording") {
+                    SliderRow(
+                        icon = SfIcons.Clock,
+                        title = minDurTitle,
+                        subtitle = minDurLabel,
+                        value = if (localMusicMinDurationSec == 0) {
+                            stringResource(R.string.local_min_duration_off)
+                        } else {
+                            "${localMusicMinDurationSec}s"
+                        },
+                        sliderValue = localMusicMinDurationSec.toFloat(),
+                        onSliderValue = { AppSettings.setLocalMusicMinDurationSec(it.roundToInt()) },
+                        valueRange = 0f..AppSettings.MAX_LOCAL_MIN_DURATION_SEC.toFloat(),
+                        steps = (AppSettings.MAX_LOCAL_MIN_DURATION_SEC / AppSettings.LOCAL_MIN_DURATION_STEP_SEC) - 1,
+                    )
+                }
+            }
+            if (localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                val fullRescanTitle = stringResource(R.string.local_full_rescan)
+                row(fullRescanTitle, "rescan", "refresh", "index", "local") {
+                    SettingsRow(
+                        icon = SfIcons.Cached,
+                        title = fullRescanTitle,
+                        subtitle = stringResource(R.string.local_refresh_index),
+                        onClick = {
+                            com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = true)
+                        },
+                    )
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val allFilesIntent = remember(context) {
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            android.net.Uri.parse("package:${context.packageName}"),
+                        )
+                    }
+                    val canOpenAllFiles = remember(context) {
+                        allFilesIntent.resolveActivity(context.packageManager) != null
+                    }
+                    if (canOpenAllFiles) {
+                        val allFilesGranted = android.os.Environment.isExternalStorageManager()
+                        val allFilesTitle = stringResource(R.string.local_all_files_access_title)
+                        row(allFilesTitle, "all files", "storage", "permission", "tags", "local") {
+                            SettingsRow(
+                                icon = SfIcons.Folder,
+                                title = allFilesTitle,
+                                subtitle = stringResource(
+                                    if (allFilesGranted) R.string.local_all_files_access_granted
+                                    else R.string.local_all_files_access_not_granted,
+                                ),
+                                onClick = { runCatching { context.startActivity(allFilesIntent) } },
+                            )
+                        }
+                    }
+                }
+                val ignoredLocalUris by AppSettings.localMusicIgnoredUris.collectAsStateWithLifecycle()
+                if (ignoredLocalUris.isNotEmpty()) {
+                    val restoreTitle = stringResource(R.string.local_restore_hidden_songs)
+                    row(restoreTitle, "hidden", "ignored", "restore", "local") {
+                        SettingsRow(
+                            icon = SfIcons.Cached,
+                            title = restoreTitle,
+                            subtitle = stringResource(R.string.local_restore_hidden_subtitle, ignoredLocalUris.size),
+                            onClick = {
+                                backupScope.launch {
+                                    com.music.bitchord.data.LocalLibraryIndex.restoreHiddenSongs(context)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        R.string.local_hidden_songs_restored,
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        )
+                    }
+                }
+                val clearLocalTitle = stringResource(R.string.local_clear_library)
+                val isClearingLocal by com.music.bitchord.data.LocalLibraryIndex.clearing.collectAsStateWithLifecycle()
+                row(clearLocalTitle, "clear", "reset", "local", "library") {
+                    SettingsRow(
+                        icon = SfIcons.DeleteSweep,
+                        title = if (isClearingLocal) stringResource(R.string.local_clearing_library) else clearLocalTitle,
+                        subtitle = stringResource(R.string.local_clear_library_confirm_message),
+                        onClick = { if (!isClearingLocal) confirmClearLocalLibrary = true },
+                    )
+                }
+            }
+        }
+
+        if (showLocalFolderPicker) {
+            LocalFolderPickerDialog(
+                initialMode = localMusicScanMode,
+                initialFolders = localMusicFolders,
+                initialExcludedFolders = localMusicExcludedFolders,
+                onConfirm = { mode, folders, excluded ->
+                    showLocalFolderPicker = false
+                    AppSettings.setLocalMusicFolders(folders)
+                    AppSettings.setLocalMusicExcludedFolders(excluded)
+                    AppSettings.setLocalMusicScanMode(mode)
+                    com.music.bitchord.data.LocalLibraryIndex.startScan(context, forceFull = false, restart = true)
+                },
+                onDismiss = { showLocalFolderPicker = false },
+            )
+        }
+
+        if (confirmClearLocalLibrary) {
+            val scheme = MaterialTheme.colorScheme
+            AlertDialog(
+                onDismissRequest = { confirmClearLocalLibrary = false },
+                containerColor = scheme.surface,
+                titleContentColor = scheme.onSurface,
+                textContentColor = scheme.onSurfaceVariant,
+                tonalElevation = 0.dp,
+                title = { Text(stringResource(R.string.local_clear_library_confirm_title)) },
+                text = { Text(stringResource(R.string.local_clear_library_confirm_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmClearLocalLibrary = false
+                            backupScope.launch {
+                                com.music.bitchord.data.LocalLibraryIndex.clearLibrary(context)
+                            }
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = com.music.bitchord.ui.theme.AccentRed,
+                        ),
+                    ) {
+                        Text(stringResource(R.string.local_clear_library))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { confirmClearLocalLibrary = false },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = scheme.onSurface,
+                        ),
+                    ) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                },
+            )
         }
 
         val cacheUnlimited = cacheLimitBytes == AppSettings.UNLIMITED_CACHE_LIMIT_BYTES
@@ -2945,8 +3135,9 @@ internal fun SegmentedControl(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     disabled: Set<Int> = emptySet(),
+    onReselect: ((Int) -> Unit)? = null,
 ) {
-    PillSegmentedControl(options, selectedIndex, onSelect, modifier, enabled, disabled)
+    PillSegmentedControl(options, selectedIndex, onSelect, modifier, enabled, disabled, onReselect)
 }
 
 // ---- Pages ------------------------------------------------------------------

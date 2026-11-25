@@ -133,6 +133,13 @@ fun SongActionsMenu(
      * row — the History screen passes one only when the menu is opened there.
      */
     onRemoveFromHistory: (() -> Unit)? = null,
+    /**
+     * Hides a Local Music track from ReChord's library without deleting the audio file.
+     * Null hides the row for online tracks and non-local contexts.
+     */
+    onRemoveFromLibrary: (() -> Unit)? = null,
+    onEditTags: (() -> Unit)? = null,
+    onDeleteFromDevice: (() -> Unit)? = null,
     showSleepTimer: Boolean = false,
     /**
      * Sends the playing track back to YouTube's own upload, and keeps it there.
@@ -379,10 +386,49 @@ fun SongActionsMenu(
                 onClick = it,
             )
         }
+        onEditTags?.let {
+            ActionRow(
+                icon = SfIcons.Pencil,
+                label = stringResource(R.string.local_edit_tags),
+                accent = palette.accent,
+                onClick = it,
+            )
+        }
+        onRemoveFromLibrary?.let {
+            ActionRow(
+                icon = SfIcons.Trash,
+                label = stringResource(R.string.local_remove_from_library),
+                accent = palette.accent,
+                onClick = it,
+            )
+        }
+        onDeleteFromDevice?.let {
+            ActionRow(
+                icon = SfIcons.DeleteSweep,
+                label = stringResource(R.string.local_delete_from_device),
+                accent = com.music.bitchord.ui.theme.AccentRed,
+                onClick = it,
+            )
+        }
 
         if (startsGroup()) IosMenuSeparator()
+        val localFolderId = if (song.localUri != null) {
+            if (song.videoId.startsWith("content://") || song.videoId.startsWith("file://")) "local:all" else "local:downloads"
+        } else {
+            null
+        }
+        val resolvedAlbumId = song.albumId ?: localFolderId?.let { folderId ->
+            song.albumName?.takeIf { it.isNotBlank() }?.let { album ->
+                com.music.bitchord.data.LocalGroups.albumPageId(folderId, album)
+            }
+        }
+        val resolvedArtistId = song.artistId ?: localFolderId?.let { folderId ->
+            song.artist.takeIf { it.isNotBlank() && !it.equals("Unknown Artist", ignoreCase = true) }?.let { artist ->
+                com.music.bitchord.data.LocalGroups.artistPageId(folderId, artist)
+            }
+        }
         // Names where each one leads under it, as a menu's "Go to" does.
-        when (val id = song.albumId) {
+        when (val id = resolvedAlbumId) {
             null -> if (resolvingLinks) {
                 LoadingActionRow(SfIcons.Album, stringResource(R.string.open_album), palette)
             }
@@ -393,7 +439,7 @@ fun SongActionsMenu(
                 description = song.albumName,
             ) { onOpenAlbum(id) }
         }
-        when (val id = song.artistId) {
+        when (val id = resolvedArtistId) {
             null -> if (resolvingLinks) {
                 LoadingActionRow(SfIcons.Artist, stringResource(R.string.open_artist), palette)
             }

@@ -65,6 +65,7 @@ fun PillSegmentedControl(
     enabled: Boolean = true,
     /** Segments shown but not offered: their labels dimmed, taps ignored. */
     disabled: Set<Int> = emptySet(),
+    onReselect: ((Int) -> Unit)? = null,
 ) {
     if (options.isEmpty()) return
     val haptics = LocalHapticFeedback.current
@@ -174,6 +175,9 @@ fun PillSegmentedControl(
                                 if (index != selected) {
                                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onSelect(index)
+                                } else if (onReselect != null) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onReselect(index)
                                 }
                             }
                             .padding(vertical = LABEL_VERTICAL_PADDING),

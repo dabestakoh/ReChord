@@ -143,14 +143,14 @@ jobs:
           "$tools/aapt" dump badging "$apk" | grep -q "package: name='com.rechord.preview' "
           "$tools/aapt" dump badging "$apk" | grep -q "native-code: 'arm64-v8a'"
           mkdir -p preview-test-apk
-          cp "$apk" "preview-test-apk/ReChord-Preview-handoff-${GITHUB_SHA:0:7}-arm64-v8a.apk"
-          (cd preview-test-apk && sha256sum *.apk > SHA256SUMS.txt)
+          apk_out="preview-test-apk/ReChord-Preview-handoff-${GITHUB_SHA:0:7}-arm64-v8a.apk"
+          cp "$apk" "$apk_out"
+          sha256sum "$apk_out" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ReChord-Preview-handoff-${{ github.sha }}
-          path: preview-test-apk/*
+          path: preview-test-apk/ReChord-Preview-handoff-*.apk
+          archive: false
           if-no-files-found: error
-          compression-level: 0
           retention-days: 7

@@ -97,6 +97,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import com.music.bitchord.ui.graphics.forCompactThumbnail
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.isMatchPending
@@ -334,6 +337,8 @@ fun SongRow(
      * songs folder's per-track download button. Null on every other list.
      */
     trailing: (@Composable () -> Unit)? = null,
+    showDuration: Boolean = true,
+    showHiRes: Boolean = true,
 ) {
     SwipeToQueueBox(
         onSwipeToQueue = onSwipeToQueue,
@@ -355,6 +360,8 @@ fun SongRow(
             selected = selected,
             showSourceQuality = showSourceQuality,
             trailing = trailing,
+            showDuration = showDuration,
+            showHiRes = showHiRes,
         )
     }
 }
@@ -402,8 +409,8 @@ fun SwipeToQueueBox(
     // *commits* past 45% of the width — so without this the label is a promise
     // the finger can't check. One light tick at the crossing is the whole point:
     // let go now and it queues.
-    LaunchedEffect(swipeState, boxWidth) {
-        if (boxWidth <= 0f) return@LaunchedEffect
+    LaunchedEffect(swipeState, boxWidth, swipeState.targetValue) {
+        if (boxWidth <= 0f || swipeState.targetValue == SwipeToDismissBoxValue.Settled) return@LaunchedEffect
         val armAt = boxWidth * 0.45f
         var armed = false
         snapshotFlow { try { swipeState.requireOffset() } catch (e: Exception) { 0f } }
@@ -434,6 +441,14 @@ fun SwipeToQueueBox(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QueueSwipeBackground(swipeState: SwipeToDismissBoxState) {
+    // Only compose the 2 Icons + 2 Texts + StateFlow collector while a row is actively being swiped.
+    val isSwiping by remember(swipeState) {
+        androidx.compose.runtime.derivedStateOf {
+            swipeState.targetValue != SwipeToDismissBoxValue.Settled ||
+                swipeState.currentValue != SwipeToDismissBoxValue.Settled
+        }
+    }
+    if (!isSwiping) return
     val playNext by AppUi.host.swipeToPlayNext.collectAsStateWithLifecycle()
     Row(
         modifier = Modifier
@@ -478,6 +493,8 @@ private fun QueueSwipeLabel(playNext: Boolean) {
     }
 }
 
+private val ROW_THUMB_SHAPE = RoundedCornerShape(8.dp)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SongRowContent(
@@ -496,15 +513,12 @@ private fun SongRowContent(
     selected: Boolean = false,
     showSourceQuality: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    showDuration: Boolean = true,
+    showHiRes: Boolean = true,
 ) {
-    val titleColor by animateColorAsState(
-        targetValue = if (isCurrent && !searchPlayingStyle) activeTint else MaterialTheme.colorScheme.onBackground,
-        label = "song row title",
-    )
-    val activeBackground by animateColorAsState(
-        targetValue = if ((isCurrent && !searchPlayingStyle) || selected) activeTint.copy(alpha = 0.14f) else Color.Transparent,
-        label = "song row background",
-    )
+    // Plain color reads instead of per-row animateColorAsState keep fast list flings allocation-free on low-spec DAPs.
+    val titleColor = if (isCurrent && !searchPlayingStyle) activeTint else MaterialTheme.colorScheme.onBackground
+    val activeBackground = if ((isCurrent && !searchPlayingStyle) || selected) activeTint.copy(alpha = 0.14f) else Color.Transparent
     // A Spotify track still being matched to a YouTube Music song, or one that
     // has no match: shown, but not something a tap or a menu can act on.
     val matching = song.isMatchPending
@@ -551,14 +565,36 @@ private fun SongRowContent(
             }
         } else {
             Box(Modifier.trackArtSize(52.dp, song.isVideo)) {
+                val platformContext = LocalPlatformContext.current
+                val artModel: Any? = if (song.localUri != null) {
+                    val localUrl = song.localAlbumArtwork ?: song.thumbnailUrl
+                    val albumKey = song.albumName?.takeIf { it.isNotBlank() }?.let { album ->
+                        val dir = song.localPath?.substringBeforeLast('/', "").orEmpty()
+                        "local-album-thumb:160:$dir:$album:${song.localAlbumArtist ?: song.artist}"
+                    }
+                    remember(localUrl, albumKey) {
+                        localUrl?.let {
+                            ImageRequest.Builder(platformContext)
+                                .data(it)
+                                .size(160)
+                                .apply {
+                                    if (albumKey != null) memoryCacheKey(albumKey)
+                                }
+                                .forCompactThumbnail()
+                                .build()
+                        }
+                    }
+                } else {
+                    com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX)
+                }
                 AsyncImage(
-                    model = com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
+                    model = artModel,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .matchParentSize()
-                        .clip(RoundedCornerShape(8.dp))
-                        .thumbnailBorder(RoundedCornerShape(8.dp))
+                        .clip(ROW_THUMB_SHAPE)
+                        .thumbnailBorder(ROW_THUMB_SHAPE)
                         .background(
                             if (song.localUri != null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
                             else MaterialTheme.colorScheme.surfaceVariant,
@@ -631,12 +667,18 @@ private fun SongRowContent(
                 color = subtitleColor,
             )
         } else {
-            song.durationText?.let {
-                Spacer(Modifier.width(8.dp))
+            if (!selected && showHiRes && song.localUri != null && song.sourceHiRes) {
+                Spacer(Modifier.width(6.dp))
+                HiResBadge(tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f))
+            }
+            if (showDuration) song.durationText?.let {
+                Spacer(Modifier.width(6.dp))
                 Text(
                     text = it,
                     style = MaterialTheme.typography.labelMedium,
                     color = subtitleColor,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
