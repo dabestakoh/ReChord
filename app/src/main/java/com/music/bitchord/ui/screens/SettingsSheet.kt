@@ -3135,8 +3135,9 @@ internal fun SegmentedControl(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     disabled: Set<Int> = emptySet(),
+    onReselect: ((Int) -> Unit)? = null,
 ) {
-    PillSegmentedControl(options, selectedIndex, onSelect, modifier, enabled, disabled)
+    PillSegmentedControl(options, selectedIndex, onSelect, modifier, enabled, disabled, onReselect)
 }
 
 // ---- Pages ------------------------------------------------------------------

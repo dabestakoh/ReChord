@@ -74,6 +74,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -594,31 +595,11 @@ fun DetailScreen(
     // Back before the search does: it is registered after it, so it is asked
     // first while it is on.
     val folderState = folder?.state
-    val rawFolderGroups = if (folder != null && folderState != null) {
+    val (folderGroups, folderGroupsLoading) = if (folder != null && folderState != null) {
         rememberLocalFolderGroups(page.browseId, folder, folderState.tab, filteredRawSongs, effectiveQuery)
     } else {
-        emptyList()
+        emptyList<com.music.bitchord.data.LocalGroup>() to false
     }
-    val syncSortedGroups = remember(rawFolderGroups, groupAlphabet, groupSort) {
-        if (rawFolderGroups.size <= 300) {
-            rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
-        } else {
-            null
-        }
-    }
-    var asyncSortedGroups by remember(folderState?.tab, rawFolderGroups, groupAlphabet, groupSort) {
-        mutableStateOf<List<com.music.bitchord.data.LocalGroup>?>(syncSortedGroups)
-    }
-    LaunchedEffect(folderState?.tab, rawFolderGroups, groupAlphabet, groupSort, syncSortedGroups) {
-        if (syncSortedGroups != null) {
-            asyncSortedGroups = syncSortedGroups
-            return@LaunchedEffect
-        }
-        asyncSortedGroups = withContext(Dispatchers.Default) {
-            rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
-        }
-    }
-    val folderGroups = syncSortedGroups ?: asyncSortedGroups ?: rawFolderGroups
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
     // What marks a row as already downloaded, tinted from the sleeve like the
@@ -724,20 +705,41 @@ fun DetailScreen(
                 val gutter = if (localPage && sections > 1 && !isArtist && reorder == null) 32.dp else 0.dp
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
                 val tabScrollScope = rememberCoroutineScope()
+                val tabStickyPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
+                var tabsRowIndex by remember(page.browseId) { mutableStateOf(1) }
+                LaunchedEffect(listState) {
+                    snapshotFlow {
+                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }?.index
+                    }.collect { if (it != null) tabsRowIndex = it }
+                }
                 val onSelectFolderTab: (LocalFolderTab) -> Unit = { nextTab ->
-                    if (folderState != null) {
-                        val sameTab = folderState.tab == nextTab
+                    if (folderState != null && folderState.tab != nextTab) {
+                        val prev = folderState.tab
+                        val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
+                        val pinned = if (tabsInfo != null) tabsInfo.offset < tabStickyPx
+                        else listState.firstVisibleItemIndex > 0
+                        folderState.savedScrollByTab = folderState.savedScrollByTab +
+                            (prev to (listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset))
+                        val saved = folderState.savedScrollByTab[nextTab]
                         folderState.tab = nextTab
+                        tabScrollScope.launch {
+                            if (saved != null && (saved.first > 0 || saved.second > 0)) {
+                                listState.scrollToItem(saved.first, saved.second)
+                            } else if (pinned) {
+                                listState.scrollToItem(tabsRowIndex, -tabStickyPx)
+                            } else {
+                                listState.scrollToItem(0)
+                            }
+                        }
+                    }
+                }
+                val onReselectFolderTab: (LocalFolderTab) -> Unit = { tab ->
+                    if (folderState != null) {
+                        folderState.savedScrollByTab = folderState.savedScrollByTab - tab
                         if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
                             tabScrollScope.launch {
-                                if (sameTab) {
-                                    if (listState.firstVisibleItemIndex > 12) {
-                                        listState.scrollToItem(12)
-                                    }
-                                    listState.animateScrollToItem(0)
-                                } else {
-                                    listState.scrollToItem(0)
-                                }
+                                if (listState.firstVisibleItemIndex > 12) listState.scrollToItem(12)
+                                listState.animateScrollToItem(0)
                             }
                         }
                     }
@@ -908,6 +910,7 @@ fun DetailScreen(
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        onTabReselected = onReselectFolderTab,
                         onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
@@ -931,6 +934,7 @@ fun DetailScreen(
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        onTabReselected = onReselectFolderTab,
                         onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
@@ -954,6 +958,8 @@ fun DetailScreen(
                         isPlaying = isPlaying,
                         songKeys = localSongKeys,
                         isCurrentSong = currentQueueRow,
+                        groupsLoading = folderGroupsLoading,
+                        onTabReselected = onReselectFolderTab,
                         onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
@@ -1208,6 +1214,7 @@ fun DetailScreen(
                             options = folder.tabs.map { it.label() },
                             selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
                             onSelect = { onSelectFolderTab(folder.tabs[it]) },
+                            onReselect = { onReselectFolderTab(folder.tabs[it]) },
                             modifier = Modifier.padding(
                                 horizontal = PAGE_GUTTER,
                                 vertical = if (isCompactLandscape) 4.dp else 8.dp,

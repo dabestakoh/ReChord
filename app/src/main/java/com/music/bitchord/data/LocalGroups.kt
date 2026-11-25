@@ -98,7 +98,7 @@ object LocalGroups {
 
     /** The rows of [folderSongs] the grouping [browseId] names, in the order its page lists them. */
     fun songsOf(browseId: String, folderSongs: List<Song>): List<Song> {
-        if (cachedSongsRef === folderSongs) {
+        if (folderSongs.isNotEmpty()) {
             groupByIdCache[browseId]?.let { return it.songs }
         }
         val group = parse(browseId) ?: return emptyList()
@@ -247,58 +247,77 @@ object LocalGroups {
     private fun Song.albumCredit() = localAlbumArtist ?: artist
 
     // Process-scoped cache keyed by the current songs list identity so pushing into
-    // a nested Album/Artist/Folder and pressing Back returns in 0 ms without re-sorting
-    // or re-grouping 5,000+ songs. Only the latest songs list is retained (no memory leak).
-    @Volatile private var cachedSongsRef: List<Song>? = null
+    // Process-scoped cache keyed by the songs list identity + size so pushing into
+    // a nested Album/Artist/Folder, switching between Songs / Hi-Res / Recently Added
+    // / Albums / Artists / Folders, and pressing Back all hit in 0 ms without
+    // wiping each other's cached groupings or sorted lists.
     private val groupTabCache = java.util.concurrent.ConcurrentHashMap<String, List<LocalGroup>>()
+    private val sortedGroupTabCache = java.util.concurrent.ConcurrentHashMap<String, List<LocalGroup>>()
     private val groupByIdCache = java.util.concurrent.ConcurrentHashMap<String, LocalGroup>()
     private val sortedSongsCache = java.util.concurrent.ConcurrentHashMap<String, List<Song>>()
 
-    private fun ensureCacheFor(songs: List<Song>) {
-        if (cachedSongsRef !== songs) {
-            synchronized(this) {
-                if (cachedSongsRef !== songs) {
-                    groupTabCache.clear()
-                    groupByIdCache.clear()
-                    sortedSongsCache.clear()
-                    cachedSongsRef = songs
-                }
-            }
-        }
+    private fun listScopedKey(songs: List<Song>, key: String): String {
+        val firstId = songs.firstOrNull()?.videoId.orEmpty()
+        val lastId = songs.lastOrNull()?.videoId.orEmpty()
+        return "${System.identityHashCode(songs)}:${songs.size}:$firstId:$lastId|$key"
     }
 
-    internal fun peekCachedTabGroups(songs: List<Song>, key: String): List<LocalGroup>? {
-        if (cachedSongsRef !== songs) return null
-        return groupTabCache[key]
+    private fun trimCachesIfNeeded() {
+        if (groupTabCache.size > 64) groupTabCache.clear()
+        if (sortedGroupTabCache.size > 96) sortedGroupTabCache.clear()
+        if (sortedSongsCache.size > 48) sortedSongsCache.clear()
+        if (groupByIdCache.size > 8_000) groupByIdCache.clear()
     }
+
+    internal fun peekCachedTabGroups(songs: List<Song>, key: String): List<LocalGroup>? =
+        groupTabCache[listScopedKey(songs, key)]
 
     internal fun getOrComputeTabGroups(
         songs: List<Song>,
         key: String,
         compute: () -> List<LocalGroup>,
     ): List<LocalGroup> {
-        ensureCacheFor(songs)
-        return groupTabCache.computeIfAbsent(key) {
+        trimCachesIfNeeded()
+        return groupTabCache.computeIfAbsent(listScopedKey(songs, key)) {
             compute().also { groups ->
                 for (g in groups) {
-                    groupByIdCache.putIfAbsent(g.browseId, g)
+                    groupByIdCache[g.browseId] = g
                 }
             }
         }
     }
 
-    internal fun peekCachedSortedSongs(songs: List<Song>, key: String): List<Song>? {
-        if (cachedSongsRef !== songs) return null
-        return sortedSongsCache[key]
+    internal fun peekCachedSortedTabGroups(
+        songs: List<Song>,
+        tabKey: String,
+        sort: LocalMusicSort,
+    ): List<LocalGroup>? =
+        sortedGroupTabCache[listScopedKey(songs, "$tabKey|${sort.name}")]
+
+    internal fun getOrComputeSortedTabGroups(
+        songs: List<Song>,
+        tabKey: String,
+        sort: LocalMusicSort,
+        alphabet: LocalAlphabet,
+        computeBase: () -> List<LocalGroup>,
+    ): List<LocalGroup> {
+        trimCachesIfNeeded()
+        return sortedGroupTabCache.computeIfAbsent(listScopedKey(songs, "$tabKey|${sort.name}")) {
+            val base = getOrComputeTabGroups(songs, tabKey, computeBase)
+            base.sortedLocalGroups(sort, alphabet)
+        }
     }
+
+    internal fun peekCachedSortedSongs(songs: List<Song>, key: String): List<Song>? =
+        sortedSongsCache[listScopedKey(songs, key)]
 
     internal fun getOrComputeSortedSongs(
         songs: List<Song>,
         key: String,
         compute: () -> List<Song>,
     ): List<Song> {
-        ensureCacheFor(songs)
-        return sortedSongsCache.computeIfAbsent(key) { compute() }
+        trimCachesIfNeeded()
+        return sortedSongsCache.computeIfAbsent(listScopedKey(songs, key)) { compute() }
     }
 
     private val DISC_DIR_REGEX = Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""")
