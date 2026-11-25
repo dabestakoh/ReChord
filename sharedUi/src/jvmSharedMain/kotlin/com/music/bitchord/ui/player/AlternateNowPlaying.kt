@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.onConsumedWindowInsetsChanged
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -99,6 +100,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
@@ -400,7 +402,14 @@ internal fun AlternateNowPlaying(
             }
             val playerSafeInsets = WindowInsets.navigationBars
                 .union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
-            Column(Modifier.fillMaxSize().then(if (preview) Modifier else Modifier.windowInsetsPadding(playerSafeInsets))) {
+            var inheritedInsets by remember { mutableStateOf(WindowInsets(0, 0, 0, 0)) }
+            Column(
+                Modifier.fillMaxSize().then(
+                    if (preview) Modifier else Modifier
+                        .onConsumedWindowInsetsChanged { inheritedInsets = it }
+                        .windowInsetsPadding(playerSafeInsets),
+                ),
+            ) {
                 BoxWithConstraints(Modifier.fillMaxSize().then(panelGestures)) {
                     val compact = maxHeight < 465.dp
                     val transportHeight = if (compact) 144.dp else 240.dp
@@ -521,16 +530,12 @@ internal fun AlternateNowPlaying(
                                 val narrowLandscape = stageMaxWidth < 680.dp
                                 val shortLandscape = stageMaxHeight < 420.dp
                                 val controlsSpacing = if (shortLandscape) 2.dp else 4.dp
-                                val leftWidth = if (vinyl) {
-                                    stageMaxWidth * if (narrowLandscape) 0.45f else 0.50f
-                                } else {
-                                    minOf(stageMaxHeight * 1.04f, stageMaxWidth * if (narrowLandscape) 0.42f else 0.46f)
-                                }
+                                val leftWidth = stageMaxWidth * if (narrowLandscape) 0.45f else 0.50f
                                 Box(
                                     Modifier
                                         .width(leftWidth)
                                         .fillMaxHeight()
-                                        .then(if (vinyl && !videoActive) Modifier else Modifier.clipToBounds())
+                                        .then(if (videoActive) Modifier.clipToBounds() else Modifier)
                                         .onGloballyPositioned { if (pane == PlayerPane.Main) onArtworkBand(it.boundsInRoot()) },
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -603,8 +608,14 @@ internal fun AlternateNowPlaying(
                                         }
                                     } else {
                                         val drag = onScrub.takeIf { canSeek && pane == PlayerPane.Main }
+                                        val layoutDirection = LocalLayoutDirection.current
+                                        val leftBleed = if (preview) 0 else (
+                                            playerSafeInsets.getLeft(density, layoutDirection) -
+                                                inheritedInsets.getLeft(density, layoutDirection)
+                                            ).coerceAtLeast(0)
                                         Box(Modifier.fillMaxSize().then(gesture).then(artHold)) {
                                             PosterArtworkSideways(
+                                                leftBleed = leftBleed,
                                                 shown = shown,
                                                 modifier = Modifier.fillMaxSize().onGloballyPositioned {
                                                     if (pane == PlayerPane.Main) reportArtwork(it)
@@ -1622,17 +1633,17 @@ internal fun PosterArtwork(
 private fun posterSidewaysRimPoint(size: Size, fraction: Float): Offset =
     Offset(size.width * 0.90f - size.width * 0.24f * fraction * fraction, size.height * fraction)
 
-private fun Path.addPosterSidewaysMask(bounds: Size, gutter: Float) {
-    val cover = Size((bounds.width - gutter).coerceAtLeast(1f), bounds.height)
-    val top = posterSidewaysRimPoint(cover, 0f).x
+private fun Path.addPosterSidewaysMask(bounds: Size, gutter: Float, leftBleed: Float = 0f) {
+    val cover = Size((bounds.width - gutter - leftBleed).coerceAtLeast(1f), bounds.height)
+    val top = leftBleed + posterSidewaysRimPoint(cover, 0f).x
     moveTo(0f, 0f)
     lineTo(top, 0f)
     cubicTo(
         top,
         cover.height / 3f,
-        cover.width * 0.90f - cover.width * 0.08f,
+        top - cover.width * 0.08f,
         cover.height * 2f / 3f,
-        posterSidewaysRimPoint(cover, 1f).x,
+        leftBleed + posterSidewaysRimPoint(cover, 1f).x,
         cover.height,
     )
     lineTo(0f, cover.height)
@@ -1675,6 +1686,7 @@ private class PosterSidewaysArc(size: Size, outward: Float, verticalInset: Float
 private fun PosterArtworkSideways(
     shown: () -> Float,
     modifier: Modifier,
+    leftBleed: Int,
     onScrub: ((Float) -> Unit)? = null,
     onFinish: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -1698,11 +1710,14 @@ private fun PosterArtworkSideways(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val gap = with(density) { 9.dp.toPx() }
     val gutter = with(density) { 42.dp.toPx() }
-    fun coverSize(size: Size) = Size((size.width - gutter).coerceAtLeast(1f), size.height)
+    val labelMargin = with(density) { 4.dp.toPx() }
+    val labelGap = gap * 0.55f
     fun seekArc(size: Size): PosterSidewaysArc {
-        val cover = coverSize(size)
-        val inset = (if (endpointLabel != null) endpointLabel.size.height + gap * 2.2f else cover.height * 0.08f)
-            .coerceIn(18f, cover.height * 0.22f)
+        val cover = Size((size.width - gutter).coerceAtLeast(1f), size.height)
+        val originalInset = (endpointLabel?.let { it.size.height + gap * 2.2f } ?: (cover.height * 0.08f))
+            .coerceAtLeast(18f).coerceAtMost(cover.height * 0.22f)
+        val labelClearance = (endpointLabel?.size?.height ?: 0) + labelMargin + labelGap
+        val inset = maxOf(originalInset, labelClearance).coerceAtMost(cover.height * 0.45f)
         return PosterSidewaysArc(cover, gap, inset)
     }
     val expanded = rememberPosterRimExpand(
@@ -1713,11 +1728,24 @@ private fun PosterArtworkSideways(
         reduced = reduced,
     )
     SideEffect { onSeekExpand(expanded) }
-    val mask = remember(gutter) {
-        androidx.compose.foundation.shape.GenericShape { bounds, _ -> addPosterSidewaysMask(bounds, gutter) }
+    val mask = remember(gutter, leftBleed) {
+        androidx.compose.foundation.shape.GenericShape { bounds, _ ->
+            addPosterSidewaysMask(bounds, gutter, leftBleed.toFloat())
+        }
     }
-    Box(modifier.clipToBounds()) {
-        Box(Modifier.fillMaxSize().clip(mask)) { coverLayers() }
+    Box(modifier) {
+        // The cover widens into the left inset while the seek arc and its hit target
+        // keep the original pane's coordinate system.
+        Box(
+            Modifier.fillMaxSize()
+                .layout { measurable, constraints ->
+                    val width = constraints.maxWidth
+                    val height = constraints.maxHeight
+                    val cover = measurable.measure(Constraints.fixed(width + leftBleed, height))
+                    layout(width, height) { cover.place(-leftBleed, 0) }
+                }
+                .clip(mask),
+        ) { coverLayers() }
         val rimGesture = Modifier.seekArtwork(
             shown, onScrub, onFinish, onCancel,
             accepts = { size, down, tolerance, _ ->
@@ -1730,7 +1758,7 @@ private fun PosterArtworkSideways(
             onDragging = { seeking = it },
         )
         Box(
-            Modifier.fillMaxSize().then(rimGesture)
+            Modifier.fillMaxSize().clipToBounds().then(rimGesture)
                 .artworkSeekControls(shown, durationMs, onScrub, onFinish)
                 .drawWithCache {
                     val arc = seekArc(size)
@@ -1762,17 +1790,36 @@ private fun PosterArtworkSideways(
                             val elapsed = measurer.measure(formatTime((durationMs * progress).toLong()), timeStyle)
                             val botPt = measure.getPosition(0f)
                             val topPt = measure.getPosition(measure.length)
-                            val botX = (botPt.x + gap * 0.35f).coerceIn(2f, (size.width - elapsed.size.width - 4f).coerceAtLeast(2f))
-                            val botY = (botPt.y + gap * 0.45f).coerceAtMost((size.height - elapsed.size.height - 6f).coerceAtLeast(2f))
-                            drawText(elapsed, color = timeColor, topLeft = Offset(botX, botY))
-                            val topX = (topPt.x + gap * 0.35f).coerceIn(2f, (size.width - endpointLabel.size.width - 4f).coerceAtLeast(2f))
-                            val topY = (topPt.y - endpointLabel.size.height - gap * 0.55f).coerceAtLeast(6f)
-                            drawText(endpointLabel, color = timeColor, topLeft = Offset(topX, topY))
+                            val bottomPosition = posterTimeLabelPosition(
+                                Offset(botPt.x + gap * 0.35f, botPt.y + labelGap),
+                                size, elapsed.size.width, elapsed.size.height, labelMargin,
+                            )
+                            val topPosition = posterTimeLabelPosition(
+                                Offset(topPt.x + gap * 0.35f, topPt.y - endpointLabel.size.height - labelGap),
+                                size, endpointLabel.size.width, endpointLabel.size.height, labelMargin,
+                            )
+                            drawText(elapsed, color = timeColor, topLeft = bottomPosition)
+                            drawText(endpointLabel, color = timeColor, topLeft = topPosition)
                         }
                     }
                 },
         )
     }
+}
+
+private fun posterTimeLabelPosition(
+    preferred: Offset,
+    bounds: Size,
+    labelWidth: Int,
+    labelHeight: Int,
+    margin: Float,
+): Offset {
+    val horizontalMargin = margin.coerceAtMost(((bounds.width - labelWidth) / 2).coerceAtLeast(0f))
+    val verticalMargin = margin.coerceAtMost(((bounds.height - labelHeight) / 2).coerceAtLeast(0f))
+    return Offset(
+        preferred.x.coerceIn(horizontalMargin, (bounds.width - labelWidth - horizontalMargin).coerceAtLeast(horizontalMargin)),
+        preferred.y.coerceIn(verticalMargin, (bounds.height - labelHeight - verticalMargin).coerceAtLeast(verticalMargin)),
+    )
 }
 
 internal fun Modifier.artworkSeekControls(
