@@ -3452,6 +3452,7 @@ private fun BitChordApp(
                                     state = localFolderStates.getOrPut(page.browseId) {
                                         LocalFolderState().apply {
                                             val preferences = context.getSharedPreferences("local_music_view", 0)
+                                            hiResOnly = preferences.getBoolean("hires:${page.browseId}", false)
                                             groupSorts = LocalFolderTab.entries.mapNotNull { group ->
                                                 val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
                                                 group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
@@ -6735,15 +6736,25 @@ private fun FolderMenuOverlay(
     val downloadsFolder = menuFolder == "local:downloads"
     val tab = folderState?.tab ?: LocalFolderTab.SONGS
     val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
-    val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
+    val groupState = folderState?.takeIf { !tab.isTrackList }
     val isConfiguredLocal = menuFolder == "local:all" &&
         localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED
+    val canFilterHiRes = folderState != null && tab != LocalFolderTab.HI_RES &&
+        (menuFolder == "local:all" || com.music.bitchord.data.LocalGroups.folderOf(menuFolder) == "local:all")
     FrostedFolderMenu(
         hazeState = hazeState,
         sort = recentState?.let {
             if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
         } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSort,
         sorts = tab.sortOptions,
+        hiResOnly = folderState?.hiResOnly == true,
+        onToggleHiResOnly = if (canFilterHiRes) ({
+            val next = !folderState.hiResOnly
+            folderState.hiResOnly = next
+            context.getSharedPreferences("local_music_view", 0).edit()
+                .putBoolean("hires:$menuFolder", next).apply()
+            onDismiss()
+        }) else null,
         onRefresh = if (isConfiguredLocal) ({
             onDismiss()
             viewModel.refreshLocalLibrary()
@@ -6791,6 +6802,8 @@ private fun FrostedFolderMenu(
     sort: LocalMusicSort,
     viewType: LibraryViewType,
     sorts: List<LocalMusicSort>,
+    hiResOnly: Boolean = false,
+    onToggleHiResOnly: (() -> Unit)? = null,
     onRefresh: (() -> Unit)?,
     onFullRescan: (() -> Unit)? = null,
     onManageFolders: (() -> Unit)? = null,
@@ -6807,6 +6820,13 @@ private fun FrostedFolderMenu(
             onClick = onToggleViewType,
             icon = if (grid) BitChordIcons.ListView else BitChordIcons.GridView,
         )
+        onToggleHiResOnly?.let { toggleHiRes ->
+            FrostedMenuRow(
+                label = stringResource(R.string.local_filter_hi_res_only),
+                checked = hiResOnly,
+                onClick = toggleHiRes,
+            )
+        }
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 4.dp),
             thickness = 0.5.dp,

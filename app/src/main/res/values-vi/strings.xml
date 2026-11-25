@@ -1616,4 +1616,7 @@
     <string name="local_all_files_prompt_message">Granting All files access lets ReChord edit tags and delete local audio files directly without a system prompt each time. You can also continue without it and approve each action.</string>
     <string name="local_all_files_open_settings">Open Settings</string>
     <string name="local_all_files_continue_prompt">Ask each time</string>
+    <string name="local_tab_hi_res">Hi-Res</string>
+    <string name="local_filter_hi_res_only">Chỉ Hi-Res</string>
+    <string name="no_hi_res_tracks">Không có bài hát Hi-Res nào ở đây</string>
 </resources>

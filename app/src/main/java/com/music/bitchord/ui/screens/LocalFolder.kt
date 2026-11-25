@@ -189,6 +189,7 @@ class LocalFolder(
 
 enum class LocalFolderTab {
     SONGS,
+    HI_RES,
     ALBUMS,
     ARTISTS,
     ALBUM_ARTISTS,
@@ -200,6 +201,9 @@ enum class LocalFolderTab {
     /** The device's own directories, as a file manager shows them. */
     FOLDERS,
     ;
+
+    val isTrackList: Boolean
+        get() = this == SONGS || this == HI_RES || this == RECENTLY_ADDED
 
     val sortOptions: List<LocalMusicSort>
         get() = when (this) {
@@ -213,7 +217,7 @@ enum class LocalFolderTab {
         val BASIC = listOf(SONGS, ARTISTS, ALBUMS)
 
         /** Local Music's: the whole device, so its playlists and directories too. */
-        val DEVICE = listOf(SONGS, ALBUMS, ARTISTS, ALBUM_ARTISTS, FOLDERS, PLAYLISTS, RECENTLY_ADDED)
+        val DEVICE = listOf(SONGS, HI_RES, ALBUMS, ARTISTS, ALBUM_ARTISTS, FOLDERS, PLAYLISTS, RECENTLY_ADDED)
     }
 }
 
@@ -228,6 +232,7 @@ enum class LocalFolderTab {
 @Stable
 class LocalFolderState {
     var tab by mutableStateOf(LocalFolderTab.SONGS)
+    var hiResOnly by mutableStateOf(false)
     var recentAlphabetical by mutableStateOf(false)
     var groupSorts by mutableStateOf<Map<LocalFolderTab, LocalMusicSort>>(emptyMap())
     var viewTypes by mutableStateOf<Map<LocalFolderTab, LibraryViewType>>(emptyMap())
@@ -292,13 +297,14 @@ fun rememberLocalFolderGroups(
     query: String,
 ): List<LocalGroup> {
     val singlesTitle = if (LocalGroups.isArtist(browseId)) stringResource(R.string.local_singles_other) else null
+    val hiResTag = if (folder.state.hiResOnly) "1" else "0"
     fun cacheKey(targetTab: LocalFolderTab): String =
-        "$browseId|${targetTab.name}|${folder.collections.size}|${folder.playlists.size}|${singlesTitle.orEmpty()}"
+        "$browseId|${targetTab.name}|$hiResTag|${folder.collections.size}|${folder.playlists.size}|${singlesTitle.orEmpty()}"
 
     fun computeUnfiltered(targetTab: LocalFolderTab): List<LocalGroup> =
         LocalGroups.getOrComputeTabGroups(songs, cacheKey(targetTab)) {
             when (targetTab) {
-                LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> emptyList()
+                LocalFolderTab.SONGS, LocalFolderTab.HI_RES, LocalFolderTab.RECENTLY_ADDED -> emptyList()
                 LocalFolderTab.ALBUM_ARTISTS -> LocalGroups.artistsOf(browseId, songs, albumArtists = true)
                 LocalFolderTab.ARTISTS -> LocalGroups.artistsOf(browseId, songs)
                 LocalFolderTab.ALBUMS -> LocalGroups.albumsOf(
@@ -307,40 +313,59 @@ fun rememberLocalFolderGroups(
                     folder.collections,
                     singlesTitle,
                 )
-                LocalFolderTab.PLAYLISTS -> folder.playlists.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                LocalFolderTab.PLAYLISTS -> {
+                    val base = if (folder.state.hiResOnly) {
+                        folder.playlists.mapNotNull { g ->
+                            val hiResSongs = g.songs.filter { it.sourceHiRes }
+                            if (hiResSongs.isEmpty()) null else g.copy(songs = hiResSongs)
+                        }
+                    } else {
+                        folder.playlists
+                    }
+                    base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+                }
                 LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, songs)
             }
         }
 
     // Lazily pre-warm the other tabs in the background so even the first tap is instant.
-    LaunchedEffect(browseId, songs, folder.collections, folder.playlists, singlesTitle) {
+    LaunchedEffect(browseId, songs, folder.collections, folder.playlists, singlesTitle, hiResTag) {
         if (songs.isEmpty()) return@LaunchedEffect
         withContext(Dispatchers.Default) {
             for (t in folder.tabs) {
-                if (t != LocalFolderTab.SONGS && t != LocalFolderTab.RECENTLY_ADDED) {
+                if (!t.isTrackList) {
                     computeUnfiltered(t)
                 }
             }
         }
     }
 
+    if (tab.isTrackList) return emptyList()
+
     val cachedForTab = LocalGroups.peekCachedTabGroups(songs, cacheKey(tab))
-    val state = produceState(
-        initialValue = if (cachedForTab != null && query.isBlank()) cachedForTab else emptyList(),
-        key1 = songs,
-        key2 = tab,
-        key3 = query,
-    ) {
-        if (tab == LocalFolderTab.SONGS || tab == LocalFolderTab.RECENTLY_ADDED) {
-            value = emptyList()
-            return@produceState
+        ?: if (songs.size <= 600) computeUnfiltered(tab) else null
+
+    val syncFiltered = remember(cachedForTab, query) {
+        when {
+            cachedForTab == null -> null
+            query.isBlank() -> cachedForTab
+            cachedForTab.size <= 400 -> cachedForTab.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                    it.subtitle.contains(query, ignoreCase = true)
+            }
+            else -> null
         }
-        val cached = LocalGroups.peekCachedTabGroups(songs, cacheKey(tab))
-        if (cached != null && query.isBlank()) {
-            value = cached
-            return@produceState
+    }
+
+    var asyncResult by remember(songs, tab, query, hiResTag) {
+        mutableStateOf<List<LocalGroup>?>(syncFiltered)
+    }
+    LaunchedEffect(songs, tab, query, hiResTag, syncFiltered) {
+        if (syncFiltered != null) {
+            asyncResult = syncFiltered
+            return@LaunchedEffect
         }
-        value = withContext(Dispatchers.Default) {
+        asyncResult = withContext(Dispatchers.Default) {
             val base = computeUnfiltered(tab)
             if (query.isBlank()) base else base.filter {
                 it.title.contains(query, ignoreCase = true) ||
@@ -348,7 +373,7 @@ fun rememberLocalFolderGroups(
             }
         }
     }
-    return state.value
+    return syncFiltered ?: asyncResult.orEmpty()
 }
 
 /**
@@ -373,6 +398,7 @@ internal fun LazyListScope.localFolderItems(
     isPlaying: Boolean,
     songKeys: List<String> = emptyList(),
     isCurrentSong: ((Song) -> Boolean)? = null,
+    onTabSelected: (LocalFolderTab) -> Unit = { state.tab = it },
     onSongClick: (List<Song>, Int) -> Unit,
     onSongLongPress: (Song) -> Unit,
     onSongSwipe: (Song) -> Unit,
@@ -395,7 +421,7 @@ internal fun LazyListScope.localFolderItems(
         SegmentedControl(
             options = tabs.map { it.label() },
             selectedIndex = tabs.indexOf(state.tab).coerceAtLeast(0),
-            onSelect = { state.tab = tabs[it] },
+            onSelect = { onTabSelected(tabs[it]) },
             modifier = Modifier.padding(start = PAGE_GUTTER, end = PAGE_GUTTER, bottom = 14.dp),
         )
     }
@@ -433,9 +459,9 @@ internal fun LazyListScope.localFolderItems(
         }
     }
 
-    val grid = folder.viewType == LibraryViewType.GRID
-    val empty = when (state.tab) {
-        LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> songs.isEmpty()
+    val grid = (state.viewTypes[state.tab] ?: folder.viewType) == LibraryViewType.GRID
+    val empty = when {
+        state.tab.isTrackList -> songs.isEmpty()
         else -> groups.isEmpty()
     }
     if (empty) {
@@ -444,6 +470,8 @@ internal fun LazyListScope.localFolderItems(
                 MessageState(
                     if (query.isNotBlank()) {
                         stringResource(R.string.nothing_matches, query)
+                    } else if (state.tab == LocalFolderTab.HI_RES || state.hiResOnly) {
+                        stringResource(R.string.no_hi_res_tracks)
                     } else if (state.tab == LocalFolderTab.ALBUMS) {
                         stringResource(R.string.no_local_albums)
                     } else if (state.tab == LocalFolderTab.FOLDERS) {
@@ -474,7 +502,7 @@ internal fun LazyListScope.localFolderItems(
 
     val isCurrentRow = isCurrentSong ?: playingRowMatcher(songs, currentSong)
     when (state.tab) {
-        LocalFolderTab.SONGS, LocalFolderTab.RECENTLY_ADDED -> if (grid) {
+        LocalFolderTab.SONGS, LocalFolderTab.HI_RES, LocalFolderTab.RECENTLY_ADDED -> if (grid) {
             gridRows(songs.indices.toList(), columns, indexGutter, key = { "song-${songs[it].videoId}-$it" }) { index ->
                 val song = songs[index]
                 SongGridCard(
@@ -562,6 +590,7 @@ internal fun LazyListScope.localFolderItems(
 internal fun LocalFolderTab.label(): String = stringResource(
     when (this) {
         LocalFolderTab.SONGS -> R.string.songs
+        LocalFolderTab.HI_RES -> R.string.local_tab_hi_res
         LocalFolderTab.ARTISTS -> R.string.artists
         LocalFolderTab.ALBUMS -> R.string.albums
         LocalFolderTab.PLAYLISTS -> R.string.playlists

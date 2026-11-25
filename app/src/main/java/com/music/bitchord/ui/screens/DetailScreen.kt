@@ -73,7 +73,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -419,11 +421,15 @@ fun DetailScreen(
         if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
     } else folder?.sort
     val groupSort = folder?.state?.let { it.groupSorts[it.tab] } ?: LocalMusicSort.TITLE_ASC
-    val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
-    val recentSongs = remember(rawSongs, recent) {
-        if (recent) recentlyAddedTracks(rawSongs) else rawSongs
+    val hiResActive = folder?.state?.let { it.tab == LocalFolderTab.HI_RES || it.hiResOnly } == true
+    val filteredRawSongs = remember(rawSongs, hiResActive) {
+        if (hiResActive) rawSongs.filter { it.sourceHiRes } else rawSongs
     }
-    val sortCacheKey = "${page.browseId}|${folderSort?.name}|${songSort.name}|$recent|${locale.toLanguageTag()}"
+    val recent = folder?.state?.tab == LocalFolderTab.RECENTLY_ADDED
+    val recentSongs = remember(filteredRawSongs, recent) {
+        if (recent) recentlyAddedTracks(filteredRawSongs) else filteredRawSongs
+    }
+    val sortCacheKey = "${page.browseId}|${folderSort?.name}|${songSort.name}|$recent|$hiResActive|${locale.toLanguageTag()}"
     fun computeSorted(): List<Song> = LocalGroups.getOrComputeSortedSongs(recentSongs, sortCacheKey) {
         val ascending = folderSort == LocalMusicSort.TITLE_ASC || (folderSort == null && songSort == SongSort.TITLE_ASC)
         val descending = folderSort == LocalMusicSort.TITLE_DESC || (folderSort == null && songSort == SongSort.TITLE_DESC)
@@ -434,18 +440,16 @@ fun DetailScreen(
         else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
     }
     val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
-    val songs by produceState(
-        initialValue = cachedSorted ?: if (recentSongs.size <= 400) computeSorted() else recentSongs,
-        key1 = recentSongs,
-        key2 = sortCacheKey,
-    ) {
-        val hit = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
-        value = hit ?: if (recentSongs.size > 400) {
-            withContext(Dispatchers.Default) { computeSorted() }
-        } else {
-            computeSorted()
+        ?: if (recentSongs.size <= 400) computeSorted() else null
+    var asyncSorted by remember(recentSongs, sortCacheKey) { mutableStateOf<List<Song>?>(cachedSorted) }
+    LaunchedEffect(recentSongs, sortCacheKey, cachedSorted) {
+        if (cachedSorted != null) {
+            asyncSorted = cachedSorted
+            return@LaunchedEffect
         }
+        asyncSorted = withContext(Dispatchers.Default) { computeSorted() }
     }
+    val songs = cachedSorted ?: asyncSorted ?: recentSongs
     val scanProgress = if (folder?.onRefreshIndex != null) {
         com.music.bitchord.data.LocalLibraryIndex.progress.collectAsStateWithLifecycle().value
     } else com.music.bitchord.data.LocalLibraryIndex.ScanProgress()
@@ -591,22 +595,30 @@ fun DetailScreen(
     // first while it is on.
     val folderState = folder?.state
     val rawFolderGroups = if (folder != null && folderState != null) {
-        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, rawSongs, effectiveQuery)
+        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, filteredRawSongs, effectiveQuery)
     } else {
         emptyList()
     }
-    val folderGroups by produceState(
-        initialValue = rawFolderGroups,
-        key1 = rawFolderGroups,
-        key2 = groupAlphabet,
-        key3 = groupSort,
-    ) {
-        value = if (rawFolderGroups.size > 150) {
-            withContext(Dispatchers.Default) { rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet) }
+    val syncSortedGroups = remember(rawFolderGroups, groupAlphabet, groupSort) {
+        if (rawFolderGroups.size <= 300) {
+            rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
         } else {
+            null
+        }
+    }
+    var asyncSortedGroups by remember(folderState?.tab, rawFolderGroups, groupAlphabet, groupSort) {
+        mutableStateOf<List<com.music.bitchord.data.LocalGroup>?>(syncSortedGroups)
+    }
+    LaunchedEffect(folderState?.tab, rawFolderGroups, groupAlphabet, groupSort, syncSortedGroups) {
+        if (syncSortedGroups != null) {
+            asyncSortedGroups = syncSortedGroups
+            return@LaunchedEffect
+        }
+        asyncSortedGroups = withContext(Dispatchers.Default) {
             rawFolderGroups.sortedLocalGroups(groupSort, groupAlphabet)
         }
     }
+    val folderGroups = syncSortedGroups ?: asyncSortedGroups ?: rawFolderGroups
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
 
     // What marks a row as already downloaded, tinted from the sleeve like the
@@ -692,7 +704,7 @@ fun DetailScreen(
                 // A folder's grid view: the same column count the Library's
                 // "Show all" grids reach at this width.
                 val tab = folderState?.tab
-                val grouped = tab != null && tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED
+                val grouped = tab != null && !tab.isTrackList
                 val titleSort = if (grouped) groupSort else folderSort
                 val alphabetic = titleSort == LocalMusicSort.TITLE_ASC || titleSort == LocalMusicSort.TITLE_DESC ||
                     (titleSort == null && songSort in setOf(SongSort.TITLE_ASC, SongSort.TITLE_DESC))
@@ -706,11 +718,30 @@ fun DetailScreen(
                 }
                 val sections = baseLetterOffsets.size
                 var letterPreview by remember(page.browseId, tab) { mutableStateOf<String?>(null) }
-                val scrollable by remember(listState) {
-                    derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
-                }
-                val gutter = if (localPage && scrollable && sections > 1 && !isArtist && reorder == null) 32.dp else 0.dp
+                // Reserve the 32.dp right gutter at all times whenever the list has an
+                // alphabetical index (> 1 section), so rows and grid cards never shift
+                // horizontally when the A-Z rail fades in as the user starts scrolling.
+                val gutter = if (localPage && sections > 1 && !isArtist && reorder == null) 32.dp else 0.dp
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
+                val tabScrollScope = rememberCoroutineScope()
+                val onSelectFolderTab: (LocalFolderTab) -> Unit = { nextTab ->
+                    if (folderState != null) {
+                        val sameTab = folderState.tab == nextTab
+                        folderState.tab = nextTab
+                        if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                            tabScrollScope.launch {
+                                if (sameTab) {
+                                    if (listState.firstVisibleItemIndex > 12) {
+                                        listState.scrollToItem(12)
+                                    }
+                                    listState.animateScrollToItem(0)
+                                } else {
+                                    listState.scrollToItem(0)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // The artist photo is drawn behind the list rather than in it, so
                 // both need to agree on its height without being able to ask each
@@ -877,6 +908,7 @@ fun DetailScreen(
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
                         onSongSwipe = onSongSwipe,
@@ -899,6 +931,7 @@ fun DetailScreen(
                         palette = palette,
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
                         onSongSwipe = onSongSwipe,
@@ -921,6 +954,7 @@ fun DetailScreen(
                         isPlaying = isPlaying,
                         songKeys = localSongKeys,
                         isCurrentSong = currentQueueRow,
+                        onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,
                         onSongLongPress = onSongLongPress,
                         onSongSwipe = onSongSwipe,
@@ -1106,6 +1140,11 @@ fun DetailScreen(
                         }
                     }
                 }
+                val showLetterIndex by remember(listState, showStickyTabs) {
+                    derivedStateOf {
+                        showStickyTabs || listState.firstVisibleItemIndex > 0
+                    }
+                }
 
                 if (gutter > 0.dp) {
                     val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
@@ -1116,7 +1155,8 @@ fun DetailScreen(
                             ) 1 else 0) +
                         (if (folder?.onManageFolders != null) 1 else 0) +
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0)
-                    val columns = (if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1).coerceAtLeast(1)
+                    val activeViewType = folderState?.let { it.viewTypes[it.tab] } ?: folder?.viewType
+                    val columns = (if (activeViewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1).coerceAtLeast(1)
                     val positions = remember(baseLetterOffsets, start, columns) {
                         baseLetterOffsets.mapValues { (_, rawIdx) -> start + rawIdx / columns }
                     }
@@ -1128,6 +1168,7 @@ fun DetailScreen(
                         firstRowIndex = start,
                         topInset = topBarContentPadding() + pinnedHeaderExtra,
                         bottomInset = contentPadding.calculateBottomPadding(),
+                        visible = showLetterIndex,
                         floatingBarsHeightPx = floatingBarsHeightPx,
                         onPreview = { letterPreview = it },
                         modifier = Modifier
@@ -1166,7 +1207,7 @@ fun DetailScreen(
                         SegmentedControl(
                             options = folder.tabs.map { it.label() },
                             selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
-                            onSelect = { folderState.tab = folder.tabs[it] },
+                            onSelect = { onSelectFolderTab(folder.tabs[it]) },
                             modifier = Modifier.padding(
                                 horizontal = PAGE_GUTTER,
                                 vertical = if (isCompactLandscape) 4.dp else 8.dp,
