@@ -123,7 +123,10 @@ internal fun LocalLetterIndex(
             .graphicsLayer { alpha = railAlpha }
             .layout { measurable, constraints ->
                 val measuredBarsPx = floatingBarsHeightPx()
-                val effectiveBottomInsetPx = if (measuredBarsPx > 0) {
+                val effectiveBottomInsetPx = if (measuredBarsPx < 0) {
+                    // Bars are beside the rail, not under it: run to the bottom edge.
+                    bottomClearancePx * 3
+                } else if (measuredBarsPx > 0) {
                     measuredBarsPx + bottomClearancePx
                 } else {
                     fallbackBottomInsetPx

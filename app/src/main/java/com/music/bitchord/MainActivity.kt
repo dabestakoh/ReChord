@@ -3717,7 +3717,9 @@ private fun BitChordApp(
                                 songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
-                                floatingBarsHeightPx = { floatingBarsHeight.intValue },
+                                // Landscape: the bars sit in the middle with free strips either
+                                // side, so the A–Z rail ignores them (-1) and runs to the bottom.
+                                floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(
@@ -4624,7 +4626,7 @@ private fun BitChordApp(
                         )
                     }
                 } else {
-                    val sideBySideChrome = windowWidth >= 700.dp && windowHeight < 500.dp && player.song != null
+                    val sideBySideChrome = landscapeChrome(windowWidth, windowHeight) && player.song != null
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -4632,7 +4634,7 @@ private fun BitChordApp(
                             // — see [FLOATING_BAR_MAX_WIDTH]. On wide, short landscape
                             // screens (e.g. car head-units), widen the cap so tabs and
                             // mini-player sit side-by-side in one compact row.
-                            .widthIn(max = if (sideBySideChrome) 880.dp else FLOATING_BAR_MAX_WIDTH)
+                            .widthIn(max = chromeMaxWidth(sideBySideChrome, windowWidth))
                             .fillMaxWidth()
                             .onSizeChanged { floatingBarsHeight.intValue = it.height },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -7121,3 +7123,15 @@ private suspend fun LazyListState.scrollToTopEased() {
 
 /** Safely converts a nullable Float to non-null, defaulting to 0f for null. */
 private fun Float?.orZero(): Float = this ?: 0f
+
+
+/** Landscape windows (DAP, car head units) put the menu and Now Playing side by side. */
+private fun landscapeChrome(width: Dp, height: Dp): Boolean = width >= 560.dp && width > height
+
+/** Bar row width, leaving free edge strips for the A–Z rail when side by side. */
+private fun chromeMaxWidth(sideBySide: Boolean, width: Dp): Dp =
+    if (sideBySide) 880.dp.coerceAtMost(width - 96.dp) else FLOATING_BAR_MAX_WIDTH
+
+/** -1 tells the A–Z rail the bars are beside it, so it can run to the bottom. */
+private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
+    if (landscapeChrome(width, height)) -1 else measured

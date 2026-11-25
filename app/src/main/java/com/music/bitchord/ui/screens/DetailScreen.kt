@@ -1179,7 +1179,7 @@ fun DetailScreen(
                         onPreview = { letterPreview = it },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(end = 6.dp)
+                            .padding(end = if (maxWidth > maxHeight) 8.dp else 6.dp)
                             .width(24.dp),
                     )
                 }
