@@ -377,6 +377,7 @@ fun DetailScreen(
      * [LocalFolder].
      */
     folder: LocalFolder? = null,
+    floatingBarsHeightPx: () -> Int = { 0 },
     /**
      * Set while this playlist's songs are being rearranged: drawn in place of
      * the track list, over the same page colour, and handed the page's
@@ -687,6 +688,7 @@ fun DetailScreen(
                 val artHeight = (maxWidth / ARTIST_PHOTO_RATIO).coerceAtMost(maxHeight * 0.6f)
                 val sleeveSize = (maxWidth * SLEEVE_FRACTION).coerceAtMost(maxHeight * SLEEVE_MAX_HEIGHT)
                 val fullBleedSleeve = fullBleedArtwork && maxWidth <= maxHeight * FULL_BLEED_MAX_HEIGHT
+                val isCompactLandscape = maxWidth > maxHeight && maxHeight < 480.dp
                 // A folder's grid view: the same column count the Library's
                 // "Show all" grids reach at this width.
                 val tab = folderState?.tab
@@ -745,6 +747,7 @@ fun DetailScreen(
                         sleeveSize = sleeveSize,
                         fullBleed = fullBleedSleeve,
                         showSleeve = page.browseId != "local:all" && !localArtistPage,
+                        compactLandscape = isCompactLandscape && localPage,
                         localArtistPhoto = localArtistPhoto,
                         artistAlbumCount = if (localArtistPage && !searching) {
                             folderGroups.count { it.songs.firstOrNull()?.albumName != null }
@@ -1117,13 +1120,15 @@ fun DetailScreen(
                     val positions = remember(baseLetterOffsets, start, columns) {
                         baseLetterOffsets.mapValues { (_, rawIdx) -> start + rawIdx / columns }
                     }
-                    val pinnedHeaderExtra = if (showStickyTabs || folderState?.selecting == true) 56.dp else 0.dp
+                    val pinnedBarHeight = if (isCompactLandscape) 48.dp else 56.dp
+                    val pinnedHeaderExtra = if (showStickyTabs || folderState?.selecting == true) pinnedBarHeight else 0.dp
                     LocalLetterIndex(
                         positions = positions,
                         list = listState,
                         firstRowIndex = start,
                         topInset = topBarContentPadding() + pinnedHeaderExtra,
                         bottomInset = contentPadding.calculateBottomPadding(),
+                        floatingBarsHeightPx = floatingBarsHeightPx,
                         onPreview = { letterPreview = it },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -1162,7 +1167,10 @@ fun DetailScreen(
                             options = folder.tabs.map { it.label() },
                             selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
                             onSelect = { folderState.tab = folder.tabs[it] },
-                            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                            modifier = Modifier.padding(
+                                horizontal = PAGE_GUTTER,
+                                vertical = if (isCompactLandscape) 4.dp else 8.dp,
+                            ),
                         )
                         HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
                     }
@@ -1229,6 +1237,7 @@ private fun ReleaseHeader(
     onToggleLibrary: (() -> Unit)?,
     /** The Cached songs folder's: saves every track on it to Downloads. Null hides it. */
     onDownloadAll: (() -> Unit)? = null,
+    compactLandscape: Boolean = false,
 ) {
     val (credit, details) = page.headerLines(songs.size, songs.playtime())
     val meta = artistAlbumCount?.let { count ->
@@ -1244,11 +1253,119 @@ private fun ReleaseHeader(
     // to the page's width it would only tint the top of the screen.
     val bleed = showSleeve && fullBleed && page.thumbnailUrl != null && !artFailed
 
+    if (compactLandscape && showSleeve && page.browseId.startsWith("local:")) {
+        val sideSleeveSize = 96.dp
+        val buttonSize = 42.dp
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    top = topBarContentPadding(),
+                    start = HEADER_GUTTER,
+                    end = HEADER_GUTTER,
+                    bottom = 12.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(sideSleeveSize)
+                    .shadow(10.dp, SLEEVE_SHAPE)
+                    .background(palette.elevated)
+                    .thumbnailBorder(SLEEVE_SHAPE),
+            ) {
+                if (page.thumbnailUrl == null || artFailed) {
+                    CoverPlaceholder(
+                        icon = page.placeholderIcon(),
+                        base = palette.elevated,
+                        tint = palette.onBackgroundVariant,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
+                AsyncImage(
+                    model = page.thumbnailUrl.artworkAt(HEADER_ART_PX),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    onState = { artFailed = it is AsyncImagePainter.State.Error },
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = page.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (credit.isNotBlank()) {
+                    Text(
+                        text = credit,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (songs.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(RELEASE_ACTION_GAP),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ActionPill(
+                            icon = BitChordIcons.Play,
+                            label = stringResource(R.string.play),
+                            onClick = onPlay,
+                            filled = true,
+                            size = buttonSize,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ActionPill(
+                            icon = BitChordIcons.Shuffle,
+                            label = stringResource(R.string.shuffle),
+                            onClick = onShuffle,
+                            filled = false,
+                            size = buttonSize,
+                            modifier = Modifier.weight(1f),
+                        )
+                        onDownloadAll?.let {
+                            CircleIconButton(
+                                icon = Icons.Rounded.Download,
+                                contentDescription = stringResource(R.string.download_all),
+                                onClick = it,
+                                size = buttonSize,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    val actionButtonSize = if (compactLandscape) 42.dp else RELEASE_SIDE_BUTTON
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             // Clear of the floating bar, which only a full-bleed sleeve runs under.
-            .padding(top = if (bleed) 0.dp else topBarContentPadding(), bottom = 18.dp),
+            .padding(
+                top = if (bleed) 0.dp else topBarContentPadding(),
+                bottom = if (compactLandscape) 10.dp else 18.dp,
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (bleed) {
@@ -1356,16 +1473,16 @@ private fun ReleaseHeader(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 onState = { artFailed = it is AsyncImagePainter.State.Error },
-                modifier = Modifier.size(64.dp).clip(CircleShape),
+                modifier = Modifier.size(if (compactLandscape) 48.dp else 64.dp).clip(CircleShape),
             )
         }
-        Spacer(Modifier.height(if (showSleeve) 20.dp else 8.dp))
+        Spacer(Modifier.height(if (showSleeve) 20.dp else if (compactLandscape) 4.dp else 8.dp))
         Text(
             text = page.title,
-            style = MaterialTheme.typography.headlineMedium,
+            style = if (compactLandscape) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
             color = palette.onBackground,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = if (compactLandscape) 1 else 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = HEADER_GUTTER),
         )
@@ -1375,7 +1492,7 @@ private fun ReleaseHeader(
                 text = credit,
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Normal,
-                    fontSize = 19.sp,
+                    fontSize = if (compactLandscape) 15.sp else 19.sp,
                 ),
                 color = palette.onBackgroundVariant,
                 textAlign = TextAlign.Center,
@@ -1395,7 +1512,7 @@ private fun ReleaseHeader(
             )
         }
         if (meta.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(if (compactLandscape) 2.dp else 4.dp))
             Text(
                 text = meta,
                 style = MaterialTheme.typography.labelMedium,
@@ -1411,7 +1528,7 @@ private fun ReleaseHeader(
             // Only where YouTube said the release can be saved and the caller
             // is willing to take the write — see [onToggleLibrary].
             val library = page.library?.takeIf { onToggleLibrary != null }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(if (compactLandscape) 10.dp else 18.dp))
             Row(
                 modifier = Modifier
                     .widthIn(max = RELEASE_ACTIONS_MAX_WIDTH)
@@ -1430,7 +1547,7 @@ private fun ReleaseHeader(
                         label = stringResource(R.string.play),
                         onClick = onPlay,
                         filled = true,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         modifier = Modifier.weight(1f),
                     )
                     ActionPill(
@@ -1438,7 +1555,7 @@ private fun ReleaseHeader(
                         label = stringResource(R.string.shuffle),
                         onClick = onShuffle,
                         filled = false,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         modifier = Modifier.weight(1f),
                     )
                     // The song cache's copies, saved to Downloads in one go —
@@ -1448,7 +1565,7 @@ private fun ReleaseHeader(
                             icon = Icons.Rounded.Download,
                             contentDescription = stringResource(R.string.download_all),
                             onClick = it,
-                            size = RELEASE_SIDE_BUTTON,
+                            size = actionButtonSize,
                         )
                     }
                     return@Row
@@ -1458,14 +1575,14 @@ private fun ReleaseHeader(
                     contentDescription = stringResource(R.string.shuffle),
                     onClick = onShuffle,
                     haptic = Haptic.Resume,
-                    size = RELEASE_SIDE_BUTTON,
+                    size = actionButtonSize,
                 )
                 ActionPill(
                     icon = BitChordIcons.Play,
                     label = stringResource(R.string.play),
                     onClick = onPlay,
                     filled = true,
-                    size = RELEASE_SIDE_BUTTON,
+                    size = actionButtonSize,
                     modifier = Modifier.weight(1f),
                 )
                 if (library != null) {
@@ -1480,7 +1597,7 @@ private fun ReleaseHeader(
                         },
                         onClick = { onToggleLibrary?.invoke() },
                         haptic = if (library.saved) Haptic.ToggleOff else Haptic.ToggleOn,
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                     )
                 } else {
                     // Shown but greyed out for a guest, rather than leaving a
@@ -1489,7 +1606,7 @@ private fun ReleaseHeader(
                         icon = BitChordIcons.Plus,
                         contentDescription = stringResource(R.string.add_to_library),
                         onClick = {},
-                        size = RELEASE_SIDE_BUTTON,
+                        size = actionButtonSize,
                         enabled = false,
                     )
                 }

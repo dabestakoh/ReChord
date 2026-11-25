@@ -3123,6 +3123,7 @@ private fun BitChordApp(
                 .snapshotBackdropSource(pageBackdrop, floor = MaterialTheme.colorScheme.background),
         ) {
             Box(Modifier.weight(1f).fillMaxHeight()) {
+                val floatingBarsHeight = remember { mutableIntStateOf(0) }
                 // Reuse the captured nav glass while the destination crossfades.
                 // Only the glass surface is frozen; navigation and playback remain live.
                 LaunchedEffect(visibleEntry?.id, detail?.browseId, selectedTab) {
@@ -3715,6 +3716,7 @@ private fun BitChordApp(
                                 songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
+                                floatingBarsHeightPx = { floatingBarsHeight.intValue },
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(
@@ -4538,7 +4540,6 @@ private fun BitChordApp(
 
                 // Whichever bar is drawing reports its height here, for the
                 // guard to read at layout — never in composition, see the guard.
-                val floatingBarsHeight = remember { mutableIntStateOf(0) }
                 FloatingBarsTapGuard(
                     barsHeight = { floatingBarsHeight.intValue },
                     modifier = Modifier.align(Alignment.BottomCenter),

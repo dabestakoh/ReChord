@@ -264,38 +264,83 @@ internal fun LocalTagEditorDialog(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedTextField(
-                            value = title,
-                            onValueChange = { title = it },
-                            label = { Text(stringResource(R.string.local_edit_tags_field_title)) },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = artist,
-                            onValueChange = { artist = it },
-                            label = { Text(stringResource(R.string.local_edit_tags_field_artist)) },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = album,
-                            onValueChange = { album = it },
-                            label = { Text(stringResource(R.string.local_edit_tags_field_album)) },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = albumArtist,
-                            onValueChange = { albumArtist = it },
-                            label = { Text(stringResource(R.string.local_edit_tags_field_album_artist)) },
-                            singleLine = true,
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        if (isLandscape) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = title,
+                                    onValueChange = { title = it },
+                                    label = { Text(stringResource(R.string.local_edit_tags_field_title)) },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                OutlinedTextField(
+                                    value = artist,
+                                    onValueChange = { artist = it },
+                                    label = { Text(stringResource(R.string.local_edit_tags_field_artist)) },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = album,
+                                    onValueChange = { album = it },
+                                    label = { Text(stringResource(R.string.local_edit_tags_field_album)) },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                OutlinedTextField(
+                                    value = albumArtist,
+                                    onValueChange = { albumArtist = it },
+                                    label = { Text(stringResource(R.string.local_edit_tags_field_album_artist)) },
+                                    singleLine = true,
+                                    colors = fieldColors,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { title = it },
+                                label = { Text(stringResource(R.string.local_edit_tags_field_title)) },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = artist,
+                                onValueChange = { artist = it },
+                                label = { Text(stringResource(R.string.local_edit_tags_field_artist)) },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = album,
+                                onValueChange = { album = it },
+                                label = { Text(stringResource(R.string.local_edit_tags_field_album)) },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = albumArtist,
+                                onValueChange = { albumArtist = it },
+                                label = { Text(stringResource(R.string.local_edit_tags_field_album_artist)) },
+                                singleLine = true,
+                                colors = fieldColors,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
