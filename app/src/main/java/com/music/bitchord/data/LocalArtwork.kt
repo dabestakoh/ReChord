@@ -31,7 +31,14 @@ import okio.FileSystem
 import okio.buffer
 import okio.source
 
+internal fun localArtworkRevisionToken(
+    modifiedMs: Long,
+    sizeBytes: Long,
+    sidecarSignatures: List<String>,
+): String = "r2:$modifiedMs:$sizeBytes:${sidecarSignatures.joinToString()}"
+
 internal object LocalArtwork {
+    internal const val REVISION_VERSION = 2
     private const val PREFIX = "localcover:"
     private const val MAX_BYTES = 16 * 1024 * 1024
     internal val coverBaseNames = listOf("cover", "folder", "album")
@@ -97,11 +104,34 @@ internal object LocalArtwork {
     }
 
     fun decorateOne(song: Song, sidecars: List<SidecarCover>): Song {
+        return decorateOne(song, sidecars, mediaRevision = null)
+    }
+
+    internal fun artworkRevisionToken(
+        modifiedMs: Long,
+        sizeBytes: Long,
+        sidecars: List<SidecarCover>,
+    ): String = localArtworkRevisionToken(modifiedMs, sizeBytes, sidecars.map { it.signature })
+
+    fun decorateOne(
+        song: Song,
+        sidecars: List<SidecarCover>,
+        mediaRevision: FileRevisionToken?,
+    ): Song {
         val media = song.localUri ?: return song
         val embedded = if (song.localPath != null) "embedded:$media|path:${song.localPath}" else "embedded:$media"
         val sidecarSources = sidecars.map { it.source }
         val fallback = song.thumbnailUrl?.takeUnless { it.startsWith(PREFIX) }
-        val revision = "${song.localDateModifiedSeconds}:${sidecars.joinToString { it.signature }}"
+        val localFile = song.localPath?.let(::File)
+        val revision = mediaRevision?.let {
+            artworkRevisionToken(it.modifiedMs, it.sizeBytes, sidecars)
+        } ?: artworkRevisionToken(
+            modifiedMs = localFile?.let { runCatching { it.lastModified() }.getOrDefault(0L) }
+                ?.takeIf { it > 0L }
+                ?: (song.localDateModifiedSeconds ?: 0L) * 1_000L,
+            sizeBytes = localFile?.let { runCatching { it.length() }.getOrDefault(0L) } ?: 0L,
+            sidecars = sidecars,
+        )
         fun url(vararg sources: String?) = PREFIX +
             (listOf(revision) + sources.filterNotNull()).joinToString("|") { Uri.encode(it) }
         return song.copy(
@@ -109,6 +139,8 @@ internal object LocalArtwork {
             localAlbumArtwork = url(*sidecarSources.toTypedArray(), embedded, fallback),
         )
     }
+
+    data class FileRevisionToken(val modifiedMs: Long, val sizeBytes: Long)
 
     fun scanDirectoryCovers(directory: File): List<SidecarCover> = runCatching {
         if (!directory.isDirectory || !directory.canRead()) return emptyList()

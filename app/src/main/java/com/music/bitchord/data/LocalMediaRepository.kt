@@ -595,7 +595,11 @@ object LocalMediaRepository {
             localFormat = formatLabel,
             localFileSizeBytes = item.sizeBytes.takeIf { it > 0L },
         )
-        return LocalArtwork.decorateOne(baseSong, item.sidecarCovers)
+        return LocalArtwork.decorateOne(
+            song = baseSong,
+            sidecars = item.sidecarCovers,
+            mediaRevision = LocalArtwork.FileRevisionToken(item.lastModifiedMs, item.sizeBytes),
+        )
     }
 
     /**

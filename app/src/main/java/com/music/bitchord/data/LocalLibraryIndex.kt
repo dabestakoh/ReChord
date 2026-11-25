@@ -3,6 +3,7 @@ package com.music.bitchord.data
 import android.content.Context
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.FileObserver
 import android.util.Log
 import android.provider.MediaStore
 import android.util.AtomicFile
@@ -32,6 +33,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -64,6 +68,7 @@ internal object LocalLibraryIndex {
         val lastModifiedMs: Long = 0L,
         val sizeBytes: Long = 0L,
         val coverSignature: String = "",
+        val artworkRevisionVersion: Int = 0,
     )
 
     @Serializable
@@ -452,11 +457,83 @@ internal object LocalLibraryIndex {
         }
         val audio = observer(RefreshReason.AUDIO_CHANGED)
         val images = observer(RefreshReason.IMAGE_CHANGED)
+        val files = observer(RefreshReason.IMAGE_CHANGED)
         runCatching { resolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, audio) }
         runCatching { resolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, images) }
+        runCatching { resolver.registerContentObserver(MediaStore.Files.getContentUri("external"), true, files) }
+
+        val dynamicLock = Any()
+        val treeObservers = mutableListOf<ContentObserver>()
+        val directoryObservers = mutableListOf<FileObserver>()
+
+        fun stopTreeObservers() = synchronized(dynamicLock) {
+            treeObservers.forEach { runCatching { resolver.unregisterContentObserver(it) } }
+            treeObservers.clear()
+        }
+
+        fun stopDirectoryObservers() = synchronized(dynamicLock) {
+            directoryObservers.forEach { runCatching { it.stopWatching() } }
+            directoryObservers.clear()
+        }
+
+        val treeWatcherJob = launch(Dispatchers.IO) {
+            AppSettings.localMusicFolders
+                .map { folders -> folders.filter { it.isTreeUri }.map { it.id }.distinct().sorted() }
+                .distinctUntilChanged()
+                .collect { treeUris ->
+                    stopTreeObservers()
+                    synchronized(dynamicLock) {
+                        treeUris.forEach { rawUri ->
+                            val treeObserver = observer(RefreshReason.IMAGE_CHANGED)
+                            val registered = runCatching {
+                                resolver.registerContentObserver(Uri.parse(rawUri), true, treeObserver)
+                                true
+                            }.getOrDefault(false)
+                            if (registered) treeObservers += treeObserver
+                        }
+                    }
+                }
+        }
+
+        val directoryWatcherJob = launch(Dispatchers.IO) {
+            songs.map { indexedSongs ->
+                indexedSongs.mapNotNull { it.localPath?.let(::File)?.parentFile?.path }
+                    .distinct()
+                    .sorted()
+            }.distinctUntilChanged().collect { directories ->
+                stopDirectoryObservers()
+                synchronized(dynamicLock) {
+                    directories.forEach { directoryPath ->
+                        runCatching {
+                            object : FileObserver(
+                                directoryPath,
+                                FileObserver.CREATE or FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or
+                                    FileObserver.DELETE or FileObserver.MOVED_FROM or FileObserver.ATTRIB or
+                                    FileObserver.DELETE_SELF or FileObserver.MOVE_SELF,
+                            ) {
+                                override fun onEvent(event: Int, path: String?) {
+                                    val baseEvent = event and FileObserver.ALL_EVENTS
+                                    val selfEvent = baseEvent == FileObserver.DELETE_SELF ||
+                                        baseEvent == FileObserver.MOVE_SELF
+                                    if (selfEvent || (path != null && LocalArtwork.isCoverFileName(path))) {
+                                        val uri = path?.let { Uri.fromFile(File(directoryPath, it)) }
+                                        trySend(MediaChange(RefreshReason.IMAGE_CHANGED, uri))
+                                    }
+                                }
+                            }.also { it.startWatching() }
+                        }.getOrNull()?.let { watcher -> directoryObservers += watcher }
+                    }
+                }
+            }
+        }
         awaitClose {
-            resolver.unregisterContentObserver(audio)
-            resolver.unregisterContentObserver(images)
+            treeWatcherJob.cancel()
+            directoryWatcherJob.cancel()
+            stopTreeObservers()
+            stopDirectoryObservers()
+            runCatching { resolver.unregisterContentObserver(audio) }
+            runCatching { resolver.unregisterContentObserver(images) }
+            runCatching { resolver.unregisterContentObserver(files) }
         }
     }
 
@@ -734,12 +811,14 @@ internal object LocalLibraryIndex {
             return dirCovers.computeIfAbsent(path) { LocalArtwork.scanDirectoryCovers(File(it)) }
         }
 
-        if (isSilentCheck && sameSource && total == oldEntries.size + previouslyRejected.size &&
+        if (isSilentCheck && RefreshReason.AUDIO_CHANGED !in reasons && sameSource &&
+            total == oldEntries.size + previouslyRejected.size &&
             discovery.files.all { item ->
                 ensureGeneration()
                 val prior = priorByUri[item.uri]
                 if (prior == null) previouslyRejected[item.uri] == item.revision
                 else prior.lastModifiedMs == item.lastModifiedMs &&
+                    prior.artworkRevisionVersion == LocalArtwork.REVISION_VERSION &&
                     (item.isMediaStore || prior.sizeBytes == item.sizeBytes) &&
                     (!checkExistingCovers || prior.coverSignature == sidecarsFor(item).joinToString(",") { it.signature })
             }
@@ -869,18 +948,22 @@ internal object LocalLibraryIndex {
                             if (idx >= total) break
                             val item = discovery.files[idx]
                             val prior = priorByUri[item.uri]
-                            val reuseCover = !checkExistingCovers && prior != null &&
+                            val sizeBytes = if (item.sizeBytes >= 0L) {
+                                item.sizeBytes
+                            } else {
+                                item.path?.let { path ->
+                                    runCatching { File(path).length() }.getOrDefault(0L).takeIf { it > 0L }
+                                } ?: prior?.sizeBytes ?: 0L
+                            }
+                            val revisionUnchanged = prior != null &&
                                 prior.lastModifiedMs == item.lastModifiedMs &&
-                                (item.isMediaStore || prior.sizeBytes == item.sizeBytes)
+                                prior.sizeBytes == sizeBytes
+                            val reuseCover = !checkExistingCovers && revisionUnchanged &&
+                                prior?.artworkRevisionVersion == LocalArtwork.REVISION_VERSION
                             val sidecars = if (reuseCover) emptyList() else sidecarsFor(item)
                             val coverSig = if (reuseCover) checkNotNull(prior).coverSignature
                                 else sidecars.joinToString(",") { it.signature }
                             var confidentlyRejected = false
-                            val sizeBytes = if (item.sizeBytes >= 0L) {
-                                item.sizeBytes
-                            } else {
-                                prior?.sizeBytes ?: item.path?.let { runCatching { File(it).length() }.getOrDefault(0L) } ?: 0L
-                            }
 
                             val entry: CachedEntry? = if (prior == null && !forceFull &&
                                 previouslyRejected[item.uri] == item.revision
@@ -890,24 +973,34 @@ internal object LocalLibraryIndex {
                             } else if (
                                 !forceFull &&
                                 prior != null &&
-                                prior.lastModifiedMs == item.lastModifiedMs &&
-                                (item.isMediaStore || prior.sizeBytes == sizeBytes)
+                                revisionUnchanged
                             ) {
-                                if (prior.coverSignature == coverSig) {
+                                if (prior.coverSignature == coverSig &&
+                                    prior.artworkRevisionVersion == LocalArtwork.REVISION_VERSION
+                                ) {
                                     prior
                                 } else {
-                                    // Sidecar cover.jpg changed without touching audio file: re-decorate only.
+                                    // Sidecar cover.jpg changed, or an older index needs the stronger artwork key.
                                     CachedEntry(
-                                        song = LocalArtwork.decorateOne(prior.song, sidecars),
+                                        song = LocalArtwork.decorateOne(
+                                            song = checkNotNull(prior).song,
+                                            sidecars = sidecars,
+                                            mediaRevision = LocalArtwork.FileRevisionToken(item.lastModifiedMs, sizeBytes),
+                                        ),
                                         lastModifiedMs = item.lastModifiedMs,
                                         sizeBytes = sizeBytes,
                                         coverSignature = coverSig,
+                                        artworkRevisionVersion = LocalArtwork.REVISION_VERSION,
                                     )
                                 }
                             } else {
                                 val parsed = if (item.isMediaStore && item.mediaStoreSong != null) {
                                     val enriched = LocalMediaRepository.enrichMediaStoreSpecs(item.mediaStoreSong, sizeBytes)
-                                    LocalArtwork.decorateOne(enriched, sidecars)
+                                    LocalArtwork.decorateOne(
+                                        song = enriched,
+                                        sidecars = sidecars,
+                                        mediaRevision = LocalArtwork.FileRevisionToken(item.lastModifiedMs, sizeBytes),
+                                    )
                                 } else {
                                     newlyParsedCounter.incrementAndGet()
                                     LocalMediaRepository.indexDiscoveredFile(
@@ -930,6 +1023,7 @@ internal object LocalLibraryIndex {
                                         lastModifiedMs = item.lastModifiedMs,
                                         sizeBytes = sizeBytes,
                                         coverSignature = coverSig,
+                                        artworkRevisionVersion = LocalArtwork.REVISION_VERSION,
                                     )
                                 }
                             }
