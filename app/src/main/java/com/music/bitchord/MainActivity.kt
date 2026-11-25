@@ -137,7 +137,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import kotlinx.coroutines.flow.collectLatest
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.music.bitchord.auth.DiscordLoginScreen
 import com.music.bitchord.auth.SpotifyLoginScreen
@@ -410,6 +409,7 @@ import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import java.util.Locale
 
 /** A full first screen of a native YouTube Music radio before AutoPlay tops it up. */
@@ -1049,9 +1049,8 @@ private fun BitChordApp(
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) {
-        com.music.bitchord.data.LocalLibraryIndex.changes(context).collectLatest {
-            kotlinx.coroutines.delay(500)
-            viewModel.refreshLocalLibraryIfConfigured()
+        com.music.bitchord.data.LocalLibraryIndex.changes(context).collect { change ->
+            com.music.bitchord.data.LocalLibraryIndex.refreshIfConfigured(context, change.reason, change.uri)
         }
     }
     val selectedChannelName by viewModel.selectedChannelName.collectAsStateWithLifecycle()

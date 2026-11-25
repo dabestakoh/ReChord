@@ -474,6 +474,7 @@ object LocalMediaRepository {
         videoIdByUri: Map<String, String>,
         filterNonMusic: Boolean,
         minDurationMs: Long,
+        onRejected: () -> Unit = {},
     ): Song? {
         item.mediaStoreSong?.let { return it }
 
@@ -508,7 +509,7 @@ object LocalMediaRepository {
             fastTags == null ||
             (title == null && artist == null && albumName == null && durationMs <= 0L)
 
-        if (needsFallback) {
+        val metadataReadable = if (needsFallback) {
             runCatching {
                 val retriever = MediaMetadataRetriever()
                 try {
@@ -542,10 +543,13 @@ object LocalMediaRepository {
                 } finally {
                     retriever.release()
                 }
-            }
-        }
+            }.isSuccess
+        } else true
 
-        if (hasVideo) return null
+        if (hasVideo) {
+            onRejected()
+            return null
+        }
         if (!isEligibleLocalMusic(
                 durationMs = durationMs,
                 displayName = item.displayName,
@@ -554,7 +558,10 @@ object LocalMediaRepository {
                 filterNonMusic = filterNonMusic,
                 hasVideo = false,
             )
-        ) return null
+        ) {
+            if (metadataReadable) onRejected()
+            return null
+        }
 
         val resolvedTitle = title?.removeAudioExtension()
             ?: item.displayName.substringBeforeLast('.').takeIf { it.isNotBlank() }

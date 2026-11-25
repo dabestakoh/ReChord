@@ -23,6 +23,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import okio.FileSystem
@@ -43,6 +45,8 @@ internal object LocalArtwork {
 
     @Volatile private var sharedDiskCache: DiskCache? = null
     private val cacheLock = Any()
+    private val missingCovers = android.util.LruCache<String, Long>(512)
+    private const val MISSING_COVER_TTL_MS = 60_000L
 
     private fun thumbnailCache(context: Context): DiskCache {
         sharedDiskCache?.let { return it }
@@ -128,19 +132,31 @@ internal object LocalArtwork {
         synchronized(cacheLock) {
             runCatching { sharedDiskCache?.clear() }
             sharedDiskCache = null
-        }
-        runCatching {
-            File(context.cacheDir, THUMB_CACHE_DIR).deleteRecursively()
-        }
-        runCatching {
-            File(context.cacheDir, "embedded_art").deleteRecursively()
+            missingCovers.evictAll()
+            runCatching { File(context.cacheDir, THUMB_CACHE_DIR).deleteRecursively() }
+            runCatching { File(context.cacheDir, "embedded_art").deleteRecursively() }
         }
     }
+
+    private fun knownMissing(url: String): Boolean =
+        (missingCovers.get(url) ?: 0L) > android.os.SystemClock.elapsedRealtime()
 
     private const val MAX_IDLE_THUMBNAILS = 96
     private const val PREWARM_BATCH = 12
     private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val thumbnailLocks = Array(32) { Mutex() }
     @Volatile private var userScrollingUntilMs: Long = 0L
+
+    private fun thumbnailLock(url: String): Mutex =
+        thumbnailLocks[(url.hashCode() and Int.MAX_VALUE) % thumbnailLocks.size]
+
+    internal fun warmKeys(songs: List<Song>): List<String> = songs.asSequence()
+        .flatMap { sequenceOf(it.localAlbumArtwork, it.thumbnailUrl) }
+        .filterNotNull()
+        .filter { it.startsWith(PREFIX) }
+        .distinct()
+        .take(MAX_IDLE_THUMBNAILS)
+        .toList()
 
     /** Pauses background thumbnail pre-warming while the user is actively scrolling Local Music. */
     fun notifyUserScrolling(durationMs: Long = 350L) {
@@ -169,56 +185,77 @@ internal object LocalArtwork {
     /** Warm a bounded set of covers after a scan. The visible rows load their own covers on demand. */
     suspend fun prewarmThumbnails(
         context: Context,
-        songs: List<Song>,
+        keys: List<String>,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ) = withContext(prewarmDispatcher) {
+    ): Boolean = withContext(prewarmDispatcher) {
+        if (keys.isEmpty()) return@withContext true
         val lifecycle = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
-        if (!canWarmArtwork(context)) return@withContext
-        val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext
-        val urls = songs.asSequence()
-            .flatMap { sequenceOf(it.thumbnailUrl, it.localAlbumArtwork) }
-            .filterNotNull()
-            .filter { it.startsWith(PREFIX) }
-            .distinct()
-            .take(MAX_IDLE_THUMBNAILS)
-            .toList()
-        if (urls.isEmpty()) return@withContext
+        if (!canWarmArtwork(context)) return@withContext false
 
-        for ((index, url) in urls.withIndex()) {
-            yield()
-            if (index > 0 && index % PREWARM_BATCH == 0) delay(200L)
+        suspend fun awaitIdle() {
             do {
                 lifecycle.first { it.isAtLeast(Lifecycle.State.STARTED) }
                 val remaining = userScrollingUntilMs - android.os.SystemClock.elapsedRealtime()
                 if (remaining > 0) delay(remaining)
             } while (userScrollingUntilMs > android.os.SystemClock.elapsedRealtime() ||
                 !lifecycle.value.isAtLeast(Lifecycle.State.STARTED))
-            if (index % PREWARM_BATCH == 0 && !canWarmArtwork(context)) return@withContext
-            if (!runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)) {
-                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
-                    .firstNotNullOfOrNull { encoded ->
-                        read(context, Uri.decode(encoded))?.let { decodeCover(it, thumbnail = true) }
-                    }
-                if (bytes != null) saveThumbnail(cache, url, bytes)
-            }
-            val done = index + 1
-            if (done == urls.size || done % PREWARM_BATCH == 0) onProgress(done, urls.size)
         }
-    }
 
-    private fun saveThumbnail(cache: DiskCache, url: String, bytes: ByteArray) {
-        runCatching {
-            cache.openEditor(url)?.let { editor ->
-                try {
-                    cache.fileSystem.write(editor.metadata) {}
-                    cache.fileSystem.write(editor.data) { write(bytes) }
-                    editor.commit()
-                } catch (error: Exception) {
-                    editor.abort()
-                    throw error
+        awaitIdle()
+        val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext false
+        val missing = keys.filter { !knownMissing(it) && thumbnailIsMissing(cache, it) }
+        if (missing.isEmpty()) return@withContext true
+        onProgress(0, missing.size)
+        var complete = true
+        for ((index, url) in missing.withIndex()) {
+            yield()
+            if (index > 0 && index % PREWARM_BATCH == 0) delay(200L)
+            awaitIdle()
+            if (index % PREWARM_BATCH == 0 && !canWarmArtwork(context)) return@withContext false
+            thumbnailLock(url).withLock {
+                if (!knownMissing(url) && thumbnailIsMissing(cache, url)) {
+                    val bytes = decodeArtwork(context, url, cache)
+                    val handled = if (bytes != null) saveThumbnail(cache, url, bytes) else knownMissing(url)
+                    complete = complete && handled
                 }
             }
+            val done = index + 1
+            if (done == missing.size || done % PREWARM_BATCH == 0) onProgress(done, missing.size)
         }
+        complete
+    }
+
+    private fun thumbnailIsMissing(cache: DiskCache, url: String): Boolean =
+        runCatching { cache.openSnapshot(url)?.use { false } ?: true }.getOrDefault(false)
+
+    private fun cachedThumbnail(cache: DiskCache, url: String): SourceFetchResult? =
+        runCatching { cache.openSnapshot(url) }.getOrNull()?.let { snapshot ->
+            SourceFetchResult(
+                source = ImageSource(
+                    file = snapshot.data,
+                    fileSystem = cache.fileSystem,
+                    diskCacheKey = url,
+                    closeable = snapshot,
+                ),
+                mimeType = null,
+                dataSource = DataSource.DISK,
+            )
+        }
+
+    private fun saveThumbnail(cache: DiskCache, url: String, bytes: ByteArray): Boolean = synchronized(cacheLock) {
+        if (cache !== sharedDiskCache) return@synchronized false
+        runCatching {
+            val editor = cache.openEditor(url) ?: return@runCatching !thumbnailIsMissing(cache, url)
+            try {
+                cache.fileSystem.write(editor.metadata) {}
+                cache.fileSystem.write(editor.data) { write(bytes) }
+                editor.commit()
+                true
+            } catch (error: Exception) {
+                editor.abort()
+                throw error
+            }
+        }.getOrDefault(false)
     }
 
     class Factory(private val context: Context) : Fetcher.Factory<coil3.Uri> {
@@ -232,52 +269,51 @@ internal object LocalArtwork {
                     val height = options.size.height as? Dimension.Pixels
                     val small = width != null && height != null && width.px <= THUMB_FETCH_MAX_PX && height.px <= THUMB_FETCH_MAX_PX
                     if (small) {
-                        val snapshot = runCatching { thumbnails.openSnapshot(url) }.getOrNull()
-                        if (snapshot != null) {
-                            return SourceFetchResult(
-                                source = ImageSource(
-                                    file = snapshot.data,
-                                    fileSystem = thumbnails.fileSystem,
-                                    diskCacheKey = url,
-                                    closeable = snapshot,
-                                ),
-                                mimeType = null,
-                                dataSource = DataSource.DISK,
-                            )
-                        }
+                        cachedThumbnail(thumbnails, url)?.let { return it }
                     }
                     return withContext(artworkDispatcher) {
                         if (small) {
-                            val snapshot = runCatching { thumbnails.openSnapshot(url) }.getOrNull()
-                            if (snapshot != null) {
-                                return@withContext SourceFetchResult(
-                                    source = ImageSource(
-                                        file = snapshot.data,
-                                        fileSystem = thumbnails.fileSystem,
-                                        diskCacheKey = url,
-                                        closeable = snapshot,
-                                    ),
-                                    mimeType = null,
-                                    dataSource = DataSource.DISK,
-                                )
+                            thumbnailLock(url).withLock {
+                                cachedThumbnail(thumbnails, url) ?: readArtwork(options.context, url, thumbnails)
                             }
+                        } else {
+                            readArtwork(options.context, url)
                         }
-                        val bytes = url.removePrefix(PREFIX).split('|').drop(1)
-                            .firstNotNullOfOrNull { encoded ->
-                                read(options.context, Uri.decode(encoded))?.let { image ->
-                                    decodeCover(image, small)
-                                }
-                            } ?: error("No readable local cover")
-                        if (small) saveThumbnail(thumbnails, url, bytes)
-                        SourceFetchResult(
-                            source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
-                            mimeType = null,
-                            dataSource = DataSource.DISK,
-                        )
                     }
                 }
             }
         }
+    }
+
+    private fun decodeArtwork(context: Context, url: String, thumbnails: DiskCache?): ByteArray? {
+        if (thumbnails != null && knownMissing(url)) return null
+        var confirmedAbsent = true
+        val sources = url.removePrefix(PREFIX).split('|').drop(1)
+        for (encoded in sources) {
+            val source = Uri.decode(encoded)
+            val result = runCatching { read(context, source) }
+            val bytes = result.getOrNull()
+            if (result.isFailure || bytes != null) confirmedAbsent = false
+            if (bytes != null) decodeCover(bytes, thumbnails != null)?.let { return it }
+        }
+        if (confirmedAbsent && thumbnails != null && sources.isNotEmpty()) {
+            synchronized(cacheLock) {
+                if (thumbnails === sharedDiskCache) {
+                    missingCovers.put(url, android.os.SystemClock.elapsedRealtime() + MISSING_COVER_TTL_MS)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun readArtwork(context: Context, url: String, thumbnails: DiskCache? = null): SourceFetchResult {
+        val bytes = decodeArtwork(context, url, thumbnails) ?: error("No readable local cover")
+        if (thumbnails != null) saveThumbnail(thumbnails, url, bytes)
+        return SourceFetchResult(
+            source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
+            mimeType = null,
+            dataSource = DataSource.DISK,
+        )
     }
 
     private fun decodeCover(bytes: ByteArray, thumbnail: Boolean): ByteArray? {
@@ -308,38 +344,40 @@ internal object LocalArtwork {
         }
     }
 
-    private fun read(context: Context, source: String): ByteArray? = runCatching {
-        when {
-            source.startsWith("embedded:") -> {
-                val raw = source.removePrefix("embedded:")
-                val mediaUri = raw.substringBefore("|path:")
-                val filePath = raw.substringAfter("|path:", "").takeIf { it.isNotBlank() }
-                // Fast pure-Kotlin binary extraction for FLAC/MP3 avoids MediaMetadataRetriever IPC.
-                val fastPicture = when {
-                    filePath != null -> FastAudioTagReader.readEmbeddedPictureFile(File(filePath), MAX_BYTES)
-                    mediaUri.startsWith("file://") -> Uri.parse(mediaUri).path?.let {
-                        FastAudioTagReader.readEmbeddedPictureFile(File(it), MAX_BYTES)
-                    }
-                    else -> null
+    private fun read(context: Context, source: String): ByteArray? = when {
+        source.startsWith("embedded:") -> {
+            val raw = source.removePrefix("embedded:")
+            val mediaUri = raw.substringBefore("|path:")
+            val filePath = raw.substringAfter("|path:", "").takeIf { it.isNotBlank() }
+            // Fast pure-Kotlin binary extraction for FLAC/MP3 avoids MediaMetadataRetriever IPC.
+            val fastPicture = when {
+                filePath != null -> FastAudioTagReader.readEmbeddedPictureFile(File(filePath), MAX_BYTES)
+                mediaUri.startsWith("file://") -> Uri.parse(mediaUri).path?.let {
+                    FastAudioTagReader.readEmbeddedPictureFile(File(it), MAX_BYTES)
                 }
-                if (fastPicture != null && fastPicture.isNotEmpty()) {
-                    fastPicture
-                } else {
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(context, Uri.parse(mediaUri))
-                        retriever.embeddedPicture?.takeIf { it.size <= MAX_BYTES }
-                    } finally {
-                        retriever.release()
-                    }
-                }
+                else -> null
             }
-            source.startsWith("file:") -> File(source.removePrefix("file:")).takeIf { it.length() in 1..MAX_BYTES.toLong() }?.readBytes()
-            else -> context.contentResolver.openInputStream(Uri.parse(source))?.use { stream ->
-                stream.source().buffer().use { input ->
-                    if (input.request(MAX_BYTES.toLong() + 1)) null else input.readByteArray()
+            if (fastPicture != null && fastPicture.isNotEmpty()) {
+                fastPicture
+            } else {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, Uri.parse(mediaUri))
+                    retriever.embeddedPicture?.takeIf { it.size <= MAX_BYTES }
+                } finally {
+                    retriever.release()
                 }
             }
         }
-    }.getOrNull()
+        source.startsWith("file:") -> {
+            val file = File(source.removePrefix("file:"))
+            if (!file.isFile || !file.canRead()) throw java.io.IOException("Artwork file is unavailable")
+            file.takeIf { it.length() in 1..MAX_BYTES.toLong() }?.readBytes()
+        }
+        else -> checkNotNull(context.contentResolver.openInputStream(Uri.parse(source))).use { stream ->
+            stream.source().buffer().use { input ->
+                if (input.request(MAX_BYTES.toLong() + 1)) null else input.readByteArray()
+            }
+        }
+    }
 }
