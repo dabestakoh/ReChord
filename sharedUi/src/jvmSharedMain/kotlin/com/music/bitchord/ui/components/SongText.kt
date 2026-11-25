@@ -38,13 +38,13 @@ import androidx.compose.ui.unit.sp
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.ui.graphics.fadingEdges
 
-fun Modifier.thumbnailBorder(shape: Shape): Modifier = composed {
+@Composable
+fun Modifier.thumbnailBorder(shape: Shape): Modifier =
     this.border(
         width = 1.dp,
-        color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f),
-        shape = shape
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+        shape = shape,
     )
-}
 
 /**
  * A song title with the catalogue-standard explicit badge before it, so the

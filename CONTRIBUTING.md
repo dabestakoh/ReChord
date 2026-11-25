@@ -1,6 +1,6 @@
 # Contributing to ReChord
 
-ReChord is a fork of BitChord. See the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) for coding, UI, playback, and release guidance. See [AGENTS.md](AGENTS.md) for agent instructions.
+ReChord is a fork of BitChord. See the [ReChord engineering standards](docs/RECHORD-STANDARDS.md) for coding, UI, playback, and release guidance, [docs/UPSTREAM-SYNC-POLICY.md](docs/UPSTREAM-SYNC-POLICY.md) for intentionally omitted upstream features and precedence rules, and [AGENTS.md](AGENTS.md) for agent instructions.
 
 ## Proposing Contributions
 - Substantial features, refactors, or UI redesigns should normally be discussed before implementation. Open an issue on GitHub to outline your proposal.

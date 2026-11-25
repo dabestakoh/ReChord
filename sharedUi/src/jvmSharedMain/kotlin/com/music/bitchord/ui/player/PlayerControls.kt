@@ -729,18 +729,25 @@ internal fun PlayerActionRow(
     onToggleAutoplay: () -> Unit,
     onOpenOutput: () -> Unit,
     showModesInActionRow: Boolean = true,
+    compactToFit: Boolean = false,
 ) {
     // Just the output glyph in the middle.
     val showModes = queueOpen && showModesInActionRow
     val compact = !showModes
     BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val segmentWidth = if (compactToFit) {
+            ((maxWidth - BOTTOM_ACTION_SIZE * 2 - 2.dp) / 3)
+                .coerceIn(BOTTOM_ACTION_SIZE, PILL_SEGMENT_WIDTH)
+        } else {
+            PILL_SEGMENT_WIDTH
+        }
         // Sized for the wider of the two capsules — the three-up one — whether
         // that or the output one is up, so the lyrics and queue glyphs
         // hold still as they swap. A lone output glyph is spaced as though the
         // two-up capsule held it — closer in, without crowding — and they part
         // again as the queue opens to make room.
-        val edgeInset = ((maxWidth - BOTTOM_ACTION_SIZE * 2 - pillWidth(3)) / 4).coerceAtLeast(0.dp)
-        val compactInset = ((maxWidth - BOTTOM_ACTION_SIZE * 2 - pillWidth(2)) / 4).coerceAtLeast(0.dp)
+        val edgeInset = ((maxWidth - BOTTOM_ACTION_SIZE * 2 - pillWidth(3, segmentWidth)) / 4).coerceAtLeast(0.dp)
+        val compactInset = ((maxWidth - BOTTOM_ACTION_SIZE * 2 - pillWidth(2, segmentWidth)) / 4).coerceAtLeast(0.dp)
         val closeIn = compactInset - edgeInset
         // Held as State and read only in the glyphs' placement, so the slide
         // re-places two glyphs a frame rather than recomposing and remeasuring
@@ -786,6 +793,7 @@ internal fun PlayerActionRow(
                     PlayerQueueModes(
                         shuffleEnabled, repeatMode, autoplayEnabled,
                         onToggleShuffle, onCycleRepeat, onToggleAutoplay,
+                        segmentWidth = segmentWidth,
                     )
                 } else {
                     val output = rememberOutputGlyph()
@@ -822,9 +830,11 @@ internal fun PlayerQueueModes(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onToggleAutoplay: () -> Unit,
+    segmentWidth: Dp = PILL_SEGMENT_WIDTH,
 ) {
     Pill {
         PillSegment(
+            width = segmentWidth,
             icon = BitChordIcons.Shuffle,
             contentDescription = stringResource(
                 if (shuffleEnabled) Res.string.shuffle_on else Res.string.shuffle_off,
@@ -836,6 +846,7 @@ internal fun PlayerQueueModes(
         )
         PillDivider()
         PillSegment(
+            width = segmentWidth,
             icon = if (repeatMode == RepeatModes.ONE) null else BitChordIcons.Repeat,
             label = if (repeatMode == RepeatModes.ONE) "1" else null,
             contentDescription = when (repeatMode) {
@@ -857,6 +868,7 @@ internal fun PlayerQueueModes(
         )
         PillDivider()
         PillSegment(
+            width = segmentWidth,
             icon = BitChordIcons.Infinity,
             contentDescription = stringResource(
                 if (autoplayEnabled) Res.string.autoplay_on else Res.string.autoplay_off,
@@ -1142,8 +1154,8 @@ private val PILL_OUTPUT_BUDS_SIZE = 29.dp
 private val PILL_ICON_SIZE = 24.dp
 
 /** How wide a capsule of [segments] comes out, dividers included. */
-private fun pillWidth(segments: Int): Dp =
-    PILL_SEGMENT_WIDTH * segments + 1.dp * (segments - 1)
+private fun pillWidth(segments: Int, segmentWidth: Dp = PILL_SEGMENT_WIDTH): Dp =
+    segmentWidth * segments + 1.dp * (segments - 1)
 
 /**
  * A row of controls joined into one capsule.

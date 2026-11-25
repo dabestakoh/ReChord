@@ -20,7 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -101,6 +104,16 @@ internal val NAV_BAR_LIFT = 6.dp
  */
 internal val floatingBarInsets: WindowInsets
     @Composable get() = WindowInsets.navigationBars.union(WindowInsets(bottom = GESTURE_BAR_FLOOR))
+
+/**
+ * Left and right safe-area insets for landscape windows: Android's side
+ * navigation bar (3-button or gesture) plus any camera punch-hole / display
+ * cutout. Zero in portrait, so portrait layouts are untouched to the pixel.
+ */
+internal val horizontalSafeInsets: WindowInsets
+    @Composable get() = WindowInsets.navigationBars
+        .union(WindowInsets.displayCutout)
+        .only(WindowInsetsSides.Horizontal)
 
 /** A gesture bar's inset — 45px at the test phone's 3x density. */
 private val GESTURE_BAR_FLOOR = 15.dp

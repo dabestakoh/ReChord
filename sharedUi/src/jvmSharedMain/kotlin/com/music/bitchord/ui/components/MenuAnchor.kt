@@ -87,16 +87,19 @@ fun Modifier.leftOutOfHeldPicture(): Modifier {
             // Only read while a hold is being captured, and only the held
             // row's own button is inside what it covers.
             val capturing = LongPressOrigin.capturing
-            if (capturing != null && position.center?.let(capturing::contains) == true) {
+            val center = if (capturing != null) {
+                position.coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.center
+            } else null
+            if (capturing != null && center != null && capturing.contains(center)) {
                 layout(0, placeable.height) {}
             } else {
                 layout(placeable.width, placeable.height) { placeable.place(0, 0) }
             }
         }
-        // Kept from the last time it was placed: while collapsed it isn't.
-        .onPlaced { position.center = it.boundsInWindow().center }
+        // Kept by reference so scrolling rows pay zero boundsInWindow() math per frame.
+        .onPlaced { position.coordinates = it }
 }
 
 private class HeldPosition {
-    var center: Offset? = null
+    var coordinates: LayoutCoordinates? = null
 }

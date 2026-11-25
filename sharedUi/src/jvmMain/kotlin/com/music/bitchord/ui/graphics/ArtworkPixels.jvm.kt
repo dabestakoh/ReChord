@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import coil3.Image
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import coil3.toBitmap
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
@@ -14,6 +15,8 @@ import java.nio.ByteOrder
 
 // Skia bitmaps are always CPU-readable.
 actual fun ImageRequest.Builder.forPixelAccess(): ImageRequest.Builder = this
+
+actual fun ImageRequest.Builder.forCompactThumbnail(): ImageRequest.Builder = crossfade(false)
 
 actual fun Image.toImageBitmap(): ImageBitmap = toBitmap().asComposeImageBitmap()
 

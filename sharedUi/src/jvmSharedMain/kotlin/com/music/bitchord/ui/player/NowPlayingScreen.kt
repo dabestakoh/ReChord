@@ -55,9 +55,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -2039,7 +2043,7 @@ fun NowPlayingScreen(
         { haptics.play(Haptic.Select); open() }
     }
     val layoutHold = Modifier.openLayoutOnHold(openLayoutPicker)
-    val playerActions: @Composable (Boolean) -> Unit = { keepModeControlsInPane ->
+    val playerActions: @Composable (Boolean) -> Unit = { compactToFit ->
         PlayerActionRow(
             lyricsOpen = lyricsOpen,
             queueOpen = queueOpen,
@@ -2052,7 +2056,7 @@ fun NowPlayingScreen(
             onCycleRepeat = onCycleRepeat,
             onToggleAutoplay = onToggleAutoplay,
             onOpenOutput = openAudioOutput,
-            showModesInActionRow = !keepModeControlsInPane,
+            compactToFit = compactToFit,
         )
         if (!(sideways && !fullscreenInPlace)) {
             Spacer(Modifier.height(if (compactPortrait) 8.dp else 18.dp))
@@ -2662,7 +2666,7 @@ fun NowPlayingScreen(
                         { VolumeRow({ volume.level.value }, onVolumeChange, onVolumeChangeFinished) }
                     },
                     quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
-                    actions = { playerActions(false) },
+                    actions = playerActions,
                     landscape = sideways,
                     onToggleRotate = onToggleRotate,
                     videoAspect = videoAspectState.value,
@@ -3393,6 +3397,7 @@ fun NowPlayingScreen(
                         .fillMaxSize()
                         .windowInsetsPadding(stableStatusBarInsets())
                         .navigationBarsPadding()
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
                         // Observe unclaimed taps across the whole Canvas. Buttons and
                         // the compact metadata row consume their own taps first; empty
                         // video above or below them toggles the lower deck either way.

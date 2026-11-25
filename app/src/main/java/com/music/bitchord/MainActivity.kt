@@ -503,13 +503,23 @@ class MainActivity : AppCompatActivity() {
                 // longer exists and a page squeezed to a sliver to pay for it.
                 // A measured constraint cannot be stale — it is the very width
                 // the split is about to be laid out in.
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    BitChordApp(
-                        darkTheme = darkTheme,
-                        windowWidth = maxWidth,
-                        windowHeight = maxHeight,
-                        appBackdrop = appBackdrop,
-                    )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(windowBackground),
+                ) {
+                    BoxWithConstraints(
+                        Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(com.music.bitchord.ui.components.horizontalSafeInsets),
+                    ) {
+                        BitChordApp(
+                            darkTheme = darkTheme,
+                            windowWidth = maxWidth,
+                            windowHeight = maxHeight,
+                            appBackdrop = appBackdrop,
+                        )
+                    }
                 }
                 }
             }
@@ -832,7 +842,7 @@ private fun BitChordApp(
     var creatingPlaylist by remember { mutableStateOf(false) }
     // The same two, over the device's own playlists — for a track that is a
     // file on it, and for "New playlist" on Local Music's Playlists tab.
-    var offlinePlaylistTarget by remember { mutableStateOf<Song?>(null) }
+    var offlinePlaylistTarget by remember { mutableStateOf<List<Song>>(emptyList()) }
     var creatingOfflinePlaylist by remember { mutableStateOf(false) }
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
     // Which album or playlist the collection menu is open on, or null when it
@@ -1028,14 +1038,10 @@ private fun BitChordApp(
         }
     }
     val account by viewModel.account.collectAsStateWithLifecycle()
-    LifecycleResumeEffect(viewModel) {
-        viewModel.refreshLocalLibrary()
-        onPauseOrDispose { }
-    }
     LaunchedEffect(viewModel) {
         com.music.bitchord.data.LocalLibraryIndex.changes(context).collectLatest {
             kotlinx.coroutines.delay(500)
-            viewModel.refreshLocalLibrary()
+            viewModel.refreshLocalLibraryIfConfigured()
         }
     }
     val selectedChannelName by viewModel.selectedChannelName.collectAsStateWithLifecycle()
@@ -1083,8 +1089,11 @@ private fun BitChordApp(
     val folderSortOf: (String) -> LocalMusicSort = { id ->
         if (id == "local:downloads") downloadedMusicSort else localMusicSort
     }
+    val localFolderStates = remember { mutableMapOf<String, LocalFolderState>() }
     val folderViewTypeOf: (String) -> LibraryViewType = { id ->
-        if (id == "local:downloads") downloadedMusicViewType else localMusicViewType
+        val st = localFolderStates[id]
+        st?.viewTypes?.get(st.tab)
+            ?: if (id == "local:downloads") downloadedMusicViewType else localMusicViewType
     }
     var folderMenuOpen by remember { mutableStateOf(false) }
     // Whether the open release page's filter box is up. Held out here with the
@@ -1121,8 +1130,12 @@ private fun BitChordApp(
     // stale counts and a missing row in three places rather than one. So it is
     // taken again whenever the record of what's on disk changes.
     val savedDownloads by Downloads.saved.collectAsStateWithLifecycle()
-    val localMusicFolderUri by AppSettings.localMusicFolderUri.collectAsStateWithLifecycle()
-    val filterNonMusicAudio by AppSettings.filterNonMusicAudio.collectAsStateWithLifecycle()
+    val localMusicScanMode by AppSettings.localMusicScanMode.collectAsStateWithLifecycle()
+    var showLocalFolderPicker by remember { mutableStateOf(false) }
+    var showClearLocalConfirm by remember { mutableStateOf(false) }
+    var pendingLocalScan by remember {
+        mutableStateOf<Triple<com.music.bitchord.data.settings.LocalMusicScanMode, List<com.music.bitchord.data.settings.LocalScanFolder>, List<com.music.bitchord.data.settings.LocalScanFolder>>?>(null)
+    }
     val webdavUrl by AppSettings.webdavUrl.collectAsStateWithLifecycle()
     val smbHost by AppSettings.smbHost.collectAsStateWithLifecycle()
     val librarySort by AppSettings.librarySort.collectAsStateWithLifecycle()
@@ -1180,12 +1193,6 @@ private fun BitChordApp(
         val openPage = topDetail ?: return@LaunchedEffect
         if (openPage.songs !is UiState.Loading && OfflinePlaylists.isOfflinePlaylist(openPage.browseId)) {
             viewModel.reloadLocalDetail(openPage.browseId)
-        }
-    }
-    LaunchedEffect(localMusicFolderUri, filterNonMusicAudio) {
-        val open = topDetail?.browseId
-        if (open == "local:all" || LocalGroups.folderOf(open) == "local:all") {
-            viewModel.reloadLocalDetail(open!!)
         }
     }
     LaunchedEffect(webdavUrl) {
@@ -1409,7 +1416,6 @@ private fun BitChordApp(
     } ?: remember { LazyListState() }
     // A device folder's tab and selection, kept the same way and for the same
     // reason: an album opened from the folder replaces its page until Back.
-    val localFolderStates = remember { mutableMapOf<String, LocalFolderState>() }
     LaunchedEffect(detailStack.map { it.browseId }) {
         val open = detailStack.mapTo(HashSet()) { it.browseId }
         detailListStates.keys.retainAll(open)
@@ -1672,8 +1678,13 @@ private fun BitChordApp(
         // A Spotify page lists songs it has not found on YouTube Music yet (or
         // never will); those can't be queued, so play the rest in their order.
         if (allSongs.getOrNull(allIndex)?.isUnresolvedSpotify == true) return
-        val songs = allSongs.filterNot { it.isUnresolvedSpotify }
-        val index = songs.indexOf(allSongs.getOrNull(allIndex)).coerceAtLeast(0)
+        val hasUnresolved = allSongs.any { it.isUnresolvedSpotify }
+        val songs = if (hasUnresolved) allSongs.filterNot { it.isUnresolvedSpotify } else allSongs
+        val index = if (hasUnresolved) {
+            songs.indexOf(allSongs.getOrNull(allIndex)).coerceAtLeast(0)
+        } else {
+            allIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
+        }
         playRequestGeneration++
         activeRadioSeed = null
         scope.launch {
@@ -2349,7 +2360,14 @@ private fun BitChordApp(
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        val pending = pendingLocalScan
+        pendingLocalScan = null
         if (granted) {
+            if (pending != null) {
+                viewModel.startLocalScanFolders(pending.first, pending.second, pending.third)
+            } else {
+                viewModel.refreshLocalLibraryIfConfigured()
+            }
             viewModel.reloadLocalDetail("local:all")
             viewModel.reloadLocalDetail("local:downloads")
             viewModel.loadLibrarySongs()
@@ -2362,10 +2380,13 @@ private fun BitChordApp(
     } else {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
-    // The Search tab's Library source reads the Local Music folder, so it asks
-    // for the same permission opening that folder does.
+    // The Search tab's Library source reads the Local Music folder; only ask
+    // for storage permission if Local Music has already been configured.
     val onSearchSourceChange: (SearchSource) -> Unit = { source ->
-        if (source == SearchSource.LIBRARY && !LocalMediaRepository.hasStoragePermission(context)) {
+        if (source == SearchSource.LIBRARY &&
+            localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED &&
+            !LocalMediaRepository.hasStoragePermission(context)
+        ) {
             mediaPermissionLauncher.launch(mediaPermission)
         }
         viewModel.setSearchSource(source)
@@ -2378,7 +2399,15 @@ private fun BitChordApp(
                 navigator.push(AppRoute.Spotify)
                 return@let
             }
-            if ((id == "local:all" || id == "local:downloads") && !LocalMediaRepository.hasStoragePermission(context)) {
+            val needsPerm = when (id) {
+                "local:downloads" -> !LocalMediaRepository.hasStoragePermission(context)
+                "local:all" -> localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED &&
+                    !LocalMediaRepository.hasStoragePermission(context) &&
+                    !(localMusicScanMode == com.music.bitchord.data.settings.LocalMusicScanMode.SPECIFIC_FOLDERS &&
+                        AppSettings.localMusicFolders.value.any { it.isTreeUri })
+                else -> false
+            }
+            if (needsPerm) {
                 mediaPermissionLauncher.launch(mediaPermission)
             }
             // Opened from a shelf's "Show all" page, it stacks over the grid
@@ -3104,6 +3133,7 @@ private fun BitChordApp(
                 .snapshotBackdropSource(pageBackdrop, floor = MaterialTheme.colorScheme.background),
         ) {
             Box(Modifier.weight(1f).fillMaxHeight()) {
+                val floatingBarsHeight = remember { mutableIntStateOf(0) }
                 // Reuse the captured nav glass while the destination crossfades.
                 // Only the glass surface is frozen; navigation and playback remain live.
                 LaunchedEffect(visibleEntry?.id, detail?.browseId, selectedTab) {
@@ -3432,9 +3462,14 @@ private fun BitChordApp(
                                     state = localFolderStates.getOrPut(page.browseId) {
                                         LocalFolderState().apply {
                                             val preferences = context.getSharedPreferences("local_music_view", 0)
+                                            hiResOnly = preferences.getBoolean("hires:${page.browseId}", false)
                                             groupSorts = LocalFolderTab.entries.mapNotNull { group ->
                                                 val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
                                                 group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
+                                            }.toMap()
+                                            viewTypes = LocalFolderTab.entries.mapNotNull { group ->
+                                                val saved = preferences.getString("view:${page.browseId}:${group.name}", null)
+                                                LibraryViewType.entries.firstOrNull { it.name == saved }?.let { group to it }
                                             }.toMap()
                                             if (localArtist) tab = LocalFolderTab.ALBUMS
                                             else if (isDevice) tab = context.getSharedPreferences("local_music_view", 0)
@@ -3451,7 +3486,7 @@ private fun BitChordApp(
                                     sort = folderSortOf(page.browseId),
                                     viewType = folderViewTypeOf(page.browseId),
                                     collections = downloadCollections,
-                                    selectable = isDownloads || isCache,
+                                    selectable = isDownloads || isCache || isDevice,
                                     onOpenGroup = viewModel::openLocalGroup,
                                     onGroupLongPress = { group ->
                                         openBrowseMenu(
@@ -3492,6 +3527,47 @@ private fun BitChordApp(
                                     playlists = if (isDevice) offlinePlaylistGroups else emptyList(),
                                     onCreatePlaylist = if (isDevice) ({ creatingOfflinePlaylist = true }) else null,
                                     onRefreshIndex = if (isDevice) viewModel::refreshLocalLibrary else null,
+                                    isNotConfigured = isDevice &&
+                                        localMusicScanMode == com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED,
+                                    onSearchAllFolders = if (isDevice) ({
+                                        if (LocalMediaRepository.hasStoragePermission(context)) {
+                                            viewModel.startLocalScanAll()
+                                        } else {
+                                            pendingLocalScan = Triple(
+                                                com.music.bitchord.data.settings.LocalMusicScanMode.ALL_FOLDERS,
+                                                AppSettings.localMusicFolders.value,
+                                                AppSettings.localMusicExcludedFolders.value,
+                                            )
+                                            mediaPermissionLauncher.launch(mediaPermission)
+                                        }
+                                    }) else null,
+                                    onSearchSpecificFolders = if (isDevice) ({
+                                        showLocalFolderPicker = true
+                                    }) else null,
+                                    onCancelScan = if (isDevice) viewModel::cancelLocalScan else null,
+                                    onManageFolders = if (isDevice) ({
+                                        showLocalFolderPicker = true
+                                    }) else null,
+                                    onPlayNext = if (isDevice) ({ sel -> sel.asReversed().forEach(playNext) }) else null,
+                                    onAddToQueue = if (isDevice) ({ sel -> sel.forEach(addToQueue) }) else null,
+                                    onAddToPlaylist = if (isDevice) ({ sel -> offlinePlaylistTarget = sel }) else null,
+                                    onFavoriteSelected = if (isDevice) ({ sel ->
+                                        sel.forEach { s -> if (!OfflinePlaylists.isLiked(s)) OfflinePlaylists.toggleLike(s) }
+                                    }) else null,
+                                    onShuffleSelected = if (isDevice) ({ sel ->
+                                        val shuffled = sel.shuffled()
+                                        if (shuffled.isNotEmpty()) playFrom(shuffled, 0, QueueSource(page.title, PlaybackSourceType.BROWSE, page.browseId))
+                                    }) else null,
+                                    onShareSelected = if (isDevice) ({ sel ->
+                                        com.music.bitchord.ui.components.shareLocalSongs(context, sel)
+                                    }) else null,
+                                    onRemoveFromLibrary = if (isDevice) ({ sel ->
+                                        com.music.bitchord.data.LocalLibraryIndex.hideSongs(sel)
+                                        showQueueNotice(context.getString(R.string.local_removed_from_library))
+                                    }) else null,
+                                    onDeleteFromDevice = if (isDevice) ({ sel ->
+                                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.deleteDeviceTargets.value = sel
+                                    }) else null,
                                 )
                             } else {
                                 null
@@ -3527,15 +3603,17 @@ private fun BitChordApp(
                                     page.browseId,
                                 )
                                 val selected = songs.getOrNull(index)
-                                val pageKeys =
-                                    (page.songs as? UiState.Success)?.data.orEmpty().map { it.contextEntryKey() }
-                                val pageSongKeys = pageKeys.toHashSet()
-                                val useBounded =
-                                    (page.type == BrowseType.ALBUM || page.type == BrowseType.PLAYLIST) &&
-                                        selected?.contextEntryKey()?.let(pageSongKeys::contains) == true &&
-                                        // A sorted list plays as sorted, not in the page's order.
-                                        inPageOrder(songs.map { it.contextEntryKey() }, pageKeys) &&
-                                        !CastController.state.value.casting
+                                val canUseBounded = (page.type == BrowseType.ALBUM || page.type == BrowseType.PLAYLIST) &&
+                                    !page.browseId.startsWith("local:") &&
+                                    !CastController.state.value.casting
+                                val useBounded = if (canUseBounded) {
+                                    val pageKeys =
+                                        (page.songs as? UiState.Success)?.data.orEmpty().map { it.contextEntryKey() }
+                                    selected?.contextEntryKey()?.let(pageKeys.toHashSet()::contains) == true &&
+                                        inPageOrder(songs.map { it.contextEntryKey() }, pageKeys)
+                                } else {
+                                    false
+                                }
                                 val latestPage = if (useBounded) {
                                     viewModel.takePlaybackContext(page.browseId)
                                 } else {
@@ -3543,13 +3621,16 @@ private fun BitChordApp(
                                 }
                                 val latestSongs = latestPage
                                     ?.let { (it.songs as? UiState.Success)?.data.orEmpty() }
-                                    ?.map(withAlbum)
+                                    ?.let { if (page.type == BrowseType.ALBUM) it.map(withAlbum) else it }
                                     ?.takeIf { it.isNotEmpty() }
-                                val queue = latestSongs ?: songs.map(withAlbum)
+                                val queue = latestSongs ?: if (page.type == BrowseType.ALBUM) songs.map(withAlbum) else songs
                                 if (queue.isEmpty()) return
-                                val queueIndex = selected?.let { tapped ->
-                                    queue.indexOfFirst { it.contextEntryKey() == tapped.contextEntryKey() }
-                                }?.takeIf { it >= 0 } ?: index
+                                val queueIndex = if (latestSongs != null && selected != null) {
+                                    queue.indexOfFirst { it.contextEntryKey() == selected.contextEntryKey() }
+                                        .takeIf { it >= 0 } ?: index
+                                } else {
+                                    index
+                                }
                                 playFrom(
                                     queue,
                                     queueIndex.coerceIn(queue.indices),
@@ -3646,6 +3727,7 @@ private fun BitChordApp(
                                 songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
+                                floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(
@@ -4081,7 +4163,7 @@ private fun BitChordApp(
                             (header * fadeRamp)).coerceIn(0f, 1f)
                     }
                 }
-                if (reduceDynamicBlur || !glassActive || !progressiveBlur) {
+                if (reduceDynamicBlur || !glassActive || !progressiveBlur || isLocalDetail) {
                     BottomFadeScrim(
                         pageColor = chromePageColor,
                         modifier = Modifier
@@ -4460,19 +4542,23 @@ private fun BitChordApp(
                 // Drawn before the bars so their own glass reads on top of it.
                 BottomFadeScrim(
                     withMiniPlayer = player.song != null,
+                    sideBySide = landscapeChrome(windowWidth, windowHeight),
                     // Not the wash: by the foot of the screen the page has finished
                     // easing out of it and into this, so this is what is actually
                     // under the tab bar.
                     pageColor = chromePageColor,
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = bottomScrimMaxWidth(windowWidth, windowHeight)),
                 )
 
                 // Whichever bar is drawing reports its height here, for the
                 // guard to read at layout — never in composition, see the guard.
-                val floatingBarsHeight = remember { mutableIntStateOf(0) }
                 FloatingBarsTapGuard(
                     barsHeight = { floatingBarsHeight.intValue },
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = bottomScrimMaxWidth(windowWidth, windowHeight)),
                 )
 
                 // One tab handler, whichever bar is drawing it.
@@ -4511,7 +4597,7 @@ private fun BitChordApp(
                 } else {
                     null
                 }
-                if (glassActive) Column(
+                if (glassActive && !landscapeChrome(windowWidth, windowHeight)) Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .widthIn(max = FLOATING_BAR_MAX_WIDTH)
@@ -4553,7 +4639,7 @@ private fun BitChordApp(
                         )
                     }
                 } else {
-                    val sideBySideChrome = windowWidth >= 700.dp && windowHeight < 500.dp && player.song != null
+                    val sideBySideChrome = landscapeChrome(windowWidth, windowHeight) && player.song != null
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -4561,7 +4647,7 @@ private fun BitChordApp(
                             // — see [FLOATING_BAR_MAX_WIDTH]. On wide, short landscape
                             // screens (e.g. car head-units), widen the cap so tabs and
                             // mini-player sit side-by-side in one compact row.
-                            .widthIn(max = if (sideBySideChrome) 880.dp else FLOATING_BAR_MAX_WIDTH)
+                            .widthIn(max = chromeMaxWidth(sideBySideChrome, windowWidth))
                             .fillMaxWidth()
                             .onSizeChanged { floatingBarsHeight.intValue = it.height },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -4861,7 +4947,7 @@ private fun BitChordApp(
                 onAddToPlaylist = {
                     songActions = null
                     if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
-                        offlinePlaylistTarget = song
+                        offlinePlaylistTarget = listOf(song)
                     } else {
                         viewModel.loadPlaylists()
                         playlistTarget = song
@@ -4903,6 +4989,31 @@ private fun BitChordApp(
                             Toast.makeText(context, R.string.remove_from_history_failed, Toast.LENGTH_SHORT).show()
                         })
                     }
+                },
+                onRemoveFromLibrary = if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
+                    {
+                        songActions = null
+                        com.music.bitchord.data.LocalLibraryIndex.hideSongs(listOf(song))
+                        showQueueNotice(context.getString(R.string.local_removed_from_library))
+                    }
+                } else {
+                    null
+                },
+                onEditTags = if (song.localUri != null) {
+                    {
+                        songActions = null
+                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.editTagsTarget.value = song
+                    }
+                } else {
+                    null
+                },
+                onDeleteFromDevice = if (song.localUri != null && (song.videoId.startsWith("content://") || song.videoId.startsWith("file://"))) {
+                    {
+                        songActions = null
+                        com.music.bitchord.ui.screens.LocalMusicDialogRequests.deleteDeviceTargets.value = listOf(song)
+                    }
+                } else {
+                    null
                 },
                 onOpenAlbum = { id ->
                     openPage(
@@ -5490,10 +5601,10 @@ private fun BitChordApp(
         // The sheet above over the offline player's own playlists, for a track
         // that is a file on this device. Nothing here waits on a network, so
         // there is no loading state and the outcome is known on the tap.
-        if (offlinePlaylistTarget != null || creatingOfflinePlaylist) {
-            val target = offlinePlaylistTarget
+        if (offlinePlaylistTarget.isNotEmpty() || creatingOfflinePlaylist) {
+            val targets = offlinePlaylistTarget
             val dismiss = {
-                offlinePlaylistTarget = null
+                offlinePlaylistTarget = emptyList()
                 creatingOfflinePlaylist = false
             }
             val choices = remember(offlinePlaylists) {
@@ -5514,13 +5625,13 @@ private fun BitChordApp(
             PlaylistPickerSheet(
                 playlists = choices,
                 loading = false,
-                song = target,
-                startCreating = target == null,
+                song = targets.firstOrNull(),
+                startCreating = targets.isEmpty(),
                 offline = true,
                 onDismiss = dismiss,
                 onAdd = { picked ->
-                    target?.let { song ->
-                        val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, listOf(song))
+                    if (targets.isNotEmpty()) {
+                        val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, targets)
                         showQueueNotice(
                             when {
                                 result.added > 1 -> context.resources.getQuantityString(
@@ -5534,8 +5645,8 @@ private fun BitChordApp(
                     }
                 },
                 onCreate = { title, _ ->
-                    OfflinePlaylists.create(title, listOfNotNull(target))
-                    if (target != null) showQueueNotice(context.getString(R.string.song_added_to_playlist))
+                    OfflinePlaylists.create(title, targets)
+                    if (targets.isNotEmpty()) showQueueNotice(context.getString(R.string.song_added_to_playlist))
                 },
             )
         }
@@ -6057,44 +6168,39 @@ private fun BitChordApp(
 
         val menuFolder = detail?.browseId?.takeIf { it.isDeviceFolder() }
         if (folderMenuOpen && menuFolder != null) {
-            BackHandler { folderMenuOpen = false }
-            val downloadsFolder = menuFolder == "local:downloads"
-            val viewType = folderViewTypeOf(menuFolder)
-            val folderState = localFolderStates[menuFolder]
-            val tab = folderState?.tab ?: LocalFolderTab.SONGS
-            val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
-            val groupState = folderState?.takeIf { tab != LocalFolderTab.SONGS && tab != LocalFolderTab.RECENTLY_ADDED }
-            FrostedFolderMenu(
+            FolderMenuOverlay(
+                menuFolder = menuFolder,
                 hazeState = hazeState,
-                sort = recentState?.let {
-                    if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-                } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSortOf(menuFolder),
-                sorts = tab.sortOptions,
-                onRefresh = if (menuFolder == "local:all") ({
-                    folderMenuOpen = false
-                    viewModel.refreshLocalLibrary()
-                }) else null,
-                viewType = viewType,
-                onSort = { option ->
-                    if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
-                    else if (groupState != null) {
-                        groupState.groupSorts = groupState.groupSorts + (tab to option)
-                        context.getSharedPreferences("local_music_view", 0).edit()
-                            .putString("sort:$menuFolder:${tab.name}", option.name).apply()
-                    }
-                    else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
-                    else AppSettings.setLocalMusicSort(option)
-                    folderMenuOpen = false
-                },
-                onToggleViewType = {
-                    val next = if (viewType == LibraryViewType.GRID) LibraryViewType.LIST else LibraryViewType.GRID
-                    if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
-                    else AppSettings.setLocalMusicViewType(next)
-                    folderMenuOpen = false
-                },
+                viewType = folderViewTypeOf(menuFolder),
+                folderSort = folderSortOf(menuFolder),
+                folderState = localFolderStates[menuFolder],
+                localMusicScanMode = localMusicScanMode,
+                viewModel = viewModel,
+                onOpenFolderPicker = { showLocalFolderPicker = true },
+                onOpenClearConfirm = { showClearLocalConfirm = true },
                 onDismiss = { folderMenuOpen = false },
             )
         }
+
+        com.music.bitchord.ui.screens.LocalMusicEffectsAndDialogs(
+            viewModel = viewModel,
+            topDetailBrowseId = topDetail?.browseId,
+            showFolderPicker = showLocalFolderPicker,
+            showClearConfirm = showClearLocalConfirm,
+            onDismissFolderPicker = { showLocalFolderPicker = false },
+            onDismissClearConfirm = { showClearLocalConfirm = false },
+            onRequestStorageForScan = { mode, folders, excluded ->
+                pendingLocalScan = Triple(mode, folders, excluded)
+                mediaPermissionLauncher.launch(mediaPermission)
+            },
+            onSongsDeleted = { deleted ->
+                val c = controller ?: return@LocalMusicEffectsAndDialogs
+                val ids = deleted.flatMap { listOfNotNull(it.videoId, it.localUri) }.toSet()
+                for (i in (c.mediaItemCount - 1) downTo 0) {
+                    if (c.getMediaItemAt(i).mediaId in ids) c.removeMediaItem(i)
+                }
+            },
+        )
 
         if (showAccountSelector) {
             BackHandler { showAccountSelector = false }
@@ -6628,12 +6734,95 @@ private fun FrostedSortMenu(
  * its sort orders — the Files app's arrangement, view first and order under it.
  */
 @Composable
+private fun FolderMenuOverlay(
+    menuFolder: String,
+    hazeState: HazeState,
+    viewType: LibraryViewType,
+    folderSort: LocalMusicSort,
+    folderState: LocalFolderState?,
+    localMusicScanMode: com.music.bitchord.data.settings.LocalMusicScanMode,
+    viewModel: MainViewModel,
+    onOpenFolderPicker: () -> Unit,
+    onOpenClearConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    BackHandler { onDismiss() }
+    val downloadsFolder = menuFolder == "local:downloads"
+    val tab = folderState?.tab ?: LocalFolderTab.SONGS
+    val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
+    val groupState = folderState?.takeIf { !tab.isTrackList }
+    val isConfiguredLocal = menuFolder == "local:all" &&
+        localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED
+    val canFilterHiRes = folderState != null && tab != LocalFolderTab.HI_RES &&
+        (menuFolder == "local:all" || com.music.bitchord.data.LocalGroups.folderOf(menuFolder) == "local:all")
+    FrostedFolderMenu(
+        hazeState = hazeState,
+        sort = recentState?.let {
+            if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
+        } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSort,
+        sorts = tab.sortOptions,
+        hiResOnly = folderState?.hiResOnly == true,
+        onToggleHiResOnly = if (canFilterHiRes) ({
+            val next = !folderState.hiResOnly
+            folderState.hiResOnly = next
+            context.getSharedPreferences("local_music_view", 0).edit()
+                .putBoolean("hires:$menuFolder", next).apply()
+            onDismiss()
+        }) else null,
+        onRefresh = if (isConfiguredLocal) ({
+            onDismiss()
+            viewModel.refreshLocalLibrary()
+        }) else null,
+        onFullRescan = if (isConfiguredLocal) ({
+            onDismiss()
+            viewModel.forceFullLocalRescan()
+        }) else null,
+        onManageFolders = if (menuFolder == "local:all") ({
+            onDismiss()
+            onOpenFolderPicker()
+        }) else null,
+        onClearLibrary = if (isConfiguredLocal) ({
+            onDismiss()
+            onOpenClearConfirm()
+        }) else null,
+        viewType = viewType,
+        onSort = { option ->
+            if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
+            else if (groupState != null) {
+                groupState.groupSorts = groupState.groupSorts + (tab to option)
+                context.getSharedPreferences("local_music_view", 0).edit()
+                    .putString("sort:$menuFolder:${tab.name}", option.name).apply()
+            } else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
+            else AppSettings.setLocalMusicSort(option)
+            onDismiss()
+        },
+        onToggleViewType = {
+            val next = if (viewType == LibraryViewType.GRID) LibraryViewType.LIST else LibraryViewType.GRID
+            if (folderState != null) {
+                folderState.viewTypes = folderState.viewTypes + (tab to next)
+                context.getSharedPreferences("local_music_view", 0).edit()
+                    .putString("view:$menuFolder:${tab.name}", next.name).apply()
+            } else if (downloadsFolder) AppSettings.setDownloadedMusicViewType(next)
+            else AppSettings.setLocalMusicViewType(next)
+            onDismiss()
+        },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
 private fun FrostedFolderMenu(
     hazeState: HazeState,
     sort: LocalMusicSort,
     viewType: LibraryViewType,
     sorts: List<LocalMusicSort>,
+    hiResOnly: Boolean = false,
+    onToggleHiResOnly: (() -> Unit)? = null,
     onRefresh: (() -> Unit)?,
+    onFullRescan: (() -> Unit)? = null,
+    onManageFolders: (() -> Unit)? = null,
+    onClearLibrary: (() -> Unit)? = null,
     onSort: (LocalMusicSort) -> Unit,
     onToggleViewType: () -> Unit,
     onDismiss: () -> Unit,
@@ -6646,6 +6835,13 @@ private fun FrostedFolderMenu(
             onClick = onToggleViewType,
             icon = if (grid) BitChordIcons.ListView else BitChordIcons.GridView,
         )
+        onToggleHiResOnly?.let { toggleHiRes ->
+            FrostedMenuRow(
+                label = stringResource(R.string.local_filter_hi_res_only),
+                checked = hiResOnly,
+                onClick = toggleHiRes,
+            )
+        }
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 4.dp),
             thickness = 0.5.dp,
@@ -6658,17 +6854,40 @@ private fun FrostedFolderMenu(
                 onClick = { onSort(option) },
             )
         }
-        onRefresh?.let { refresh ->
+        if (onRefresh != null || onFullRescan != null || onManageFolders != null || onClearLibrary != null) {
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 4.dp),
                 thickness = 0.5.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
-            FrostedMenuRow(
-                label = stringResource(R.string.local_refresh_index),
-                checked = false,
-                onClick = refresh,
-            )
+            onRefresh?.let { refresh ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_refresh_index),
+                    checked = false,
+                    onClick = refresh,
+                )
+            }
+            onFullRescan?.let { rescan ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_full_rescan),
+                    checked = false,
+                    onClick = rescan,
+                )
+            }
+            onManageFolders?.let { manage ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_manage_folders),
+                    checked = false,
+                    onClick = manage,
+                )
+            }
+            onClearLibrary?.let { clear ->
+                FrostedMenuRow(
+                    label = stringResource(R.string.local_clear_library),
+                    checked = false,
+                    onClick = clear,
+                )
+            }
         }
     }
 }
@@ -6917,3 +7136,20 @@ private suspend fun LazyListState.scrollToTopEased() {
 
 /** Safely converts a nullable Float to non-null, defaulting to 0f for null. */
 private fun Float?.orZero(): Float = this ?: 0f
+
+
+/** Landscape windows (DAP, car head units, phones) put the menu and Now Playing side by side. */
+private fun landscapeChrome(width: Dp, height: Dp): Boolean = width >= 560.dp && width > height
+
+/** Bar row width, leaving free edge strips for the A–Z rail when side by side. */
+private fun chromeMaxWidth(sideBySide: Boolean, width: Dp): Dp =
+    if (sideBySide) 880.dp.coerceAtMost(width - 96.dp) else FLOATING_BAR_MAX_WIDTH
+
+/** Caps the bottom fade scrim and tap guard to the bar row in landscape so the A–Z rail stays un-faded and tappable. */
+private fun bottomScrimMaxWidth(width: Dp, height: Dp): Dp =
+    if (landscapeChrome(width, height)) 880.dp.coerceAtMost(width - 96.dp) else Dp.Unspecified
+
+/** -1 signals landscape side-by-side mode so the A–Z rail aligns level with the bottom edge of the Now Playing pill. */
+private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
+    if (landscapeChrome(width, height)) -1 else measured
+

@@ -21,6 +21,12 @@ import com.music.bitchord.playback.EqualizerPreset
 import com.music.bitchord.ui.player.AutoMixArtworkPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+import java.io.File
 
 
 /**
@@ -162,6 +168,41 @@ enum class LocalMusicSort {
     DATE_ADDED,
     DATE_MODIFIED,
 }
+
+/** Whether Local Music has been configured and how it scans storage. */
+enum class LocalMusicScanMode {
+    NOT_CONFIGURED,
+    ALL_FOLDERS,
+    SPECIFIC_FOLDERS,
+}
+
+/** Whether direct legacy/external filesystem scanning runs alongside MediaStore and SAF. */
+enum class LocalLegacyScanMode {
+    AUTO,
+    ENABLED,
+    DISABLED,
+}
+
+/** One user-selected or excluded folder for Local Music scanning. */
+@Serializable
+data class LocalScanFolder(
+    /** SAF tree URI string when [isTreeUri] is true, or canonical absolute path otherwise. */
+    val id: String,
+    val isTreeUri: Boolean,
+    val label: String,
+    val includeSubfolders: Boolean = true,
+)
+
+/** App-only metadata override for formats without safe in-place tag writers (WAV/AIFF/WV/APE/DSF). */
+@Serializable
+data class LocalTagOverride(
+    val title: String? = null,
+    val artist: String? = null,
+    val albumName: String? = null,
+    val albumArtist: String? = null,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
+)
 
 /**
  * Ordering for the track list on an album or playlist page — the same idea as
@@ -737,6 +778,19 @@ object AppSettings {
     /** Empty means every MediaStore folder; otherwise this is a persisted SAF tree URI. */
     val localMusicFolderUri = MutableStateFlow("")
 
+    val localMusicScanMode = MutableStateFlow(LocalMusicScanMode.NOT_CONFIGURED)
+    val localMusicFolders = MutableStateFlow<List<LocalScanFolder>>(emptyList())
+    val localMusicExcludedFolders = MutableStateFlow<List<LocalScanFolder>>(emptyList())
+    val localLegacyScanMode = MutableStateFlow(LocalLegacyScanMode.AUTO)
+    /** Minimum audio duration in seconds (0..60, step 5) when [filterNonMusicAudio] is enabled. */
+    val localMusicMinDurationSec = MutableStateFlow(DEFAULT_LOCAL_MIN_DURATION_SEC)
+    /** Local song URIs hidden via "Remove from library" (survives rescans, never deletes files). */
+    val localMusicIgnoredUris = MutableStateFlow<Set<String>>(emptySet())
+    /** App-only tag overrides keyed by song localUri (survives rescans, never modifies file). */
+    val localMusicTagOverrides = MutableStateFlow<Map<String, LocalTagOverride>>(emptyMap())
+    /** True once the optional All-files access prompt has been shown for tag edit / delete. */
+    val localAllFilesPromptShown = MutableStateFlow(false)
+
     // ── WebDAV ────────────────────────────────────────────────────────────
 
     /**
@@ -981,7 +1035,11 @@ object AppSettings {
             prefs.edit()
                 .putBoolean(KEY_NERD_STATS, true)
                 .putBoolean(KEY_AUTO_ROMANIZE_LYRICS, true)
+                .putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.NOT_CONFIGURED.name)
+                .putInt(KEY_LOCAL_MUSIC_MIN_DURATION_SEC, DEFAULT_LOCAL_MIN_DURATION_SEC)
                 .apply()
+        } else if (!prefs.contains(KEY_LOCAL_MUSIC_SCAN_MODE)) {
+            migrateLegacyLocalMusicConfig(context)
         }
         moveSecretsOutOfSettings()
         com.music.bitchord.data.spotify.LocalPlaylistStore.init(context)
@@ -1248,6 +1306,21 @@ object AppSettings {
             ?: LibrarySort.DEFAULT
         detailSongSorts.value = readDetailSongSorts()
         localMusicFolderUri.value = prefs.getString(KEY_LOCAL_MUSIC_FOLDER_URI, "").orEmpty()
+        localMusicScanMode.value = prefs.getString(KEY_LOCAL_MUSIC_SCAN_MODE, null)
+            ?.let { saved -> LocalMusicScanMode.entries.firstOrNull { it.name == saved } }
+            ?: LocalMusicScanMode.NOT_CONFIGURED
+        localMusicFolders.value = readScanFolders(KEY_LOCAL_MUSIC_FOLDERS)
+        localMusicExcludedFolders.value = readScanFolders(KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS)
+        localLegacyScanMode.value = prefs.getString(KEY_LOCAL_LEGACY_SCAN_MODE, null)
+            ?.let { saved -> LocalLegacyScanMode.entries.firstOrNull { it.name == saved } }
+            ?: LocalLegacyScanMode.AUTO
+        localMusicMinDurationSec.value = normalizeLocalMinDurationSec(
+            prefs.getInt(KEY_LOCAL_MUSIC_MIN_DURATION_SEC, DEFAULT_LOCAL_MIN_DURATION_SEC),
+        )
+        localMusicIgnoredUris.value = prefs.getStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, emptySet())
+            ?.filter { it.isNotBlank() }?.toSet().orEmpty()
+        localMusicTagOverrides.value = readTagOverrides()
+        localAllFilesPromptShown.value = prefs.getBoolean(KEY_LOCAL_ALL_FILES_PROMPT_SHOWN, false)
         webdavUrl.value = prefs.getString(KEY_WEBDAV_URL, "").orEmpty()
         webdavUsername.value = prefs.getString(KEY_WEBDAV_USERNAME, "").orEmpty()
         webdavPassword.value = authStore.webdavPassword.orEmpty()
@@ -2329,6 +2402,183 @@ object AppSettings {
         prefs.edit().putString(KEY_LOCAL_MUSIC_FOLDER_URI, value).apply()
     }
 
+    fun setLocalMusicScanMode(value: LocalMusicScanMode) {
+        localMusicScanMode.value = value
+        if (this::prefs.isInitialized) {
+            prefs.edit().putString(KEY_LOCAL_MUSIC_SCAN_MODE, value.name).apply()
+        }
+    }
+
+    fun setLocalMusicFolders(folders: List<LocalScanFolder>) {
+        val cleaned = folders.distinctBy { "${it.isTreeUri}:${it.id}" }
+        localMusicFolders.value = cleaned
+        if (this::prefs.isInitialized) {
+            val encoded = localFoldersJson.encodeToString(ListSerializer(LocalScanFolder.serializer()), cleaned)
+            prefs.edit().putString(KEY_LOCAL_MUSIC_FOLDERS, encoded).apply()
+        }
+    }
+
+    fun setLocalMusicExcludedFolders(folders: List<LocalScanFolder>) {
+        val cleaned = folders.distinctBy { "${it.isTreeUri}:${it.id}" }
+        localMusicExcludedFolders.value = cleaned
+        if (this::prefs.isInitialized) {
+            val encoded = localFoldersJson.encodeToString(ListSerializer(LocalScanFolder.serializer()), cleaned)
+            prefs.edit().putString(KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS, encoded).apply()
+        }
+    }
+
+    fun addLocalMusicExcludedFolder(folder: LocalScanFolder) {
+        setLocalMusicExcludedFolders(localMusicExcludedFolders.value + folder)
+    }
+
+    fun setLocalLegacyScanMode(value: LocalLegacyScanMode) {
+        localLegacyScanMode.value = value
+        if (this::prefs.isInitialized) {
+            prefs.edit().putString(KEY_LOCAL_LEGACY_SCAN_MODE, value.name).apply()
+        }
+    }
+
+    fun setLocalMusicMinDurationSec(seconds: Int) {
+        val clamped = normalizeLocalMinDurationSec(seconds)
+        localMusicMinDurationSec.value = clamped
+        if (this::prefs.isInitialized) {
+            prefs.edit().putInt(KEY_LOCAL_MUSIC_MIN_DURATION_SEC, clamped).apply()
+        }
+    }
+
+    fun addIgnoredLocalSongUris(uris: Collection<String>) {
+        val next = localMusicIgnoredUris.value + uris.filter { it.isNotBlank() }
+        localMusicIgnoredUris.value = next
+        if (this::prefs.isInitialized) {
+            prefs.edit().putStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, next).apply()
+        }
+    }
+
+    fun removeIgnoredLocalSongUri(uri: String) {
+        val next = localMusicIgnoredUris.value - uri
+        localMusicIgnoredUris.value = next
+        if (this::prefs.isInitialized) {
+            prefs.edit().putStringSet(KEY_LOCAL_MUSIC_IGNORED_URIS, next).apply()
+        }
+    }
+
+    fun clearIgnoredLocalSongUris() {
+        localMusicIgnoredUris.value = emptySet()
+        if (this::prefs.isInitialized) {
+            prefs.edit().remove(KEY_LOCAL_MUSIC_IGNORED_URIS).apply()
+        }
+    }
+
+    fun setLocalTagOverride(uri: String, override: LocalTagOverride) {
+        if (uri.isBlank()) return
+        val next = localMusicTagOverrides.value + (uri to override)
+        localMusicTagOverrides.value = next
+        if (this::prefs.isInitialized) {
+            val encoded = localFoldersJson.encodeToString(
+                MapSerializer(String.serializer(), LocalTagOverride.serializer()),
+                next,
+            )
+            prefs.edit().putString(KEY_LOCAL_MUSIC_TAG_OVERRIDES, encoded).apply()
+        }
+    }
+
+    fun removeLocalTagOverrides(uris: Collection<String>) {
+        if (uris.isEmpty()) return
+        val next = localMusicTagOverrides.value - uris.toSet()
+        localMusicTagOverrides.value = next
+        if (this::prefs.isInitialized) {
+            val encoded = localFoldersJson.encodeToString(
+                MapSerializer(String.serializer(), LocalTagOverride.serializer()),
+                next,
+            )
+            prefs.edit().putString(KEY_LOCAL_MUSIC_TAG_OVERRIDES, encoded).apply()
+        }
+    }
+
+    fun markLocalAllFilesPromptShown() {
+        localAllFilesPromptShown.value = true
+        if (this::prefs.isInitialized) {
+            prefs.edit().putBoolean(KEY_LOCAL_ALL_FILES_PROMPT_SHOWN, true).apply()
+        }
+    }
+
+    private fun readTagOverrides(): Map<String, LocalTagOverride> {
+        val raw = prefs.getString(KEY_LOCAL_MUSIC_TAG_OVERRIDES, null).orEmpty()
+        if (raw.isBlank()) return emptyMap()
+        return runCatching {
+            localFoldersJson.decodeFromString(
+                MapSerializer(String.serializer(), LocalTagOverride.serializer()),
+                raw,
+            )
+        }.getOrDefault(emptyMap())
+    }
+
+    /** Resets Local Music scan configuration back to the first-time opt-in screen. */
+    fun resetLocalMusicConfig() {
+        localMusicScanMode.value = LocalMusicScanMode.NOT_CONFIGURED
+        localMusicFolders.value = emptyList()
+        localMusicExcludedFolders.value = emptyList()
+        localMusicFolderUri.value = ""
+        localMusicIgnoredUris.value = emptySet()
+        localMusicTagOverrides.value = emptyMap()
+        if (this::prefs.isInitialized) {
+            prefs.edit()
+                .putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.NOT_CONFIGURED.name)
+                .remove(KEY_LOCAL_MUSIC_FOLDERS)
+                .remove(KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS)
+                .remove(KEY_LOCAL_MUSIC_IGNORED_URIS)
+                .remove(KEY_LOCAL_MUSIC_TAG_OVERRIDES)
+                .putString(KEY_LOCAL_MUSIC_FOLDER_URI, "")
+                .apply()
+        }
+    }
+
+    internal fun normalizeLocalMinDurationSec(seconds: Int): Int {
+        val clamped = seconds.coerceIn(0, MAX_LOCAL_MIN_DURATION_SEC)
+        return ((clamped + LOCAL_MIN_DURATION_STEP_SEC / 2) / LOCAL_MIN_DURATION_STEP_SEC) * LOCAL_MIN_DURATION_STEP_SEC
+    }
+
+    private fun readScanFolders(key: String): List<LocalScanFolder> {
+        val raw = prefs.getString(key, null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            localFoldersJson.decodeFromString(ListSerializer(LocalScanFolder.serializer()), raw)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun migrateLegacyLocalMusicConfig(context: Context) {
+        val legacyUri = prefs.getString(KEY_LOCAL_MUSIC_FOLDER_URI, "").orEmpty()
+        val editor = prefs.edit()
+        when {
+            legacyUri.isNotBlank() -> {
+                val label = com.music.bitchord.data.LocalMediaRepository.selectedFolderLabel(legacyUri) ?: legacyUri
+                val migrated = listOf(
+                    LocalScanFolder(
+                        id = legacyUri,
+                        isTreeUri = true,
+                        label = label,
+                        includeSubfolders = true,
+                    ),
+                )
+                editor.putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.SPECIFIC_FOLDERS.name)
+                editor.putString(
+                    KEY_LOCAL_MUSIC_FOLDERS,
+                    localFoldersJson.encodeToString(ListSerializer(LocalScanFolder.serializer()), migrated),
+                )
+            }
+            File(context.filesDir, "local-music-index-v1.json").exists() ||
+                File(context.filesDir, "local-music-index-v2.json").exists() -> {
+                editor.putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.ALL_FOLDERS.name)
+            }
+            else -> {
+                editor.putString(KEY_LOCAL_MUSIC_SCAN_MODE, LocalMusicScanMode.NOT_CONFIGURED.name)
+            }
+        }
+        editor.apply()
+    }
+
+    private val localFoldersJson = Json { ignoreUnknownKeys = true }
+
     fun setWebDavUrl(value: String) {
         val normalized = value.trim().trimEnd('/')
         webdavUrl.value = normalized
@@ -2554,9 +2804,16 @@ object AppSettings {
         "downloaded_tracks_metadata",
         "downloaded_collections",
         KEY_LOCAL_MUSIC_FOLDER_URI,
+        KEY_LOCAL_MUSIC_SCAN_MODE,
+        KEY_LOCAL_MUSIC_FOLDERS,
+        KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS,
         KEY_LAST_VERSION_CODE,
         KEY_ONBOARDING_COMPLETE,
     )
+
+    const val DEFAULT_LOCAL_MIN_DURATION_SEC = 30
+    const val MAX_LOCAL_MIN_DURATION_SEC = 60
+    const val LOCAL_MIN_DURATION_STEP_SEC = 5
 
     const val DEFAULT_CACHE_LIMIT_BYTES = 512L * 1024 * 1024
     const val MAX_CACHE_LIMIT_BYTES = 10L * 1024 * 1024 * 1024
@@ -2686,6 +2943,14 @@ object AppSettings {
     private const val KEY_LOCAL_MUSIC_VIEW_TYPE = "local_music_view_type"
     private const val KEY_DOWNLOADED_MUSIC_VIEW_TYPE = "downloaded_music_view_type"
     private const val KEY_LOCAL_MUSIC_FOLDER_URI = "local_music_folder_uri"
+    private const val KEY_LOCAL_MUSIC_SCAN_MODE = "local_music_scan_mode"
+    private const val KEY_LOCAL_MUSIC_FOLDERS = "local_music_folders"
+    private const val KEY_LOCAL_MUSIC_EXCLUDED_FOLDERS = "local_music_excluded_folders"
+    private const val KEY_LOCAL_LEGACY_SCAN_MODE = "local_legacy_scan_mode"
+    private const val KEY_LOCAL_MUSIC_MIN_DURATION_SEC = "local_music_min_duration_sec"
+    private const val KEY_LOCAL_MUSIC_IGNORED_URIS = "local_music_ignored_uris"
+    private const val KEY_LOCAL_MUSIC_TAG_OVERRIDES = "local_music_tag_overrides"
+    private const val KEY_LOCAL_ALL_FILES_PROMPT_SHOWN = "local_all_files_prompt_shown"
     private const val KEY_WEBDAV_URL = "webdav_url"
     private const val KEY_WEBDAV_USERNAME = "webdav_username"
     private const val KEY_SMB_HOST = "smb_host"

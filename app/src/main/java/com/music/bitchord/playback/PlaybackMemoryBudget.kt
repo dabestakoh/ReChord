@@ -14,7 +14,7 @@ internal class PlaybackMemoryBudget(heapLimitBytes: Long, lowRamDevice: Boolean)
     val constrained = lowRamDevice || heapLimitBytes <= 192L * MIB
     val backBufferMs = if (constrained) 5_000 else 10_000
     val browseCacheEntries = if (constrained) 512 else 1_024
-    val artworkCacheBytes = (heapLimitBytes / 12).coerceAtMost(if (constrained) 12L * MIB else 32L * MIB)
+    val artworkCacheBytes = (heapLimitBytes / 10).coerceAtMost(if (constrained) 16L * MIB else 48L * MIB)
 
     private val pressureThresholdBytes = heapLimitBytes - heapLimitBytes / 4
 
