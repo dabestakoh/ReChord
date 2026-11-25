@@ -461,11 +461,11 @@ internal fun AndroidCanvasArtworkPlayer(
     // while the clip holds still, whose next frame would be this one again.
     LaunchedEffect(
         rendered, refreshFrameEveryMs, frameCapturePx, clipAspect, contentMode, alignPortraitTop,
-        isPlaying, pausedForTransition,
+        foreground, isPlaying, pausedForTransition,
     ) {
         val interval = refreshFrameEveryMs ?: return@LaunchedEffect
         if (frameCapturePx <= 0) return@LaunchedEffect
-        if (!rendered || !isPlaying || pausedForTransition) return@LaunchedEffect
+        if (!foreground || !rendered || !isPlaying || pausedForTransition) return@LaunchedEffect
         while (isActive) {
             delay(interval)
             val view = textureView ?: continue

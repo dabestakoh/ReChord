@@ -97,8 +97,8 @@ object LocalGroups {
     fun isDirectory(browseId: String?): Boolean = parse(browseId)?.kind == FOLDER
 
     /** The rows of [folderSongs] the grouping [browseId] names, in the order its page lists them. */
-    fun songsOf(browseId: String, folderSongs: List<Song>): List<Song> {
-        if (folderSongs.isNotEmpty()) {
+    fun songsOf(browseId: String, folderSongs: List<Song>, useCachedGroup: Boolean = true): List<Song> {
+        if (useCachedGroup && folderSongs.isNotEmpty()) {
             groupByIdCache[browseId]?.let { return it.songs }
         }
         val group = parse(browseId) ?: return emptyList()

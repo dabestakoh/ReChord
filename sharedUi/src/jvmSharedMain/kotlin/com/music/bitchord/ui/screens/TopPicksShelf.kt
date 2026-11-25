@@ -1,5 +1,6 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.graphics.rememberBrowseArtworkRequest
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -347,7 +348,11 @@ private fun TopPickCard(
             }
             TopPickKind.FEATURED_ARTIST -> {
                 AsyncImage(
-                    model = pick.images.firstOrNull().croppedAt(HEADER_ART_PX * 3 / 4, HEADER_ART_PX).whenArtworkReady(),
+                    model = rememberBrowseArtworkRequest(
+                        pick.images.firstOrNull().croppedAt(HEADER_ART_PX * 3 / 4, HEADER_ART_PX).whenArtworkReady(),
+                        HEADER_ART_PX * 3 / 4,
+                        HEADER_ART_PX,
+                    ),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -488,7 +493,7 @@ private fun ReleaseArt(url: String?, modifier: Modifier, motion: CardMotionSourc
                 ),
         )
         AsyncImage(
-            model = url.croppedAt(HEADER_ART_PX).whenArtworkReady(),
+            model = rememberBrowseArtworkRequest(url.croppedAt(HEADER_ART_PX).whenArtworkReady(), HEADER_ART_PX),
             placeholder = ColorPainter(Color(0xFF1C1C1E)),
             error = ColorPainter(Color(0xFF1C1C1E)),
             contentDescription = null,

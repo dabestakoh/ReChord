@@ -100,6 +100,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.music.bitchord.ui.graphics.forCompactThumbnail
+import com.music.bitchord.ui.graphics.rememberBrowseArtworkRequest
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.isMatchPending
@@ -585,7 +586,10 @@ private fun SongRowContent(
                         }
                     }
                 } else {
-                    com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX)
+                    rememberBrowseArtworkRequest(
+                        com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
+                        ROW_ART_PX,
+                    )
                 }
                 AsyncImage(
                     model = artModel,

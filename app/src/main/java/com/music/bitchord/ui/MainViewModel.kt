@@ -1758,12 +1758,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             when {
                                 page.browseId == "local:all" -> page.copy(songs = UiState.Success(songs))
                                 LocalGroups.folderOf(page.browseId) == "local:all" ->
-                                    page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs)))
+                                    page.copy(songs = UiState.Success(LocalGroups.songsOf(page.browseId, songs, useCachedGroup = false)))
                                 else -> page
                             }
                         }
                     }
-                    _detailStack.value = updatedStack
+                    val localPages = updatedStack.filter {
+                        it.browseId == "local:all" || LocalGroups.folderOf(it.browseId) == "local:all"
+                    }.associateBy { it.browseId }
+                    _detailStack.update { stack ->
+                        stack.map { page ->
+                            localPages[page.browseId]?.let { page.copy(songs = it.songs) } ?: page
+                        }
+                    }
                 }
             }
         }

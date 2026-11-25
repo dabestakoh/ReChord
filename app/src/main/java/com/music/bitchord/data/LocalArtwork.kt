@@ -18,9 +18,12 @@ import coil3.request.Options
 import com.music.bitchord.data.model.Song
 import java.io.File
 import java.util.Locale
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.buffer
@@ -134,12 +137,14 @@ internal object LocalArtwork {
         }
     }
 
-    private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(2)
+    private const val MAX_IDLE_THUMBNAILS = 96
+    private const val PREWARM_BATCH = 12
+    private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(1)
     @Volatile private var userScrollingUntilMs: Long = 0L
 
     /** Pauses background thumbnail pre-warming while the user is actively scrolling Local Music. */
     fun notifyUserScrolling(durationMs: Long = 350L) {
-        userScrollingUntilMs = System.currentTimeMillis() + durationMs
+        userScrollingUntilMs = android.os.SystemClock.elapsedRealtime() + durationMs
     }
 
     private fun isLowBatteryOrPowerSave(context: Context): Boolean = runCatching {
@@ -151,83 +156,69 @@ internal object LocalArtwork {
         !charging && pct in 1..15
     }.getOrDefault(false)
 
-    /**
-     * Low-priority (`THREAD_PRIORITY_BACKGROUND`) background caching for EVERY
-     * unique song thumbnail and album cover in the local library so scrolling
-     * 5,000+ songs and albums hits the shared 256 MB DiskCache in `< 1 ms`.
-     * Uses at most 2 workers, skips already-cached covers, pauses while the user
-     * is actively scrolling, and yields/stops when battery saver is active or
-     * battery is critically low.
-     */
+    private fun canWarmArtwork(context: Context): Boolean {
+        if (isLowBatteryOrPowerSave(context)) return false
+        val runtime = Runtime.getRuntime()
+        val limit = runtime.maxMemory()
+        if (runtime.totalMemory() - runtime.freeMemory() >= limit - limit / 4) return false
+        val power = context.getSystemService(android.os.PowerManager::class.java)
+        return android.os.Build.VERSION.SDK_INT < 29 ||
+            power == null || power.currentThermalStatus < android.os.PowerManager.THERMAL_STATUS_MODERATE
+    }
+
+    /** Warm a bounded set of covers after a scan. The visible rows load their own covers on demand. */
     suspend fun prewarmThumbnails(
         context: Context,
         songs: List<Song>,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ) = withContext(prewarmDispatcher) {
-        if (isLowBatteryOrPowerSave(context)) return@withContext
+        val lifecycle = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
+        if (!canWarmArtwork(context)) return@withContext
         val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext
-        val urls = LinkedHashSet<String>(songs.size * 2)
-        for (song in songs) {
-            song.localAlbumArtwork?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
-            song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
-        }
-        val missing = urls.filter { url ->
-            !runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
-        }
-        if (missing.isEmpty()) return@withContext
-        val total = missing.size
-        val nextIdx = java.util.concurrent.atomic.AtomicInteger(0)
-        val doneCounter = java.util.concurrent.atomic.AtomicInteger(0)
-        onProgress(0, total)
-        coroutineScope {
-            List(2) {
-                async(prewarmDispatcher) {
-                        val previousPriority = runCatching {
-                            android.os.Process.getThreadPriority(android.os.Process.myTid())
-                        }.getOrNull()
-                        runCatching {
-                            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-                        }
-                        try {
-                            while (true) {
-                                kotlinx.coroutines.yield()
-                                while (System.currentTimeMillis() < userScrollingUntilMs) {
-                                    kotlinx.coroutines.delay(250L)
-                                }
-                                val i = nextIdx.getAndIncrement()
-                                if (i >= total) break
-                                if (i % 40 == 0 && isLowBatteryOrPowerSave(context)) break
-                                val url = missing[i]
-                                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
-                                    .firstNotNullOfOrNull { encoded ->
-                                        read(context, Uri.decode(encoded))?.let { image -> decodeCover(image, thumbnail = true) }
-                                    }
-                                if (bytes != null) {
-                                    runCatching {
-                                        cache.openEditor(url)?.let { editor ->
-                                            try {
-                                                cache.fileSystem.write(editor.metadata) {}
-                                                cache.fileSystem.write(editor.data) { write(bytes) }
-                                                editor.commit()
-                                            } catch (e: Exception) {
-                                                editor.abort()
-                                                throw e
-                                            }
-                                        }
-                                    }
-                                }
-                                val done = doneCounter.incrementAndGet()
-                                if (done == total || done % 20 == 0) onProgress(done, total)
-                            }
-                        } finally {
-                            if (previousPriority != null) {
-                                runCatching { android.os.Process.setThreadPriority(previousPriority) }
-                            }
-                        }
+        val urls = songs.asSequence()
+            .flatMap { sequenceOf(it.thumbnailUrl, it.localAlbumArtwork) }
+            .filterNotNull()
+            .filter { it.startsWith(PREFIX) }
+            .distinct()
+            .take(MAX_IDLE_THUMBNAILS)
+            .toList()
+        if (urls.isEmpty()) return@withContext
+
+        for ((index, url) in urls.withIndex()) {
+            yield()
+            if (index > 0 && index % PREWARM_BATCH == 0) delay(200L)
+            do {
+                lifecycle.first { it.isAtLeast(Lifecycle.State.STARTED) }
+                val remaining = userScrollingUntilMs - android.os.SystemClock.elapsedRealtime()
+                if (remaining > 0) delay(remaining)
+            } while (userScrollingUntilMs > android.os.SystemClock.elapsedRealtime() ||
+                !lifecycle.value.isAtLeast(Lifecycle.State.STARTED))
+            if (index % PREWARM_BATCH == 0 && !canWarmArtwork(context)) return@withContext
+            if (!runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)) {
+                val bytes = url.removePrefix(PREFIX).split('|').drop(1)
+                    .firstNotNullOfOrNull { encoded ->
+                        read(context, Uri.decode(encoded))?.let { decodeCover(it, thumbnail = true) }
                     }
-            }.forEach { it.await() }
+                if (bytes != null) saveThumbnail(cache, url, bytes)
+            }
+            val done = index + 1
+            if (done == urls.size || done % PREWARM_BATCH == 0) onProgress(done, urls.size)
         }
-        onProgress(total, total)
+    }
+
+    private fun saveThumbnail(cache: DiskCache, url: String, bytes: ByteArray) {
+        runCatching {
+            cache.openEditor(url)?.let { editor ->
+                try {
+                    cache.fileSystem.write(editor.metadata) {}
+                    cache.fileSystem.write(editor.data) { write(bytes) }
+                    editor.commit()
+                } catch (error: Exception) {
+                    editor.abort()
+                    throw error
+                }
+            }
+        }
     }
 
     class Factory(private val context: Context) : Fetcher.Factory<coil3.Uri> {
@@ -277,18 +268,7 @@ internal object LocalArtwork {
                                     decodeCover(image, small)
                                 }
                             } ?: error("No readable local cover")
-                        if (small) runCatching {
-                            thumbnails.openEditor(url)?.let { editor ->
-                                try {
-                                    thumbnails.fileSystem.write(editor.metadata) {}
-                                    thumbnails.fileSystem.write(editor.data) { write(bytes) }
-                                    editor.commit()
-                                } catch (error: Exception) {
-                                    editor.abort()
-                                    throw error
-                                }
-                            }
-                        }
+                        if (small) saveThumbnail(thumbnails, url, bytes)
                         SourceFetchResult(
                             source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
                             mimeType = null,

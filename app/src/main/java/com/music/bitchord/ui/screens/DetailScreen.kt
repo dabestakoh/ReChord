@@ -75,6 +75,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
@@ -430,29 +432,40 @@ fun DetailScreen(
         if (recent) recentlyAddedTracks(filteredRawSongs) else filteredRawSongs
     }
     val sortCacheKey = "${page.browseId}|${folderSort?.name}|${songSort.name}|$recent|$hiResActive|${locale.toLanguageTag()}"
-    fun computeSorted(): List<Song> = LocalGroups.getOrComputeSortedSongs(recentSongs, sortCacheKey) {
+    fun computeSorted(source: List<Song>): List<Song> = LocalGroups.getOrComputeSortedSongs(source, sortCacheKey) {
         val ascending = folderSort == LocalMusicSort.TITLE_ASC || (folderSort == null && songSort == SongSort.TITLE_ASC)
         val descending = folderSort == LocalMusicSort.TITLE_DESC || (folderSort == null && songSort == SongSort.TITLE_DESC)
-        if (localPage && (ascending || descending)) recentSongs.sortedWith { a, b ->
+        if (localPage && (ascending || descending)) source.sortedWith { a, b ->
             if (ascending) trackAlphabet.compare(a.title, b.title) else trackAlphabet.compare(b.title, a.title)
         }
-        else if (recent && folderSort == LocalMusicSort.DATE_ADDED) recentSongs
-        else if (folderSort != null) recentSongs.sortedForLibrary(folderSort) else recentSongs.sortedForDetail(songSort)
+        else if (recent && folderSort == LocalMusicSort.DATE_ADDED) source
+        else if (folderSort != null) source.sortedForLibrary(folderSort) else source.sortedForDetail(songSort)
     }
-    val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
-        ?: if (recentSongs.size <= 400) computeSorted() else null
-    var asyncSorted by remember(recentSongs, sortCacheKey) { mutableStateOf<List<Song>?>(cachedSorted) }
-    LaunchedEffect(recentSongs, sortCacheKey, cachedSorted) {
-        if (cachedSorted != null) {
-            asyncSorted = cachedSorted
-            return@LaunchedEffect
-        }
-        asyncSorted = withContext(Dispatchers.Default) { computeSorted() }
-    }
-    val songs = cachedSorted ?: asyncSorted ?: recentSongs
     val scanProgress = if (folder?.onRefreshIndex != null) {
-        com.music.bitchord.data.LocalLibraryIndex.progress.collectAsStateWithLifecycle().value
+        val phases = remember {
+            com.music.bitchord.data.LocalLibraryIndex.progress
+                .map { it.copy(processed = 0, total = 0, discovered = 0) }
+                .distinctUntilChanged()
+        }
+        val initialPhase = com.music.bitchord.data.LocalLibraryIndex.progress.value
+            .copy(processed = 0, total = 0, discovered = 0)
+        phases.collectAsStateWithLifecycle(initialValue = initialPhase).value
     } else com.music.bitchord.data.LocalLibraryIndex.ScanProgress()
+    val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
+        ?: if (recentSongs.size <= 400 && !scanProgress.isActive) computeSorted(recentSongs) else null
+    val preparedLocalSongs = if (localPage && recentSongs.isNotEmpty()) {
+        rememberPreparedLocalRows(sortCacheKey, recentSongs, cachedSorted, ::computeSorted)
+    } else null
+    val localSongsPreparing = localPage && recentSongs.isNotEmpty() && preparedLocalSongs == null
+    val songs = if (localPage) {
+        preparedLocalSongs.orEmpty()
+    } else {
+        var asyncSorted by remember(recentSongs, sortCacheKey) { mutableStateOf<List<Song>?>(cachedSorted) }
+        LaunchedEffect(recentSongs, sortCacheKey, cachedSorted) {
+            asyncSorted = cachedSorted ?: withContext(Dispatchers.Default) { computeSorted(recentSongs) }
+        }
+        cachedSorted ?: asyncSorted ?: recentSongs
+    }
     // What a numbered row shows regardless of [songSort] — an album's track
     // numbers are the sleeve's own and must not relabel themselves to match
     // wherever a sort put the row. An album grouped off a device's files
@@ -548,15 +561,6 @@ fun DetailScreen(
             value = query
         }
     }
-    val isScrolling = listState.isScrollInProgress
-    LaunchedEffect(localPage, isScrolling) {
-        if (localPage && isScrolling) {
-            while (true) {
-                com.music.bitchord.data.LocalArtwork.notifyUserScrolling(400L)
-                delay(200L)
-            }
-        }
-    }
     val matches by produceState(
         initialValue = when {
             folder != null && effectiveQuery.isBlank() -> emptyList()
@@ -595,7 +599,7 @@ fun DetailScreen(
     // first while it is on.
     val folderState = folder?.state
     val (folderGroups, folderGroupsLoading) = if (folder != null && folderState != null) {
-        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, filteredRawSongs, effectiveQuery)
+        rememberLocalFolderGroups(page.browseId, folder, folderState.tab, filteredRawSongs, effectiveQuery, scanProgress.isActive)
     } else {
         emptyList<com.music.bitchord.data.LocalGroup>() to false
     }
@@ -954,7 +958,7 @@ fun DetailScreen(
                         isPlaying = isPlaying,
                         songKeys = localSongKeys,
                         isCurrentSong = currentQueueRow,
-                        groupsLoading = folderGroupsLoading,
+                        groupsLoading = folderGroupsLoading || (folderState.tab.isTrackList && localSongsPreparing),
                         onTabReselected = onReselectFolderTab,
                         onTabSelected = onSelectFolderTab,
                         onSongClick = onSongClick,

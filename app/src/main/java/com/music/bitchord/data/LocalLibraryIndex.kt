@@ -75,7 +75,9 @@ internal object LocalLibraryIndex {
     private const val INDEX_V1_NAME = "local-music-index-v1.json"
     private const val FIRST_EMIT_COUNT = 10
     private const val FIRST_EMIT_MS = 120L
-    private const val EMIT_BATCH_SIZE = 25
+    private const val PROGRESS_BATCH_SIZE = 25
+    private const val FIRST_SCAN_BATCH_SIZE = 150
+    private const val FIRST_SCAN_UPDATE_MS = 750L
     private const val EMIT_INTERVAL_MS = 200L
     private const val CHECKPOINT_EVERY_NEW = 500
     private const val AUTO_REFRESH_COOLDOWN_MS = 15_000L
@@ -591,6 +593,7 @@ internal object LocalLibraryIndex {
             revokedFolders = discovery.revokedSafFolders,
         )
 
+        val firstLibraryScan = mutableSongs.value.isEmpty()
         val videoIdByUri = Downloads.saved.value.entries.associate { (id, uri) -> uri to id }
         val filterNonMusic = AppSettings.filterNonMusicAudio.value
         val minDurationMs = if (filterNonMusic) AppSettings.localMusicMinDurationSec.value * 1_000L else 0L
@@ -603,13 +606,14 @@ internal object LocalLibraryIndex {
         val newlyParsedCounter = AtomicInteger(0)
         val resultsLock = Any()
         val orderedResults = arrayOfNulls<CachedEntry>(total)
-        // Stable discovery order: not-yet-processed slots show their previous cached song so the
-        // list never shrinks, jumps or reorders while indexing.
+        // A canceled scan can still keep parsed tracks and their previous cached entries.
         val priorEntryAt = Array(total) { priorByUri[discovery.files[it].uri] }
         val checkpointWriting = AtomicBoolean(false)
         var checkpointJob: Job? = null
-        var lastEmitTime = System.currentTimeMillis()
+        var lastEmitTime = android.os.SystemClock.elapsedRealtime()
         var lastEmitCount = 0
+        var lastBrowseUpdateTime = lastEmitTime
+        var lastBrowseUpdateCount = 0
         var lastCheckpointNew = 0
         var emittedFirstBatch = false
 
@@ -631,20 +635,14 @@ internal object LocalLibraryIndex {
             return out
         }
 
-        fun emitSnapshotLocked(processed: Int, force: Boolean = false) {
+        fun emitProgressLocked(processed: Int) {
             if (isCancelledNow()) return
-            val now = System.currentTimeMillis()
-            val shouldEmit = force ||
-                (!emittedFirstBatch && (processed >= FIRST_EMIT_COUNT || now - lastEmitTime >= FIRST_EMIT_MS)) ||
-                (processed - lastEmitCount >= EMIT_BATCH_SIZE) ||
-                (now - lastEmitTime >= EMIT_INTERVAL_MS)
-            if (!shouldEmit) return
-            emittedFirstBatch = true
-            lastEmitTime = now
-            lastEmitCount = processed
-            if (isCancelledNow()) return
-            mutableSongs.value = filterIgnored(snapshotSongsLocked())
-            if (!isCancelledNow()) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val first = lastEmitCount == 0 &&
+                (processed >= FIRST_EMIT_COUNT || now - lastEmitTime >= FIRST_EMIT_MS)
+            if (first || processed - lastEmitCount >= PROGRESS_BATCH_SIZE || now - lastEmitTime >= EMIT_INTERVAL_MS) {
+                lastEmitTime = now
+                lastEmitCount = processed
                 mutableProgress.value = ScanProgress(
                     phase = ScanPhase.INDEXING,
                     processed = processed,
@@ -652,6 +650,21 @@ internal object LocalLibraryIndex {
                     discovered = total,
                     revokedFolders = discovery.revokedSafFolders,
                 )
+            }
+            // A rescan keeps the established view until the complete result is ready.
+            // Only the first scan needs progressive results to become browsable early.
+            if (firstLibraryScan && (
+                    (!emittedFirstBatch && (first || lastEmitCount > 0)) ||
+                        processed - lastBrowseUpdateCount >= FIRST_SCAN_BATCH_SIZE ||
+                        now - lastBrowseUpdateTime >= FIRST_SCAN_UPDATE_MS
+                    )
+            ) {
+                if (isCancelledNow()) return
+                val songs = filterIgnored(snapshotSongsLocked())
+                emittedFirstBatch = true
+                lastBrowseUpdateTime = now
+                lastBrowseUpdateCount = processed
+                if (songs.isNotEmpty() && !isCancelledNow()) mutableSongs.value = songs
             }
         }
 
@@ -753,13 +766,12 @@ internal object LocalLibraryIndex {
                             }
 
                             ensureGeneration()
-                            val done = processedCounter.incrementAndGet()
                             val newCount = newlyParsedCounter.get()
                             synchronized(resultsLock) {
                                 if (entry != null) {
                                     orderedResults[idx] = entry
                                 }
-                                emitSnapshotLocked(done)
+                                emitProgressLocked(processedCounter.incrementAndGet())
                                 maybeCheckpointLocked(newCount)
                             }
                         }
@@ -818,7 +830,7 @@ internal object LocalLibraryIndex {
             )
         }
 
-        // Start low-priority background thumbnail caching for ALL unique song & album covers.
+        // Warm a bounded set of covers. Other covers are cached as they are viewed.
         prewarmJob?.cancel()
         prewarmJob = indexScope.launch {
             try {
