@@ -2043,7 +2043,7 @@ fun NowPlayingScreen(
         { haptics.play(Haptic.Select); open() }
     }
     val layoutHold = Modifier.openLayoutOnHold(openLayoutPicker)
-    val playerActions: @Composable (Boolean) -> Unit = { keepModeControlsInPane ->
+    val playerActions: @Composable (Boolean) -> Unit = { compactToFit ->
         PlayerActionRow(
             lyricsOpen = lyricsOpen,
             queueOpen = queueOpen,
@@ -2056,7 +2056,7 @@ fun NowPlayingScreen(
             onCycleRepeat = onCycleRepeat,
             onToggleAutoplay = onToggleAutoplay,
             onOpenOutput = openAudioOutput,
-            showModesInActionRow = !keepModeControlsInPane,
+            compactToFit = compactToFit,
         )
         if (!(sideways && !fullscreenInPlace)) {
             Spacer(Modifier.height(if (compactPortrait) 8.dp else 18.dp))
@@ -2666,7 +2666,7 @@ fun NowPlayingScreen(
                         { VolumeRow({ volume.level.value }, onVolumeChange, onVolumeChangeFinished) }
                     },
                     quality = { PlaybackQualityLabel(song = song, isLoading = isLoading, reserveSpace = true) },
-                    actions = { playerActions(false) },
+                    actions = playerActions,
                     landscape = sideways,
                     onToggleRotate = onToggleRotate,
                     videoAspect = videoAspectState.value,
