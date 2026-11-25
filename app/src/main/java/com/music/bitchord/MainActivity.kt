@@ -503,13 +503,23 @@ class MainActivity : AppCompatActivity() {
                 // longer exists and a page squeezed to a sliver to pay for it.
                 // A measured constraint cannot be stale — it is the very width
                 // the split is about to be laid out in.
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    BitChordApp(
-                        darkTheme = darkTheme,
-                        windowWidth = maxWidth,
-                        windowHeight = maxHeight,
-                        appBackdrop = appBackdrop,
-                    )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(windowBackground),
+                ) {
+                    BoxWithConstraints(
+                        Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(com.music.bitchord.ui.components.horizontalSafeInsets),
+                    ) {
+                        BitChordApp(
+                            darkTheme = darkTheme,
+                            windowWidth = maxWidth,
+                            windowHeight = maxHeight,
+                            appBackdrop = appBackdrop,
+                        )
+                    }
                 }
                 }
             }
@@ -3717,7 +3727,7 @@ private fun BitChordApp(
                                 songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
-                                floatingBarsHeightPx = { floatingBarsHeight.intValue },
+                                floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(
@@ -4532,18 +4542,23 @@ private fun BitChordApp(
                 // Drawn before the bars so their own glass reads on top of it.
                 BottomFadeScrim(
                     withMiniPlayer = player.song != null,
+                    sideBySide = landscapeChrome(windowWidth, windowHeight),
                     // Not the wash: by the foot of the screen the page has finished
                     // easing out of it and into this, so this is what is actually
                     // under the tab bar.
                     pageColor = chromePageColor,
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = bottomScrimMaxWidth(windowWidth, windowHeight)),
                 )
 
                 // Whichever bar is drawing reports its height here, for the
                 // guard to read at layout — never in composition, see the guard.
                 FloatingBarsTapGuard(
                     barsHeight = { floatingBarsHeight.intValue },
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .widthIn(max = bottomScrimMaxWidth(windowWidth, windowHeight)),
                 )
 
                 // One tab handler, whichever bar is drawing it.
@@ -4582,7 +4597,7 @@ private fun BitChordApp(
                 } else {
                     null
                 }
-                if (glassActive) Column(
+                if (glassActive && !landscapeChrome(windowWidth, windowHeight)) Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .widthIn(max = FLOATING_BAR_MAX_WIDTH)
@@ -7123,9 +7138,18 @@ private suspend fun LazyListState.scrollToTopEased() {
 private fun Float?.orZero(): Float = this ?: 0f
 
 
-/** Landscape windows (DAP, car head units) put the menu and Now Playing side by side. */
+/** Landscape windows (DAP, car head units, phones) put the menu and Now Playing side by side. */
 private fun landscapeChrome(width: Dp, height: Dp): Boolean = width >= 560.dp && width > height
 
 /** Bar row width, leaving free edge strips for the A–Z rail when side by side. */
 private fun chromeMaxWidth(sideBySide: Boolean, width: Dp): Dp =
     if (sideBySide) 880.dp.coerceAtMost(width - 96.dp) else FLOATING_BAR_MAX_WIDTH
+
+/** Caps the bottom fade scrim and tap guard to the bar row in landscape so the A–Z rail stays un-faded and tappable. */
+private fun bottomScrimMaxWidth(width: Dp, height: Dp): Dp =
+    if (landscapeChrome(width, height)) 880.dp.coerceAtMost(width - 96.dp) else Dp.Unspecified
+
+/** -1 signals landscape side-by-side mode so the A–Z rail aligns level with the bottom edge of the Now Playing pill. */
+private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
+    if (landscapeChrome(width, height)) -1 else measured
+

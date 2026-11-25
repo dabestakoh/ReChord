@@ -74,8 +74,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -721,15 +719,13 @@ fun DetailScreen(
                             (prev to (listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset))
                         val saved = folderState.savedScrollByTab[nextTab]
                         folderState.tab = nextTab
-                        tabScrollScope.launch {
-                            // Wait for the new tab's rows to be laid out first.
-                            withFrameNanos { }
-                            withFrameNanos { }
-                            if (saved != null && (saved.first > 0 || saved.second > 0)) {
-                                listState.scrollToItem(saved.first, saved.second)
-                            } else if (pinned) {
-                                listState.scrollToItem(tabsRowIndex, -tabStickyPx)
-                            }
+                        // Request the target scroll position synchronously in the exact same
+                        // state change so Frame 1 of the new tab lays out directly at its
+                        // destination without rendering an intermediate frame at the old offset.
+                        if (saved != null && (saved.first > 0 || saved.second > 0)) {
+                            listState.requestScrollToItem(saved.first, saved.second)
+                        } else if (pinned) {
+                            listState.requestScrollToItem(tabsRowIndex, -tabStickyPx)
                         }
                     }
                 }

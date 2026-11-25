@@ -61,6 +61,7 @@ internal fun SongInfoDialog(song: Song, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .width(ALERT_WIDTH)
                 .clip(RoundedCornerShape(ALERT_CORNER))
                 .background(MaterialTheme.colorScheme.surface),

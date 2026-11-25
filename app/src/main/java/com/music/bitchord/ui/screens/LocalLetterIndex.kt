@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
@@ -106,8 +107,12 @@ internal fun LocalLetterIndex(
     val density = LocalDensity.current
     val topInsetPx = with(density) { (topInset + 4.dp).roundToPx() }
     val fallbackBottomInsetPx = with(density) { (bottomInset - 52.dp).coerceAtLeast(80.dp).roundToPx() }
-    // Clears the bottom fade and the 8.dp tap guard above the bars.
+    // Clears the bottom fade and the 8.dp tap guard above the bars in portrait.
     val bottomClearancePx = with(density) { 12.dp.roundToPx() }
+    val pillFootBottomPx = with(density) {
+        (com.music.bitchord.ui.components.floatingBarInsets.asPaddingValues().calculateBottomPadding() +
+            com.music.bitchord.ui.components.NAV_BAR_LIFT).roundToPx()
+    }
     val minSlotPx = with(density) { 9.5.dp.roundToPx().coerceAtLeast(1) }
     val maxSlotPx = with(density) { 26.dp.roundToPx().coerceAtLeast(minSlotPx) }
     val minRailHeightPx = with(density) { 52.dp.roundToPx() }
@@ -124,10 +129,10 @@ internal fun LocalLetterIndex(
             .graphicsLayer { alpha = railAlpha }
             .layout { measurable, constraints ->
                 val measuredBarsPx = floatingBarsHeightPx()
-                val effectiveBottomInsetPx = if (measuredBarsPx > 0) {
-                    measuredBarsPx + bottomClearancePx
-                } else {
-                    fallbackBottomInsetPx
+                val effectiveBottomInsetPx = when {
+                    measuredBarsPx < 0 -> pillFootBottomPx
+                    measuredBarsPx > 0 -> measuredBarsPx + bottomClearancePx
+                    else -> fallbackBottomInsetPx
                 }
                 val bottom = (constraints.maxHeight - effectiveBottomInsetPx).coerceAtLeast(0)
                 val start = topInsetPx.coerceAtMost(bottom)

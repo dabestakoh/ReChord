@@ -116,15 +116,18 @@ jobs:
             echo "::error::Preview APK version does not match Gradle ($expected_version)"
             exit 1
           fi
+          mkdir -p preview-assets
+          apk_out="preview-assets/ReChord-Preview-${expected_version}-arm64.apk"
+          cp "${apks[0]}" "$apk_out"
           echo "version=$expected_version" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$apk_out" >> "$GITHUB_OUTPUT"
           echo "Preview signer, package and version verified"
       - name: Upload Preview APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ReChord-Preview-${{ steps.verify-preview.outputs.version }}-arm64
-          path: app/build/outputs/apk/dev/debug/*arm64-v8a*.apk
+          path: ${{ steps.verify-preview.outputs.apk_path }}
+          archive: false
           if-no-files-found: error
-          compression-level: 0
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
