@@ -543,23 +543,37 @@ fun DetailScreen(
             value = query
         }
     }
+    val isScrolling = listState.isScrollInProgress
+    LaunchedEffect(localPage, isScrolling) {
+        if (localPage && isScrolling) {
+            while (true) {
+                com.music.bitchord.data.LocalArtwork.notifyUserScrolling(400L)
+                delay(200L)
+            }
+        }
+    }
     val matches by produceState(
-        initialValue = if (effectiveQuery.isBlank()) songs.withIndex().toList() else songs.matching(effectiveQuery),
+        initialValue = when {
+            folder != null && effectiveQuery.isBlank() -> emptyList()
+            effectiveQuery.isBlank() -> songs.withIndex().toList()
+            else -> songs.matching(effectiveQuery)
+        },
         key1 = songs,
         key2 = effectiveQuery,
+        key3 = folder != null,
     ) {
-        value = if (effectiveQuery.isBlank()) {
-            songs.withIndex().toList()
-        } else if (songs.size > 400) {
-            withContext(Dispatchers.Default) { songs.matching(effectiveQuery) }
-        } else {
-            songs.matching(effectiveQuery)
+        value = when {
+            folder != null && effectiveQuery.isBlank() -> emptyList()
+            effectiveQuery.isBlank() -> songs.withIndex().toList()
+            songs.size > 400 -> withContext(Dispatchers.Default) { songs.matching(effectiveQuery) }
+            else -> songs.matching(effectiveQuery)
         }
     }
     // What a tap plays: the filtered set of tracks currently standing in the
-    // list. When no filter is active, matches contains the full running order
-    // and plays the complete release/playlist from the tapped position.
-    val queue = remember(matches) { matches.map { it.value } }
+    // list. When no filter is active, use `songs` directly (zero wrapper allocations).
+    val queue = remember(songs, matches, effectiveQuery) {
+        if (effectiveQuery.isBlank()) songs else matches.map { it.value }
+    }
     val localSongKeys = remember(queue) { uniqueKeys(queue) { "local-song:${it.videoId}" } }
     // Resolve the highlighted track only when the queue or current song changes,
     // not whenever the lazy list recomposes while scrolling.
@@ -685,12 +699,15 @@ fun DetailScreen(
                     else if (grouped) folderGroups.map { it.title } else queue.map { it.title }
                 }
                 val indexAlphabet = if (grouped) groupAlphabet else trackAlphabet
-                val sections = remember(names, indexAlphabet) { localLetterPositions(names, 0, 1, indexAlphabet).size }
+                val baseLetterOffsets = remember(names, indexAlphabet) {
+                    localLetterPositions(names, 0, 1, indexAlphabet)
+                }
+                val sections = baseLetterOffsets.size
                 var letterPreview by remember(page.browseId, tab) { mutableStateOf<String?>(null) }
                 val scrollable by remember(listState) {
                     derivedStateOf { listState.canScrollForward || listState.canScrollBackward }
                 }
-                val gutter = if (localPage && scrollable && sections > 1 && !isArtist && reorder == null) 18.dp else 0.dp
+                val gutter = if (localPage && scrollable && sections > 1 && !isArtist && reorder == null) 32.dp else 0.dp
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
 
                 // The artist photo is drawn behind the list rather than in it, so
@@ -1069,6 +1086,24 @@ fun DetailScreen(
             if (isArtist) aboutItem()
         }
 
+                val canPinTabs = folder != null && folderState != null && folder.tabs.size > 1 &&
+                    !folder.isNotConfigured && !folderState.selecting
+                val stickyTopPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
+                val showStickyTabs by remember(listState, stickyTopPx, canPinTabs) {
+                    derivedStateOf {
+                        if (!canPinTabs) {
+                            false
+                        } else {
+                            val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
+                            if (tabsInfo != null) {
+                                tabsInfo.offset < stickyTopPx
+                            } else {
+                                listState.firstVisibleItemIndex > 0
+                            }
+                        }
+                    }
+                }
+
                 if (gutter > 0.dp) {
                     val about = !page.description.isNullOrBlank() && page.type == BrowseType.ALBUM
                     val start = 1 + (if (searching) 1 else 0) + (if (about) 1 else 0) +
@@ -1076,19 +1111,24 @@ fun DetailScreen(
                         (if (scanProgress.phase != com.music.bitchord.data.LocalLibraryIndex.ScanPhase.IDLE ||
                                 scanProgress.revokedFolders.isNotEmpty()
                             ) 1 else 0) +
+                        (if (folder?.onManageFolders != null) 1 else 0) +
                         (if (tab == LocalFolderTab.PLAYLISTS && query.isBlank() && folder?.onCreatePlaylist != null) 1 else 0)
-                    val columns = if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1
-                    val positions = remember(names, start, columns, indexAlphabet) {
-                        localLetterPositions(names, start, columns, indexAlphabet)
+                    val columns = (if (folder?.viewType == com.music.bitchord.data.settings.LibraryViewType.GRID) gridColumns else 1).coerceAtLeast(1)
+                    val positions = remember(baseLetterOffsets, start, columns) {
+                        baseLetterOffsets.mapValues { (_, rawIdx) -> start + rawIdx / columns }
                     }
+                    val pinnedHeaderExtra = if (showStickyTabs || folderState?.selecting == true) 56.dp else 0.dp
                     LocalLetterIndex(
                         positions = positions,
                         list = listState,
                         firstRowIndex = start,
-                        topInset = topBarContentPadding(),
+                        topInset = topBarContentPadding() + pinnedHeaderExtra,
                         bottomInset = contentPadding.calculateBottomPadding(),
                         onPreview = { letterPreview = it },
-                        modifier = Modifier.align(Alignment.TopEnd).width(gutter),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 6.dp)
+                            .width(24.dp),
                     )
                 }
 
@@ -1107,46 +1147,41 @@ fun DetailScreen(
                 // Sticky tab pill bar: header (title + Play/Shuffle) scrolls away while the
                 // Songs/Albums/Artists/Folders pill bar pins right below the top bar so users
                 // can switch tabs mid-scroll without scrolling back to the top.
-                if (folder != null && folderState != null && folder.tabs.size > 1 && !folder.isNotConfigured && !folderState.selecting) {
-                    val stickyTopPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
-                    val showStickyTabs by remember(listState, stickyTopPx) {
-                        derivedStateOf {
-                            val tabsInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }
-                            if (tabsInfo != null) {
-                                tabsInfo.offset < stickyTopPx
-                            } else {
-                                listState.firstVisibleItemIndex > 0
-                            }
-                        }
-                    }
-                    if (showStickyTabs) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .padding(top = topBarContentPadding())
-                                .background(pageColor),
-                        ) {
-                            SegmentedControl(
-                                options = folder.tabs.map { it.label() },
-                                selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
-                                onSelect = { folderState.tab = folder.tabs[it] },
-                                modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
-                            )
-                            HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
-                        }
+                // `.background(pageColor)` comes BEFORE `.padding(top = topBarContentPadding())`
+                // so the entire zone behind the top bar and above the pill bar is solid pageColor
+                // and scrolled rows never peek through behind the top bar buttons.
+                if (showStickyTabs && folder != null && folderState != null) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .background(pageColor)
+                            .padding(top = topBarContentPadding()),
+                    ) {
+                        SegmentedControl(
+                            options = folder.tabs.map { it.label() },
+                            selectedIndex = folder.tabs.indexOf(folderState.tab).coerceAtLeast(0),
+                            onSelect = { folderState.tab = folder.tabs[it] },
+                            modifier = Modifier.padding(horizontal = PAGE_GUTTER, vertical = 8.dp),
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
                     }
                 }
 
                 if (folder != null && folderState != null && folderState.selecting) {
-                    LocalFolderSelectionBar(
-                        folder = folder,
-                        state = folderState,
-                        songs = songs,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER),
-                    )
+                            .fillMaxWidth()
+                            .background(pageColor)
+                            .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER, bottom = 6.dp),
+                    ) {
+                        LocalFolderSelectionBar(
+                            folder = folder,
+                            state = folderState,
+                            songs = songs,
+                        )
+                    }
                 }
 
     }
@@ -2801,7 +2836,7 @@ private fun BrowseType.localizedLabel(): String? = when (this) {
  */
 @Composable
 private fun List<Song>.playtime(): String? {
-    val minutes = sumOf { it.durationMillis() } / 60_000
+    val minutes = remember(this) { sumOf { it.durationMillis() } / 60_000 }
     return when {
         minutes <= 0 -> null
         minutes < 60 -> stringResource(R.string.minutes_short, minutes.toInt())

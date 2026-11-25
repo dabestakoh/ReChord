@@ -338,6 +338,7 @@ fun SongRow(
      */
     trailing: (@Composable () -> Unit)? = null,
     showDuration: Boolean = true,
+    showHiRes: Boolean = true,
 ) {
     SwipeToQueueBox(
         onSwipeToQueue = onSwipeToQueue,
@@ -360,6 +361,7 @@ fun SongRow(
             showSourceQuality = showSourceQuality,
             trailing = trailing,
             showDuration = showDuration,
+            showHiRes = showHiRes,
         )
     }
 }
@@ -439,6 +441,14 @@ fun SwipeToQueueBox(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QueueSwipeBackground(swipeState: SwipeToDismissBoxState) {
+    // Only compose the 2 Icons + 2 Texts + StateFlow collector while a row is actively being swiped.
+    val isSwiping by remember(swipeState) {
+        androidx.compose.runtime.derivedStateOf {
+            swipeState.targetValue != SwipeToDismissBoxValue.Settled ||
+                swipeState.currentValue != SwipeToDismissBoxValue.Settled
+        }
+    }
+    if (!isSwiping) return
     val playNext by AppUi.host.swipeToPlayNext.collectAsStateWithLifecycle()
     Row(
         modifier = Modifier
@@ -483,6 +493,8 @@ private fun QueueSwipeLabel(playNext: Boolean) {
     }
 }
 
+private val ROW_THUMB_SHAPE = RoundedCornerShape(8.dp)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SongRowContent(
@@ -502,6 +514,7 @@ private fun SongRowContent(
     showSourceQuality: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
     showDuration: Boolean = true,
+    showHiRes: Boolean = true,
 ) {
     // Plain color reads instead of per-row animateColorAsState keep fast list flings allocation-free on low-spec DAPs.
     val titleColor = if (isCurrent && !searchPlayingStyle) activeTint else MaterialTheme.colorScheme.onBackground
@@ -554,12 +567,19 @@ private fun SongRowContent(
             Box(Modifier.trackArtSize(52.dp, song.isVideo)) {
                 val platformContext = LocalPlatformContext.current
                 val artModel: Any? = if (song.localUri != null) {
-                    val localUrl = song.thumbnailUrl
-                    remember(localUrl) {
+                    val localUrl = song.localAlbumArtwork ?: song.thumbnailUrl
+                    val albumKey = song.albumName?.takeIf { it.isNotBlank() }?.let { album ->
+                        val dir = song.localPath?.substringBeforeLast('/', "").orEmpty()
+                        "local-album-thumb:160:$dir:$album:${song.localAlbumArtist ?: song.artist}"
+                    }
+                    remember(localUrl, albumKey) {
                         localUrl?.let {
                             ImageRequest.Builder(platformContext)
                                 .data(it)
                                 .size(160)
+                                .apply {
+                                    if (albumKey != null) memoryCacheKey(albumKey)
+                                }
                                 .forCompactThumbnail()
                                 .build()
                         }
@@ -573,8 +593,8 @@ private fun SongRowContent(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .matchParentSize()
-                        .clip(RoundedCornerShape(8.dp))
-                        .thumbnailBorder(RoundedCornerShape(8.dp))
+                        .clip(ROW_THUMB_SHAPE)
+                        .thumbnailBorder(ROW_THUMB_SHAPE)
                         .background(
                             if (song.localUri != null) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
                             else MaterialTheme.colorScheme.surfaceVariant,
@@ -647,7 +667,7 @@ private fun SongRowContent(
                 color = subtitleColor,
             )
         } else {
-            if (song.localUri != null && song.sourceHiRes) {
+            if (!selected && showHiRes && song.localUri != null && song.sourceHiRes) {
                 Spacer(Modifier.width(6.dp))
                 HiResBadge(tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.88f))
             }

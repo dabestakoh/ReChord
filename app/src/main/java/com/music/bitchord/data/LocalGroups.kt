@@ -98,6 +98,9 @@ object LocalGroups {
 
     /** The rows of [folderSongs] the grouping [browseId] names, in the order its page lists them. */
     fun songsOf(browseId: String, folderSongs: List<Song>): List<Song> {
+        if (cachedSongsRef === folderSongs) {
+            groupByIdCache[browseId]?.let { return it.songs }
+        }
         val group = parse(browseId) ?: return emptyList()
         return when (group.kind) {
             ALBUM -> folderSongs.filter { it.albumName == group.name }.sortedForAlbum()
@@ -203,6 +206,7 @@ object LocalGroups {
      * from", so it gets the same cover and credit as when its tab row opens it.
      */
     fun groupOf(browseId: String, songs: List<Song>): LocalGroup? {
+        groupByIdCache[browseId]?.takeIf { it.songs.size == songs.size }?.let { return it }
         val group = parse(browseId) ?: return null
         return when (group.kind) {
             ALBUM -> album(group.folderId, group.name, songs)
@@ -247,6 +251,7 @@ object LocalGroups {
     // or re-grouping 5,000+ songs. Only the latest songs list is retained (no memory leak).
     @Volatile private var cachedSongsRef: List<Song>? = null
     private val groupTabCache = java.util.concurrent.ConcurrentHashMap<String, List<LocalGroup>>()
+    private val groupByIdCache = java.util.concurrent.ConcurrentHashMap<String, LocalGroup>()
     private val sortedSongsCache = java.util.concurrent.ConcurrentHashMap<String, List<Song>>()
 
     private fun ensureCacheFor(songs: List<Song>) {
@@ -254,6 +259,7 @@ object LocalGroups {
             synchronized(this) {
                 if (cachedSongsRef !== songs) {
                     groupTabCache.clear()
+                    groupByIdCache.clear()
                     sortedSongsCache.clear()
                     cachedSongsRef = songs
                 }
@@ -272,7 +278,13 @@ object LocalGroups {
         compute: () -> List<LocalGroup>,
     ): List<LocalGroup> {
         ensureCacheFor(songs)
-        return groupTabCache.computeIfAbsent(key) { compute() }
+        return groupTabCache.computeIfAbsent(key) {
+            compute().also { groups ->
+                for (g in groups) {
+                    groupByIdCache.putIfAbsent(g.browseId, g)
+                }
+            }
+        }
     }
 
     internal fun peekCachedSortedSongs(songs: List<Song>, key: String): List<Song>? {

@@ -504,6 +504,7 @@ internal fun LazyListScope.localFolderItems(
                         // Every row here is on the device already.
                         downloadedTint = null,
                         showDuration = false,
+                        showHiRes = !state.selecting,
                         onClick = { songClick(index) },
                         onLongPress = { songHold(song) },
                         onMore = { onSongLongPress(song) },
@@ -1166,13 +1167,15 @@ private fun LocalGroup.albumSubtitle(): String {
 @Composable
 private fun LocalGroup.coverArt(): String? {
     if (thumbnailUrl != null) return thumbnailUrl
-    return rememberRemoteArtworkUrl(songs.firstOrNull())
+    val first = songs.firstOrNull() ?: return null
+    if (first.localUri != null) return first.localAlbumArtwork ?: first.thumbnailUrl
+    return rememberRemoteArtworkUrl(first)
 }
 
 @Composable
 private fun rememberLocalThumbModel(url: String?, px: Int): Any? {
     if (url == null) return null
-    if (!url.startsWith("local-art:")) return url.artworkAt(px)
+    if (!url.startsWith("localcover:")) return url.artworkAt(px)
     val ctx = LocalPlatformContext.current
     return remember(url, px) {
         ImageRequest.Builder(ctx).data(url).size(px).forCompactThumbnail().build()

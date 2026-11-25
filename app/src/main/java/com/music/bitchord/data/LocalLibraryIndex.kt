@@ -92,6 +92,9 @@ internal object LocalLibraryIndex {
 
     @Volatile private var cached: SavedV2? = null
     @Volatile private var activeJob: Job? = null
+    private val activeJobs = ConcurrentHashMap.newKeySet<Job>()
+    private val scanGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var cancelledSourceKey: String? = null
     @Volatile private var prewarmJob: Job? = null
     @Volatile private var lastCompletedScanMs: Long = 0L
 
@@ -209,7 +212,7 @@ internal object LocalLibraryIndex {
         AppSettings.clearIgnoredLocalSongUris()
         val saved = read(context.applicationContext)
         if (saved != null && saved.entries.isNotEmpty()) {
-            mutableSongs.value = saved.entries.map { it.song }
+            mutableSongs.value = filterIgnored(saved.entries.map { it.song })
         }
     }
 
@@ -218,20 +221,24 @@ internal object LocalLibraryIndex {
      * `PlaybackService` and Search → Library). Returns empty immediately when
      * Local Music has not been configured yet — never triggers an unsolicited scan.
      */
-    suspend fun get(context: Context): List<Song> = withContext(Dispatchers.IO) {
+    suspend fun get(context: Context): List<Song> {
         if (AppSettings.localMusicScanMode.value == LocalMusicScanMode.NOT_CONFIGURED) {
-            return@withContext emptyList()
+            return emptyList()
         }
-        val live = filterIgnored(mutableSongs.value)
-        if (live.isNotEmpty()) return@withContext live
+        val live = mutableSongs.value
+        if (live.isNotEmpty()) return live
 
-        val saved = read(context)
-        if (saved != null && saved.entries.isNotEmpty()) {
-            val loaded = filterIgnored(saved.entries.map { it.song })
-            mutableSongs.value = loaded
-            return@withContext loaded
+        return withContext(Dispatchers.IO) {
+            val secondCheck = mutableSongs.value
+            if (secondCheck.isNotEmpty()) return@withContext secondCheck
+            val saved = read(context)
+            if (saved != null && saved.entries.isNotEmpty()) {
+                val loaded = filterIgnored(saved.entries.map { it.song })
+                mutableSongs.value = loaded
+                return@withContext loaded
+            }
+            emptyList()
         }
-        emptyList()
     }
 
     /**
@@ -242,7 +249,8 @@ internal object LocalLibraryIndex {
      */
     fun refreshIfConfigured(context: Context, silent: Boolean = true) {
         if (AppSettings.localMusicScanMode.value == LocalMusicScanMode.NOT_CONFIGURED) return
-        if (activeJob?.isActive == true) return
+        if (activeJob?.isActive == true || activeJobs.any { it.isActive }) return
+        if (silent && cancelledSourceKey == sourceKey()) return
         if (silent && mutableSongs.value.isNotEmpty() &&
             (System.currentTimeMillis() - lastCompletedScanMs) < AUTO_REFRESH_COOLDOWN_MS
         ) {
@@ -259,17 +267,33 @@ internal object LocalLibraryIndex {
         restart: Boolean = false,
     ): Job {
         val appContext = context.applicationContext
-        if (forceFull || restart) {
-            activeJob?.cancel()
-        } else if (activeJob?.isActive == true) {
-            return activeJob!!
+        if (!silent || forceFull || restart) {
+            cancelledSourceKey = null
         }
+        if (forceFull || restart) {
+            scanGeneration.incrementAndGet()
+            activeJobs.forEach { it.cancel() }
+            activeJobs.clear()
+            activeJob?.cancel()
+            activeJob = null
+        } else {
+            val current = activeJob
+            if (current?.isActive == true) return current
+        }
+        val gen = scanGeneration.incrementAndGet()
         val job = indexScope.launch {
             lock.withLock {
-                runScan(appContext, forceFull = forceFull, silent = silent)
+                if (scanGeneration.get() == gen) {
+                    runScan(appContext, forceFull = forceFull, silent = silent, gen = gen)
+                }
             }
         }
+        activeJobs.add(job)
         activeJob = job
+        job.invokeOnCompletion {
+            activeJobs.remove(job)
+            if (activeJob === job) activeJob = null
+        }
         return job
     }
 
@@ -284,12 +308,21 @@ internal object LocalLibraryIndex {
 
     /** Cancels an active scan while keeping any tracks already checkpointed. */
     fun cancelScan() {
+        scanGeneration.incrementAndGet()
+        cancelledSourceKey = sourceKey()
+        activeJobs.forEach { it.cancel() }
+        activeJobs.clear()
         activeJob?.cancel()
         activeJob = null
         prewarmJob?.cancel()
         prewarmJob = null
-        if (mutableProgress.value.isActive) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+        mutableArtworkProgress.value = null
+        mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+        // If the user cancelled an initial scan before any tracks were indexed, return
+        // cleanly to the first-time setup view ("Search all folders" / "Search specific folders")
+        // instead of stranding them on an empty "No tracks here" screen.
+        if (mutableSongs.value.isEmpty() && cached?.entries.isNullOrEmpty()) {
+            AppSettings.setLocalMusicScanMode(LocalMusicScanMode.NOT_CONFIGURED)
         }
     }
 
@@ -315,10 +348,11 @@ internal object LocalLibraryIndex {
                 val safUris = (AppSettings.localMusicFolders.value + AppSettings.localMusicExcludedFolders.value)
                     .filter { it.isTreeUri }
                     .map { it.id } + listOfNotNull(AppSettings.localMusicFolderUri.value.takeIf { it.isNotBlank() })
-                val running = activeJob
+                val running = activeJobs.toList()
                 cancelScan()
+                cancelledSourceKey = null
                 // Bounded wait so a scan stuck in blocking IO can never freeze the clear.
-                withTimeoutOrNull(CLEAR_CANCEL_WAIT_MS) { running?.join() }
+                withTimeoutOrNull(CLEAR_CANCEL_WAIT_MS) { running.forEach { it.join() } }
                 AppSettings.resetLocalMusicConfig()
                 cached = null
                 lastCompletedScanMs = 0L
@@ -403,10 +437,15 @@ internal object LocalLibraryIndex {
         cached = saved
     }
 
-    private suspend fun runScan(context: Context, forceFull: Boolean, silent: Boolean) {
+    private suspend fun runScan(context: Context, forceFull: Boolean, silent: Boolean, gen: Long) {
+        fun isCancelledNow(): Boolean = scanGeneration.get() != gen
+        fun ensureGeneration() {
+            if (isCancelledNow()) throw CancellationException()
+        }
+        ensureGeneration()
         val mode = AppSettings.localMusicScanMode.value
         if (mode == LocalMusicScanMode.NOT_CONFIGURED) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+            if (!isCancelledNow()) mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
             return
         }
 
@@ -420,7 +459,7 @@ internal object LocalLibraryIndex {
         // When the folder set was edited, keep every cached song still in scope on screen and
         // drop the songs of removed folders instantly instead of blanking the list.
         if (sameSource) {
-            if (mutableSongs.value.isEmpty() && oldEntries.isNotEmpty()) {
+            if (mutableSongs.value.isEmpty() && oldEntries.isNotEmpty() && !isCancelledNow()) {
                 mutableSongs.value = filterIgnored(oldEntries.map { it.song })
             }
         } else if (previous != null) {
@@ -430,7 +469,9 @@ internal object LocalLibraryIndex {
                 LocalMediaRepository.isSongInScope(it, mode, folders, excluded)
             }
             val visibleKept = filterIgnored(kept)
-            if (visibleKept.isNotEmpty() || mutableSongs.value.isNotEmpty()) mutableSongs.value = visibleKept
+            if ((visibleKept.isNotEmpty() || mutableSongs.value.isNotEmpty()) && !isCancelledNow()) {
+                mutableSongs.value = visibleKept
+            }
         }
 
         val useLegacy = LocalStorageVolumes.shouldUseLegacyScan(context, AppSettings.localLegacyScanMode.value)
@@ -439,7 +480,7 @@ internal object LocalLibraryIndex {
             AppSettings.localMusicFolders.value.any { it.isTreeUri }
 
         if (!hasStoragePerm && !hasSafFolders && !useLegacy) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.UNAVAILABLE)
+            if (!isCancelledNow()) mutableProgress.value = ScanProgress(phase = ScanPhase.UNAVAILABLE)
             return
         }
 
@@ -448,6 +489,7 @@ internal object LocalLibraryIndex {
             AppSettings.localMusicExcludedFolders.value.isEmpty()
         ) {
             val currentSig = LocalMediaRepository.mediaStoreSignature(context)
+            ensureGeneration()
             if (currentSig != null && currentSig == previous?.mediaStoreSignature && oldEntries.isNotEmpty()) {
                 mutableSongs.value = filterIgnored(oldEntries.map { it.song })
                 mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
@@ -456,13 +498,18 @@ internal object LocalLibraryIndex {
             }
         }
 
+        ensureGeneration()
         if (!isSilentCheck) {
             mutableProgress.value = ScanProgress(phase = ScanPhase.DISCOVERING, discovered = 0)
         }
 
         val discovery = try {
-            LocalMediaRepository.discoverLocalMusic(context) { count ->
-                if (!isSilentCheck) {
+            LocalMediaRepository.discoverLocalMusic(
+                context = context,
+                isCancelled = ::isCancelledNow,
+            ) { count ->
+                ensureGeneration()
+                if (!isSilentCheck && !isCancelledNow()) {
                     mutableProgress.value = ScanProgress(
                         phase = ScanPhase.DISCOVERING,
                         discovered = count,
@@ -470,15 +517,18 @@ internal object LocalLibraryIndex {
                 }
             }
         } catch (cancelled: CancellationException) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+            if (!isCancelledNow()) mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
             throw cancelled
         } catch (_: Exception) {
-            if (!isSilentCheck) mutableProgress.value = ScanProgress(phase = ScanPhase.UNAVAILABLE)
+            if (!isSilentCheck && !isCancelledNow()) {
+                mutableProgress.value = ScanProgress(phase = ScanPhase.UNAVAILABLE)
+            }
             return
         }
 
+        ensureGeneration()
         if (sourceKey() != key) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+            if (!isCancelledNow()) mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
             return
         }
 
@@ -489,15 +539,18 @@ internal object LocalLibraryIndex {
             entry.song.localUri !in discoveredUris && isPathOnUnmountedExternalVolume(entry.song.localPath)
         }
         if (unmountedPreviouslyIndexed && discovery.files.size < oldEntries.size) {
-            mutableProgress.value = ScanProgress(
-                phase = ScanPhase.UNAVAILABLE,
-                revokedFolders = discovery.revokedSafFolders,
-            )
+            if (!isCancelledNow()) {
+                mutableProgress.value = ScanProgress(
+                    phase = ScanPhase.UNAVAILABLE,
+                    revokedFolders = discovery.revokedSafFolders,
+                )
+            }
             return
         }
 
         val total = discovery.files.size
         if (total == 0) {
+            ensureGeneration()
             val emptySaved = SavedV2(key, discovery.mediaStoreSignature, emptyList())
             writeDisk(context, emptySaved)
             mutableSongs.value = emptyList()
@@ -519,7 +572,7 @@ internal object LocalLibraryIndex {
             }
         ) {
             lastCompletedScanMs = System.currentTimeMillis()
-            if (discovery.revokedSafFolders.isNotEmpty()) {
+            if (discovery.revokedSafFolders.isNotEmpty() && !isCancelledNow()) {
                 mutableProgress.value = ScanProgress(
                     phase = ScanPhase.IDLE,
                     revokedFolders = discovery.revokedSafFolders,
@@ -528,6 +581,7 @@ internal object LocalLibraryIndex {
             return
         }
 
+        ensureGeneration()
         // Immediately enter INDEXING with zero blocking pre-pass.
         mutableProgress.value = ScanProgress(
             phase = ScanPhase.INDEXING,
@@ -578,6 +632,7 @@ internal object LocalLibraryIndex {
         }
 
         fun emitSnapshotLocked(processed: Int, force: Boolean = false) {
+            if (isCancelledNow()) return
             val now = System.currentTimeMillis()
             val shouldEmit = force ||
                 (!emittedFirstBatch && (processed >= FIRST_EMIT_COUNT || now - lastEmitTime >= FIRST_EMIT_MS)) ||
@@ -587,17 +642,21 @@ internal object LocalLibraryIndex {
             emittedFirstBatch = true
             lastEmitTime = now
             lastEmitCount = processed
+            if (isCancelledNow()) return
             mutableSongs.value = filterIgnored(snapshotSongsLocked())
-            mutableProgress.value = ScanProgress(
-                phase = ScanPhase.INDEXING,
-                processed = processed,
-                total = total,
-                discovered = total,
-                revokedFolders = discovery.revokedSafFolders,
-            )
+            if (!isCancelledNow()) {
+                mutableProgress.value = ScanProgress(
+                    phase = ScanPhase.INDEXING,
+                    processed = processed,
+                    total = total,
+                    discovered = total,
+                    revokedFolders = discovery.revokedSafFolders,
+                )
+            }
         }
 
         fun maybeCheckpointLocked(newlyParsed: Int) {
+            if (isCancelledNow()) return
             if (newlyParsed - lastCheckpointNew < CHECKPOINT_EVERY_NEW) return
             // Never block the workers on JSON encoding: snapshot under the lock, write on a
             // single-flight background coroutine, and skip if one is already running.
@@ -624,6 +683,7 @@ internal object LocalLibraryIndex {
                 List(workerCount) {
                     async(indexWorkers) {
                         while (true) {
+                            ensureGeneration()
                             coroutineContext.ensureActive()
                             val idx = nextIndex.getAndIncrement()
                             if (idx >= total) break
@@ -692,6 +752,7 @@ internal object LocalLibraryIndex {
                                 }
                             }
 
+                            ensureGeneration()
                             val done = processedCounter.incrementAndGet()
                             val newCount = newlyParsedCounter.get()
                             synchronized(resultsLock) {
@@ -706,6 +767,9 @@ internal object LocalLibraryIndex {
                 }.awaitAll()
             }
         } catch (cancelled: CancellationException) {
+            if (!isCancelledNow()) {
+                mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+            }
             // Keep everything already known (new + not-yet-reprocessed cached entries), but never
             // write after the library was cleared or the folder set changed under us.
             val stillValid = AppSettings.localMusicScanMode.value != LocalMusicScanMode.NOT_CONFIGURED &&
@@ -720,12 +784,12 @@ internal object LocalLibraryIndex {
                     }
                 }
             }
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
             throw cancelled
         }
 
+        ensureGeneration()
         if (sourceKey() != key) {
-            mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
+            if (!isCancelledNow()) mutableProgress.value = ScanProgress(phase = ScanPhase.IDLE)
             return
         }
 
@@ -744,18 +808,26 @@ internal object LocalLibraryIndex {
         val saved = SavedV2(key, discovery.mediaStoreSignature, finalEntries)
         writeDisk(context, saved)
         lastCompletedScanMs = System.currentTimeMillis()
-        mutableProgress.value = ScanProgress(
-            phase = ScanPhase.IDLE,
-            processed = total,
-            total = total,
-            discovered = total,
-            revokedFolders = discovery.revokedSafFolders,
-        )
+        if (!isCancelledNow()) {
+            mutableProgress.value = ScanProgress(
+                phase = ScanPhase.IDLE,
+                processed = total,
+                total = total,
+                discovered = total,
+                revokedFolders = discovery.revokedSafFolders,
+            )
+        }
 
         // Start low-priority background thumbnail caching for ALL unique song & album covers.
         prewarmJob?.cancel()
         prewarmJob = indexScope.launch {
-            LocalArtwork.prewarmThumbnails(context, finalSongs)
+            try {
+                LocalArtwork.prewarmThumbnails(context, finalSongs) { done, totalArt ->
+                    mutableArtworkProgress.value = if (done < totalArt) done to totalArt else null
+                }
+            } finally {
+                mutableArtworkProgress.value = null
+            }
         }
     }
 

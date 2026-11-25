@@ -135,6 +135,12 @@ internal object LocalArtwork {
     }
 
     private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(2)
+    @Volatile private var userScrollingUntilMs: Long = 0L
+
+    /** Pauses background thumbnail pre-warming while the user is actively scrolling Local Music. */
+    fun notifyUserScrolling(durationMs: Long = 350L) {
+        userScrollingUntilMs = System.currentTimeMillis() + durationMs
+    }
 
     private fun isLowBatteryOrPowerSave(context: Context): Boolean = runCatching {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
@@ -149,8 +155,9 @@ internal object LocalArtwork {
      * Low-priority (`THREAD_PRIORITY_BACKGROUND`) background caching for EVERY
      * unique song thumbnail and album cover in the local library so scrolling
      * 5,000+ songs and albums hits the shared 256 MB DiskCache in `< 1 ms`.
-     * Uses at most 2 workers, skips already-cached covers, and yields/stops
-     * when battery saver is active or battery is critically low.
+     * Uses at most 2 workers, skips already-cached covers, pauses while the user
+     * is actively scrolling, and yields/stops when battery saver is active or
+     * battery is critically low.
      */
     suspend fun prewarmThumbnails(
         context: Context,
@@ -161,8 +168,8 @@ internal object LocalArtwork {
         val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext
         val urls = LinkedHashSet<String>(songs.size * 2)
         for (song in songs) {
-            song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
             song.localAlbumArtwork?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
+            song.thumbnailUrl?.takeIf { it.startsWith(PREFIX) }?.let { urls.add(it) }
         }
         val missing = urls.filter { url ->
             !runCatching { cache.openSnapshot(url)?.use { true } ?: false }.getOrDefault(false)
@@ -184,6 +191,9 @@ internal object LocalArtwork {
                         try {
                             while (true) {
                                 kotlinx.coroutines.yield()
+                                while (System.currentTimeMillis() < userScrollingUntilMs) {
+                                    kotlinx.coroutines.delay(250L)
+                                }
                                 val i = nextIdx.getAndIncrement()
                                 if (i >= total) break
                                 if (i % 40 == 0 && isLowBatteryOrPowerSave(context)) break
@@ -225,37 +235,66 @@ internal object LocalArtwork {
             val url = data.toString()
             if (!url.startsWith(PREFIX)) return null
             return object : Fetcher {
-                override suspend fun fetch(): SourceFetchResult = withContext(artworkDispatcher) {
+                override suspend fun fetch(): SourceFetchResult {
                     val thumbnails = thumbnailCache(context)
                     val width = options.size.width as? Dimension.Pixels
                     val height = options.size.height as? Dimension.Pixels
                     val small = width != null && height != null && width.px <= THUMB_FETCH_MAX_PX && height.px <= THUMB_FETCH_MAX_PX
-                    val cached = if (small) runCatching {
-                        thumbnails.openSnapshot(url)?.use { thumbnails.fileSystem.read(it.data) { readByteArray() } }
-                    }.getOrNull() else null
-                    val bytes = cached ?: url.removePrefix(PREFIX).split('|').drop(1)
-                        .firstNotNullOfOrNull { encoded ->
-                            read(options.context, Uri.decode(encoded))?.let { image ->
-                                decodeCover(image, small)
-                            }
-                        } ?: error("No readable local cover")
-                    if (small && cached == null) runCatching {
-                        thumbnails.openEditor(url)?.let { editor ->
-                            try {
-                                thumbnails.fileSystem.write(editor.metadata) {}
-                                thumbnails.fileSystem.write(editor.data) { write(bytes) }
-                                editor.commit()
-                            } catch (error: Exception) {
-                                editor.abort()
-                                throw error
-                            }
+                    if (small) {
+                        val snapshot = runCatching { thumbnails.openSnapshot(url) }.getOrNull()
+                        if (snapshot != null) {
+                            return SourceFetchResult(
+                                source = ImageSource(
+                                    file = snapshot.data,
+                                    fileSystem = thumbnails.fileSystem,
+                                    diskCacheKey = url,
+                                    closeable = snapshot,
+                                ),
+                                mimeType = null,
+                                dataSource = DataSource.DISK,
+                            )
                         }
                     }
-                    SourceFetchResult(
-                        source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
-                        mimeType = null,
-                        dataSource = DataSource.DISK,
-                    )
+                    return withContext(artworkDispatcher) {
+                        if (small) {
+                            val snapshot = runCatching { thumbnails.openSnapshot(url) }.getOrNull()
+                            if (snapshot != null) {
+                                return@withContext SourceFetchResult(
+                                    source = ImageSource(
+                                        file = snapshot.data,
+                                        fileSystem = thumbnails.fileSystem,
+                                        diskCacheKey = url,
+                                        closeable = snapshot,
+                                    ),
+                                    mimeType = null,
+                                    dataSource = DataSource.DISK,
+                                )
+                            }
+                        }
+                        val bytes = url.removePrefix(PREFIX).split('|').drop(1)
+                            .firstNotNullOfOrNull { encoded ->
+                                read(options.context, Uri.decode(encoded))?.let { image ->
+                                    decodeCover(image, small)
+                                }
+                            } ?: error("No readable local cover")
+                        if (small) runCatching {
+                            thumbnails.openEditor(url)?.let { editor ->
+                                try {
+                                    thumbnails.fileSystem.write(editor.metadata) {}
+                                    thumbnails.fileSystem.write(editor.data) { write(bytes) }
+                                    editor.commit()
+                                } catch (error: Exception) {
+                                    editor.abort()
+                                    throw error
+                                }
+                            }
+                        }
+                        SourceFetchResult(
+                            source = ImageSource(bytes.inputStream().source().buffer(), FileSystem.SYSTEM),
+                            mimeType = null,
+                            dataSource = DataSource.DISK,
+                        )
+                    }
                 }
             }
         }

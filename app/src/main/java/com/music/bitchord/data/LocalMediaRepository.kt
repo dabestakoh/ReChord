@@ -288,148 +288,179 @@ object LocalMediaRepository {
      */
     internal suspend fun discoverLocalMusic(
         context: Context,
+        isCancelled: () -> Boolean = { false },
         onProgress: (discoveredCount: Int) -> Unit = {},
     ): DiscoveryResult = withContext(Dispatchers.IO) {
+        fun checkActive() {
+            if (isCancelled()) throw kotlinx.coroutines.CancellationException()
+        }
+        checkActive()
+        coroutineContext.ensureActive()
         val mode = AppSettings.localMusicScanMode.value
         if (mode == LocalMusicScanMode.NOT_CONFIGURED) {
             return@withContext DiscoveryResult(emptyList(), null, emptyList(), false)
         }
-        val filterNonMusic = AppSettings.filterNonMusicAudio.value
-        val minDurationMs = if (filterNonMusic) AppSettings.localMusicMinDurationSec.value * 1_000L else 0L
-        val selectedFolders = normalizeScanFolders(AppSettings.localMusicFolders.value)
-        val excludedFolders = AppSettings.localMusicExcludedFolders.value
-        val useLegacy = LocalStorageVolumes.shouldUseLegacyScan(context, AppSettings.localLegacyScanMode.value)
-        val videoIdByUri = Downloads.saved.value.entries.associate { (id, uri) -> uri to id }
+        val cancelSignal = android.os.CancellationSignal()
+        val unregisterSignal = coroutineContext[kotlinx.coroutines.Job]?.invokeOnCompletion { err ->
+            if (err != null) runCatching { cancelSignal.cancel() }
+        }
+        try {
+            val filterNonMusic = AppSettings.filterNonMusicAudio.value
+            val minDurationMs = if (filterNonMusic) AppSettings.localMusicMinDurationSec.value * 1_000L else 0L
+            val selectedFolders = normalizeScanFolders(AppSettings.localMusicFolders.value)
+            val excludedFolders = AppSettings.localMusicExcludedFolders.value
+            val useLegacy = LocalStorageVolumes.shouldUseLegacyScan(context, AppSettings.localLegacyScanMode.value)
+            val videoIdByUri = Downloads.saved.value.entries.associate { (id, uri) -> uri to id }
 
-        val discovered = ArrayList<DiscoveredAudioFile>(512)
-        val seenCanonicalPaths = HashSet<String>(1024)
-        val seenUris = HashSet<String>(1024)
-        val revokedSaf = mutableListOf<String>()
-        var unavailableVolumes = false
-        var lastReported = 0
-        var lastReportMs = 0L
+            val discovered = ArrayList<DiscoveredAudioFile>(512)
+            val seenCanonicalPaths = HashSet<String>(1024)
+            val seenUris = HashSet<String>(1024)
+            val revokedSaf = mutableListOf<String>()
+            var unavailableVolumes = false
+            var lastReported = 0
+            var lastReportMs = 0L
 
-        fun reportIfNeeded() {
-            val now = System.currentTimeMillis()
-            if (discovered.size == 1 ||
-                discovered.size - lastReported >= 25 ||
-                now - lastReportMs >= 150L
-            ) {
-                lastReported = discovered.size
-                lastReportMs = now
-                onProgress(discovered.size)
+            fun reportIfNeeded() {
+                checkActive()
+                val now = System.currentTimeMillis()
+                if (discovered.size == 1 ||
+                    discovered.size - lastReported >= 25 ||
+                    now - lastReportMs >= 150L
+                ) {
+                    lastReported = discovered.size
+                    lastReportMs = now
+                    onProgress(discovered.size)
+                }
             }
-        }
 
-        fun addDiscovered(item: DiscoveredAudioFile) {
-            val canonicalKey = item.path?.let(::canonicalKey)
-            if (canonicalKey != null && !seenCanonicalPaths.add(canonicalKey)) return
-            if (!seenUris.add(item.uri)) return
-            discovered.add(item)
-            reportIfNeeded()
-        }
-
-        val sig = mediaStoreSignature(context)
-
-        // 1. MediaStore query (fast SQLite scan, streamed row-by-row with live counts).
-        if (hasStoragePermission(context)) {
-            queryMediaStore(
-                context = context,
-                filterNonMusic = filterNonMusic,
-                minDurationMs = minDurationMs,
-                mode = mode,
-                selectedFolders = selectedFolders,
-                excludedFolders = excludedFolders,
-                videoIdByUri = videoIdByUri,
-            ) { song ->
-                addDiscovered(
-                    DiscoveredAudioFile(
-                        uri = song.localUri ?: song.videoId,
-                        path = song.localPath,
-                        displayName = song.localPath?.substringAfterLast('/') ?: song.title,
-                        lastModifiedMs = (song.localDateModifiedSeconds ?: 0L) * 1_000L,
-                        sizeBytes = -1L, // Deferred to parallel indexing workers.
-                        isMediaStore = true,
-                        mediaStoreSong = song,
-                    ),
-                )
+            fun addDiscovered(item: DiscoveredAudioFile) {
+                checkActive()
+                val canonicalKey = item.path?.let(::canonicalKey)
+                if (canonicalKey != null && !seenCanonicalPaths.add(canonicalKey)) return
+                if (!seenUris.add(item.uri)) return
+                discovered.add(item)
+                reportIfNeeded()
             }
-        }
 
-        // 2. Direct traversal for SPECIFIC_FOLDERS (both SAF trees & direct File paths)
-        //    so external SSDs, SD cards, nested FLAC/MQA/DSD folders, and .nomedia folders
-        //    skipped by MediaStore are always found.
-        if (mode == LocalMusicScanMode.SPECIFIC_FOLDERS) {
-            for (folder in selectedFolders) {
-                coroutineContext.ensureActive()
-                if (folder.isTreeUri) {
-                    // Prefer fast native File traversal whenever the SAF tree resolves to a
-                    // readable local path (50x faster than DocumentsContract IPC).
-                    val directPath = runCatching {
-                        val docId = DocumentsContract.getTreeDocumentId(Uri.parse(folder.id))
-                        treeDocumentIdToPath(docId)
-                    }.getOrNull()
-                    val directDir = directPath?.let(::File)?.takeIf { it.isDirectory && it.canRead() && it.list() != null }
-                    if (directDir != null) {
+            val sig = mediaStoreSignature(context)
+            checkActive()
+            coroutineContext.ensureActive()
+
+            // 1. MediaStore query (fast SQLite scan, streamed row-by-row with live counts).
+            if (hasStoragePermission(context)) {
+                queryMediaStore(
+                    context = context,
+                    filterNonMusic = filterNonMusic,
+                    minDurationMs = minDurationMs,
+                    mode = mode,
+                    selectedFolders = selectedFolders,
+                    excludedFolders = excludedFolders,
+                    videoIdByUri = videoIdByUri,
+                    cancelSignal = cancelSignal,
+                    isCancelled = isCancelled,
+                ) { song ->
+                    addDiscovered(
+                        DiscoveredAudioFile(
+                            uri = song.localUri ?: song.videoId,
+                            path = song.localPath,
+                            displayName = song.localPath?.substringAfterLast('/') ?: song.title,
+                            lastModifiedMs = (song.localDateModifiedSeconds ?: 0L) * 1_000L,
+                            sizeBytes = -1L, // Deferred to parallel indexing workers.
+                            isMediaStore = true,
+                            mediaStoreSong = song,
+                        ),
+                    )
+                }
+            }
+
+            // 2. Direct traversal for SPECIFIC_FOLDERS (both SAF trees & direct File paths)
+            //    so external SSDs, SD cards, nested FLAC/MQA/DSD folders, and .nomedia folders
+            //    skipped by MediaStore are always found.
+            if (mode == LocalMusicScanMode.SPECIFIC_FOLDERS) {
+                for (folder in selectedFolders) {
+                    checkActive()
+                    coroutineContext.ensureActive()
+                    if (folder.isTreeUri) {
+                        // Prefer fast native File traversal whenever the SAF tree resolves to a
+                        // readable local path (50x faster than DocumentsContract IPC).
+                        val directPath = runCatching {
+                            val docId = DocumentsContract.getTreeDocumentId(Uri.parse(folder.id))
+                            treeDocumentIdToPath(docId)
+                        }.getOrNull()
+                        val directDir = directPath?.let(::File)?.takeIf { it.isDirectory && it.canRead() && it.list() != null }
+                        if (directDir != null) {
+                            walkFileFolder(
+                                root = directDir,
+                                includeSubfolders = folder.includeSubfolders,
+                                excludedFolders = excludedFolders,
+                                filterNonMusic = filterNonMusic,
+                                isCancelled = isCancelled,
+                                onFile = ::addDiscovered,
+                            )
+                        } else {
+                            if (!LocalStorageVolumes.hasPersistedSafPermission(context, folder.id)) {
+                                revokedSaf += folder.label
+                                continue
+                            }
+                            walkSafFolder(
+                                context = context,
+                                folder = folder,
+                                excludedFolders = excludedFolders,
+                                filterNonMusic = filterNonMusic,
+                                cancelSignal = cancelSignal,
+                                isCancelled = isCancelled,
+                                onFile = ::addDiscovered,
+                            )
+                        }
+                    } else {
+                        val dir = File(folder.id)
+                        if (!dir.exists() || !dir.canRead()) {
+                            unavailableVolumes = true
+                            continue
+                        }
                         walkFileFolder(
-                            root = directDir,
+                            root = dir,
                             includeSubfolders = folder.includeSubfolders,
                             excludedFolders = excludedFolders,
                             filterNonMusic = filterNonMusic,
-                            onFile = ::addDiscovered,
-                        )
-                    } else {
-                        if (!LocalStorageVolumes.hasPersistedSafPermission(context, folder.id)) {
-                            revokedSaf += folder.label
-                            continue
-                        }
-                        walkSafFolder(
-                            context = context,
-                            folder = folder,
-                            excludedFolders = excludedFolders,
-                            filterNonMusic = filterNonMusic,
+                            isCancelled = isCancelled,
                             onFile = ::addDiscovered,
                         )
                     }
-                } else {
-                    val dir = File(folder.id)
-                    if (!dir.exists() || !dir.canRead()) {
-                        unavailableVolumes = true
-                        continue
-                    }
+                }
+            } else if (mode == LocalMusicScanMode.ALL_FOLDERS && useLegacy) {
+                // 3. Direct legacy/external volume scan across ALL readable volumes (primary +
+                //    external SD/USB SSDs), deduplicated against MediaStore via canonical paths
+                //    so .dsf/.dff/.wv/.ape/.nomedia and unindexed folders are never missed.
+                val volumes = LocalStorageVolumes.detectVolumes(context).filter { it.isReadable }
+                for (vol in volumes) {
+                    checkActive()
+                    coroutineContext.ensureActive()
                     walkFileFolder(
-                        root = dir,
-                        includeSubfolders = folder.includeSubfolders,
+                        root = File(vol.canonicalPath),
+                        includeSubfolders = true,
                         excludedFolders = excludedFolders,
                         filterNonMusic = filterNonMusic,
+                        isCancelled = isCancelled,
                         onFile = ::addDiscovered,
                     )
                 }
             }
-        } else if (mode == LocalMusicScanMode.ALL_FOLDERS && useLegacy) {
-            // 3. Direct legacy/external volume scan across ALL readable volumes (primary +
-            //    external SD/USB SSDs), deduplicated against MediaStore via canonical paths
-            //    so .dsf/.dff/.wv/.ape/.nomedia and unindexed folders are never missed.
-            val volumes = LocalStorageVolumes.detectVolumes(context).filter { it.isReadable }
-            for (vol in volumes) {
-                coroutineContext.ensureActive()
-                walkFileFolder(
-                    root = File(vol.canonicalPath),
-                    includeSubfolders = true,
-                    excludedFolders = excludedFolders,
-                    filterNonMusic = filterNonMusic,
-                    onFile = ::addDiscovered,
-                )
-            }
-        }
 
-        if (discovered.size != lastReported) onProgress(discovered.size)
-        DiscoveryResult(
-            files = discovered,
-            mediaStoreSignature = sig,
-            revokedSafFolders = revokedSaf,
-            unavailableVolumes = unavailableVolumes,
-        )
+            checkActive()
+            coroutineContext.ensureActive()
+            if (discovered.size != lastReported) onProgress(discovered.size)
+            DiscoveryResult(
+                files = discovered,
+                mediaStoreSignature = sig,
+                revokedSafFolders = revokedSaf,
+                unavailableVolumes = unavailableVolumes,
+            )
+        } catch (oce: android.os.OperationCanceledException) {
+            throw kotlinx.coroutines.CancellationException(oce.message)
+        } finally {
+            unregisterSignal?.dispose()
+        }
     }
 
     /**
@@ -596,8 +627,11 @@ object LocalMediaRepository {
         selectedFolders: List<LocalScanFolder>,
         excludedFolders: List<LocalScanFolder>,
         videoIdByUri: Map<String, String>,
+        cancelSignal: android.os.CancellationSignal? = null,
+        isCancelled: () -> Boolean = { false },
         onSong: (Song) -> Unit,
     ) {
+        if (isCancelled()) throw kotlinx.coroutines.CancellationException()
         // Deliberately omit `IS_MUSIC != 0`: Android's MediaScanner frequently marks
         // FLAC, WAV, AIFF, Opus, DSD, and untagged files as IS_MUSIC = 0. Our own
         // extension, alarm/ringtone/notification/podcast, video, recorder, and
@@ -634,9 +668,11 @@ object LocalMediaRepository {
             selection,
             selectionArgs,
             sortOrder,
+            cancelSignal,
         )?.use { cursor ->
             val columns = AudioColumns(cursor)
             while (cursor.moveToNext()) {
+                if (isCancelled()) throw kotlinx.coroutines.CancellationException()
                 val displayName = cursor.getString(columns.displayName).orEmpty()
                 val durationMs = cursor.getLong(columns.duration)
                 val path = cursor.getString(columns.data)
@@ -665,6 +701,7 @@ object LocalMediaRepository {
         includeSubfolders: Boolean,
         excludedFolders: List<LocalScanFolder>,
         filterNonMusic: Boolean,
+        isCancelled: () -> Boolean = { false },
         onFile: (DiscoveredAudioFile) -> Unit,
     ) {
         val stack = ArrayDeque<Pair<File, Int>>()
@@ -672,6 +709,7 @@ object LocalMediaRepository {
         stack.addLast(root to 0)
 
         while (stack.isNotEmpty()) {
+            if (isCancelled()) throw kotlinx.coroutines.CancellationException()
             coroutineContext.ensureActive()
             val (dir, depth) = stack.removeLast()
             val canonical = runCatching { dir.canonicalPath }.getOrNull() ?: dir.absolutePath
@@ -694,6 +732,8 @@ object LocalMediaRepository {
                 .toList()
 
             for (entry in entries) {
+                if (isCancelled()) throw kotlinx.coroutines.CancellationException()
+                coroutineContext.ensureActive()
                 val name = entry.name
                 if (name.startsWith(".")) continue
                 if (entry.isDirectory) {
@@ -730,6 +770,8 @@ object LocalMediaRepository {
         folder: LocalScanFolder,
         excludedFolders: List<LocalScanFolder>,
         filterNonMusic: Boolean,
+        cancelSignal: android.os.CancellationSignal? = null,
+        isCancelled: () -> Boolean = { false },
         onFile: (DiscoveredAudioFile) -> Unit,
     ) {
         val treeUri = runCatching { Uri.parse(folder.id) }.getOrNull() ?: return
@@ -747,6 +789,7 @@ object LocalMediaRepository {
         stack.addLast(Triple(rootDocId, rootVirtualPath, 0))
 
         while (stack.isNotEmpty()) {
+            if (isCancelled()) throw kotlinx.coroutines.CancellationException()
             coroutineContext.ensureActive()
             val (docId, dirPath, depth) = stack.removeLast()
             if (isPathExcluded(dirPath, excludedFolders)) continue
@@ -756,14 +799,15 @@ object LocalMediaRepository {
             val audioDocs = mutableListOf<DiscoveredAudioFile>()
             val coverDocs = mutableListOf<Pair<String, LocalArtwork.SidecarCover>>()
 
-            runCatching {
-                context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+            try {
+                context.contentResolver.query(childrenUri, projection, null, null, null, cancelSignal)?.use { c ->
                     val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                     val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                     val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                     val modCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                     val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
                     while (c.moveToNext()) {
+                        if (isCancelled()) throw kotlinx.coroutines.CancellationException()
                         val childId = if (idCol >= 0) c.getString(idCol) else null
                         val name = if (nameCol >= 0) c.getString(nameCol) else null
                         val mime = if (mimeCol >= 0) c.getString(mimeCol) else null
@@ -805,6 +849,11 @@ object LocalMediaRepository {
                         }
                     }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (oce: android.os.OperationCanceledException) {
+                throw kotlinx.coroutines.CancellationException(oce.message)
+            } catch (_: Exception) {
             }
 
             val sortedCovers = coverDocs
@@ -815,6 +864,8 @@ object LocalMediaRepository {
                 .map { it.second }
 
             for (doc in audioDocs) {
+                if (isCancelled()) throw kotlinx.coroutines.CancellationException()
+                coroutineContext.ensureActive()
                 onFile(doc.copy(sidecarCovers = sortedCovers))
             }
             for (sub in subdirs) {

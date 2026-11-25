@@ -1668,8 +1668,13 @@ private fun BitChordApp(
         // A Spotify page lists songs it has not found on YouTube Music yet (or
         // never will); those can't be queued, so play the rest in their order.
         if (allSongs.getOrNull(allIndex)?.isUnresolvedSpotify == true) return
-        val songs = allSongs.filterNot { it.isUnresolvedSpotify }
-        val index = songs.indexOf(allSongs.getOrNull(allIndex)).coerceAtLeast(0)
+        val hasUnresolved = allSongs.any { it.isUnresolvedSpotify }
+        val songs = if (hasUnresolved) allSongs.filterNot { it.isUnresolvedSpotify } else allSongs
+        val index = if (hasUnresolved) {
+            songs.indexOf(allSongs.getOrNull(allIndex)).coerceAtLeast(0)
+        } else {
+            allIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0))
+        }
         playRequestGeneration++
         activeRadioSeed = null
         scope.launch {
@@ -3586,15 +3591,17 @@ private fun BitChordApp(
                                     page.browseId,
                                 )
                                 val selected = songs.getOrNull(index)
-                                val pageKeys =
-                                    (page.songs as? UiState.Success)?.data.orEmpty().map { it.contextEntryKey() }
-                                val pageSongKeys = pageKeys.toHashSet()
-                                val useBounded =
-                                    (page.type == BrowseType.ALBUM || page.type == BrowseType.PLAYLIST) &&
-                                        selected?.contextEntryKey()?.let(pageSongKeys::contains) == true &&
-                                        // A sorted list plays as sorted, not in the page's order.
-                                        inPageOrder(songs.map { it.contextEntryKey() }, pageKeys) &&
-                                        !CastController.state.value.casting
+                                val canUseBounded = (page.type == BrowseType.ALBUM || page.type == BrowseType.PLAYLIST) &&
+                                    !page.browseId.startsWith("local:") &&
+                                    !CastController.state.value.casting
+                                val useBounded = if (canUseBounded) {
+                                    val pageKeys =
+                                        (page.songs as? UiState.Success)?.data.orEmpty().map { it.contextEntryKey() }
+                                    selected?.contextEntryKey()?.let(pageKeys.toHashSet()::contains) == true &&
+                                        inPageOrder(songs.map { it.contextEntryKey() }, pageKeys)
+                                } else {
+                                    false
+                                }
                                 val latestPage = if (useBounded) {
                                     viewModel.takePlaybackContext(page.browseId)
                                 } else {
@@ -3602,13 +3609,16 @@ private fun BitChordApp(
                                 }
                                 val latestSongs = latestPage
                                     ?.let { (it.songs as? UiState.Success)?.data.orEmpty() }
-                                    ?.map(withAlbum)
+                                    ?.let { if (page.type == BrowseType.ALBUM) it.map(withAlbum) else it }
                                     ?.takeIf { it.isNotEmpty() }
-                                val queue = latestSongs ?: songs.map(withAlbum)
+                                val queue = latestSongs ?: if (page.type == BrowseType.ALBUM) songs.map(withAlbum) else songs
                                 if (queue.isEmpty()) return
-                                val queueIndex = selected?.let { tapped ->
-                                    queue.indexOfFirst { it.contextEntryKey() == tapped.contextEntryKey() }
-                                }?.takeIf { it >= 0 } ?: index
+                                val queueIndex = if (latestSongs != null && selected != null) {
+                                    queue.indexOfFirst { it.contextEntryKey() == selected.contextEntryKey() }
+                                        .takeIf { it >= 0 } ?: index
+                                } else {
+                                    index
+                                }
                                 playFrom(
                                     queue,
                                     queueIndex.coerceIn(queue.indices),
@@ -4140,7 +4150,7 @@ private fun BitChordApp(
                             (header * fadeRamp)).coerceIn(0f, 1f)
                     }
                 }
-                if (reduceDynamicBlur || !glassActive || !progressiveBlur) {
+                if (reduceDynamicBlur || !glassActive || !progressiveBlur || isLocalDetail) {
                     BottomFadeScrim(
                         pageColor = chromePageColor,
                         modifier = Modifier

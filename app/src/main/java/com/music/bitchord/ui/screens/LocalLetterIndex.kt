@@ -60,64 +60,96 @@ internal fun LocalLetterIndex(
         val row = letters.getOrNull(index)?.let(positions::get) ?: return
         scope.launch { if (row < list.layoutInfo.totalItemsCount) list.scrollToItem(row) }
     }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val topInsetPx = with(density) { (topInset + 4.dp).roundToPx() }
+    val bottomInsetPx = with(density) { (bottomInset + 4.dp).roundToPx() }
+    // Derived state: once scrolled past the header (firstVisibleItemIndex > firstRowIndex),
+    // rowTop stays fixed at topInsetPx and triggers ZERO layout passes during list scrolling.
+    val rowTopPx by remember(list, firstRowIndex, topInsetPx) {
+        androidx.compose.runtime.derivedStateOf {
+            if (list.firstVisibleItemIndex > firstRowIndex) {
+                topInsetPx
+            } else {
+                val firstVisibleRow = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index >= firstRowIndex }
+                firstVisibleRow?.let {
+                    if (it.index == firstRowIndex) maxOf(it.offset, topInsetPx) else topInsetPx
+                } ?: Int.MAX_VALUE
+            }
+        }
+    }
     val heldBounds = remember(list, positions) { RailBounds() }
+    val compactFont = letters.size > 24
     Box(modifier.fillMaxHeight().layout { measurable, constraints ->
-        val viewport = list.layoutInfo
-        val bottom = (constraints.maxHeight - bottomInset.roundToPx()).coerceAtLeast(0)
-        val firstVisibleRow = viewport.visibleItemsInfo.firstOrNull { it.index >= firstRowIndex }
-        val rowTop = firstVisibleRow?.let {
-            if (it.index == firstRowIndex) it.offset else topInset.roundToPx()
-        } ?: bottom
-        val start = rowTop.coerceIn(topInset.roundToPx().coerceAtMost(bottom), bottom)
+        val bottom = (constraints.maxHeight - bottomInsetPx).coerceAtLeast(0)
+        val rawTop = rowTopPx
+        val start = if (rawTop == Int.MAX_VALUE) bottom else rawTop.coerceIn(topInsetPx.coerceAtMost(bottom), bottom)
         // Keep touch coordinates fixed when a jump scrolls the header away mid-drag.
         if (preview == null) {
-            val available = bottom - start
-            val preferred = (20.dp * letters.size).roundToPx()
-            // Avoid drawing compressed letters in the sliver before rows enter view.
-            heldBounds.height = if (available >= (12.dp * letters.size).roundToPx()) {
+            val available = (bottom - start).coerceAtLeast(0)
+            val preferred = (18.dp * letters.size).roundToPx()
+            val minNeeded = (8.dp * letters.size).roundToPx()
+            heldBounds.height = if (available >= minNeeded) {
                 minOf(available, preferred)
             } else 0
             heldBounds.top = start + (available - heldBounds.height) / 2
         }
         val railHeight = heldBounds.height.coerceIn(0, bottom)
-        val railTop = heldBounds.top.coerceIn(0, bottom - railHeight)
+        val railTop = heldBounds.top.coerceIn(0, (bottom - railHeight).coerceAtLeast(0))
         val rail = measurable.measure(Constraints.fixed(constraints.maxWidth, railHeight))
         layout(constraints.maxWidth, constraints.maxHeight) {
             rail.placeRelative(0, railTop)
         }
     }) {
-        Column(Modifier.fillMaxHeight().pointerInput(positions, list) {
-            fun select(y: Float) {
-                if (size.height <= 0 || letters.isEmpty()) return
-                val index = (y / size.height * letters.size).toInt().coerceIn(letters.indices)
-                if (preview != letters[index]) {
-                    preview = letters[index]
-                    updatePreview(preview)
-                    jump(index)
-                }
-            }
-            detectDragGestures(
-                onDragStart = { select(it.y) },
-                onDragEnd = {
-                    preview = null
-                    updatePreview(null)
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .pointerInput(positions, list) {
+                    fun select(y: Float) {
+                        if (size.height <= 0 || letters.isEmpty()) return
+                        val index = (y / size.height * letters.size).toInt().coerceIn(letters.indices)
+                        if (preview != letters[index]) {
+                            preview = letters[index]
+                            updatePreview(preview)
+                            jump(index)
+                        }
+                    }
+                    detectDragGestures(
+                        onDragStart = { select(it.y) },
+                        onDragEnd = {
+                            preview = null
+                            updatePreview(null)
+                        },
+                        onDragCancel = {
+                            preview = null
+                            updatePreview(null)
+                        },
+                    ) { change, _ ->
+                        change.consume()
+                        select(change.position.y)
+                    }
                 },
-                onDragCancel = {
-                    preview = null
-                    updatePreview(null)
-                },
-            ) { change, _ ->
-                change.consume()
-                select(change.position.y)
-            }
-        }) {
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val fontSize = if (compactFont) 9.sp else 10.sp
             letters.forEachIndexed { index, letter ->
-                Box(Modifier.weight(1f).fillMaxWidth().clickable { jump(index) }, contentAlignment = Alignment.Center) {
-                    Text(letter.toString(), color = MaterialTheme.colorScheme.onSurface, fontSize = 10.sp, maxLines = 1)
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clickable { jump(index) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = letter,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                        fontSize = fontSize,
+                        lineHeight = fontSize,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
             }
         }
-
     }
 }
 

@@ -1732,6 +1732,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 snapshot?.let(::applyBoundedContextSnapshot)
             }
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (AppSettings.localMusicScanMode.value != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
+                com.music.bitchord.data.LocalLibraryIndex.get(getApplication())
+            }
+        }
         viewModelScope.launch {
             AppSettings.filterNonMusicAudio.drop(1).collect {
                 if (AppSettings.localMusicScanMode.value != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED) {
