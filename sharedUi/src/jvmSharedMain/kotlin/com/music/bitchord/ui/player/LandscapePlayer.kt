@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.music.bitchord.ui.components.ExplicitBadge
 import com.music.bitchord.ui.components.menuAnchor
@@ -89,6 +90,9 @@ private val LANDSCAPE_PLAYER_MAX_WIDTH = 1100.dp
  * navigation bars without any of them falling off the bottom.
  */
 private val LANDSCAPE_COMPACT_HEIGHT = 440.dp
+
+internal fun landscapeFooterBottomPadding(safeHeight: Dp): Dp =
+    if (safeHeight < LANDSCAPE_COMPACT_HEIGHT) 8.dp else 20.dp
 
 /**
  * Side margin of the landscape player's sleeve column and credits on a
@@ -173,7 +177,7 @@ internal fun LandscapePlayerLayout(
                     .fillMaxSize()
                     .padding(
                         top = LANDSCAPE_HANDLE_STRIP,
-                        bottom = if (compact) 8.dp else 20.dp,
+                        bottom = landscapeFooterBottomPadding(maxHeight),
                     ),
             ) {
                 Column(

@@ -69,9 +69,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -178,6 +176,8 @@ private val lastVinylMaxDiscBottom = object : LinkedHashMap<Long, Float>(4, 0.75
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Float>?): Boolean = size > 4
 }
 
+private val alternatePlayerHandleHeight = 44.dp
+
 @Composable
 internal fun AlternateNowPlaying(
     layout: NowPlayingLayout,
@@ -214,7 +214,7 @@ internal fun AlternateNowPlaying(
     lyrics: @Composable () -> Unit,
     volume: (@Composable () -> Unit)?,
     quality: @Composable () -> Unit,
-    actions: @Composable () -> Unit,
+    actions: @Composable (compactToFit: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     preview: Boolean = false,
     deckVisible: Boolean = true,
@@ -520,6 +520,7 @@ internal fun AlternateNowPlaying(
                             Row(Modifier.fillMaxSize()) {
                                 val narrowLandscape = stageMaxWidth < 680.dp
                                 val shortLandscape = stageMaxHeight < 420.dp
+                                val controlsSpacing = if (shortLandscape) 2.dp else 4.dp
                                 val leftWidth = if (vinyl) {
                                     stageMaxWidth * if (narrowLandscape) 0.45f else 0.50f
                                 } else {
@@ -640,119 +641,102 @@ internal fun AlternateNowPlaying(
                                     }
                                 }
 
-                                AnimatedContent(
-                                    targetState = pane,
-                                    modifier = Modifier
+                                BoxWithConstraints(
+                                    Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .then(
-                                            if (!preview) {
-                                                val vPad = if (vinyl || shortLandscape) 2.dp else 10.dp
-                                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(top = vPad, bottom = vPad)
-                                            } else {
-                                                Modifier
-                                            },
+                                            if (preview) Modifier else Modifier.windowInsetsPadding(
+                                                WindowInsets.safeDrawing.union(safeTop),
+                                            ),
                                         )
                                         .padding(
                                             start = if (narrowLandscape) 8.dp else 14.dp,
                                             end = if (narrowLandscape) 10.dp else 18.dp,
                                         ),
-                                    transitionSpec = {
-                                        if (reduceAnimation) {
-                                            fadeIn(snap()) togetherWith fadeOut(snap())
-                                        } else {
-                                            fadeIn(tween(180, delayMillis = 80)) togetherWith fadeOut(tween(110))
-                                        }
-                                    },
-                                    label = "alternateLandscapePane",
-                                ) { shownPane ->
-                                    val active = shownPane == pane
-                                    val pillCount = if (rotatePill != null) 6 else 5
-                                    when (shownPane) {
-                                        PlayerPane.Main -> Column(
-                                            Modifier
-                                                .fillMaxSize()
-                                                .padding(top = if (shortLandscape) 0.dp else 4.dp)
-                                                .then(
-                                                    if (vinyl) {
-                                                        Modifier.verticalScroll(rememberScrollState())
-                                                    } else {
-                                                        Modifier
-                                                    },
-                                                ),
-                                            verticalArrangement = if (vinyl) {
-                                                Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp, Alignment.CenterVertically)
-                                            } else {
-                                                Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp)
+                                ) {
+                                    Column(
+                                        Modifier.fillMaxSize().padding(
+                                            top = alternatePlayerHandleHeight,
+                                            bottom = landscapeFooterBottomPadding(maxHeight),
+                                        ),
+                                        verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                    ) {
+                                        AnimatedContent(
+                                            targetState = pane,
+                                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                                            transitionSpec = {
+                                                if (reduceAnimation) {
+                                                    fadeIn(snap()) togetherWith fadeOut(snap())
+                                                } else {
+                                                    fadeIn(tween(180, delayMillis = 80)) togetherWith fadeOut(tween(110))
+                                                }
                                             },
-                                        ) {
-                                            Column(
-                                                Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp),
-                                            ) {
-                                                Box(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .onGloballyPositioned { creditsTitleCoords = it }
-                                                        .graphicsLayer { alpha = textOpacity },
+                                            label = "alternateLandscapePane",
+                                        ) { shownPane ->
+                                            val active = shownPane == pane
+                                            val pillCount = if (rotatePill != null) 6 else 5
+                                            when (shownPane) {
+                                                PlayerPane.Main -> Column(
+                                                    Modifier.fillMaxSize(),
+                                                    verticalArrangement = Arrangement.spacedBy(controlsSpacing),
                                                 ) {
-                                                    PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                    Column(
+                                                        Modifier.fillMaxWidth(),
+                                                        verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                                    ) {
+                                                        Box(
+                                                            Modifier
+                                                                .fillMaxWidth()
+                                                                .onGloballyPositioned { creditsTitleCoords = it }
+                                                                .graphicsLayer { alpha = textOpacity },
+                                                        ) {
+                                                            PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                        }
+                                                        if (playbackOrigin != null) {
+                                                            PlaybackOriginCaption(
+                                                                playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                                            )
+                                                        }
+                                                    }
+                                                    Box(
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .weight(1f)
+                                                            .clipToBounds()
+                                                            .graphicsLayer {
+                                                                alpha = textOpacity
+                                                                if (!vinyl) translationX = posterSidewaysSeekExpand * 14.dp.toPx()
+                                                            },
+                                                        contentAlignment = Alignment.CenterStart,
+                                                    ) {
+                                                        if (active) key(song.swipeIdentity) { lyrics() }
+                                                    }
+                                                    Column(
+                                                        Modifier.fillMaxWidth(),
+                                                        verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                                    ) {
+                                                        AdaptivePlaybackPillRow(
+                                                            buttonCount = pillCount,
+                                                            modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
+                                                        ) {
+                                                            previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
+                                                        }
+                                                        if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
+                                                        volume?.invoke()
+                                                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                                            quality()
+                                                        }
+                                                    }
                                                 }
-                                                if (playbackOrigin != null) {
-                                                    PlaybackOriginCaption(
-                                                        playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
-                                                    )
-                                                }
-                                            }
-                                            if (vinyl) {
-                                                Box(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .height(if (shortLandscape) 28.dp else 38.dp)
-                                                        .graphicsLayer { alpha = textOpacity },
-                                                    contentAlignment = Alignment.CenterStart,
+                                                PlayerPane.Lyrics, PlayerPane.Queue -> Box(
+                                                    Modifier.fillMaxSize().clipToBounds(),
                                                 ) {
-                                                    if (active) lyrics()
+                                                    if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
                                                 }
-                                            } else {
-                                                Box(
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .weight(1f)
-                                                        .heightIn(min = 40.dp)
-                                                        .padding(vertical = if (shortLandscape) 0.dp else 2.dp)
-                                                        .graphicsLayer {
-                                                            alpha = textOpacity
-                                                            translationX = posterSidewaysSeekExpand * 14.dp.toPx()
-                                                        },
-                                                    contentAlignment = Alignment.CenterStart,
-                                                ) {
-                                                    if (active) key(song.swipeIdentity) { lyrics() }
-                                                }
-                                            }
-                                            Column(
-                                                Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(if (shortLandscape) 2.dp else 4.dp),
-                                            ) {
-                                                AdaptivePlaybackPillRow(
-                                                    buttonCount = pillCount,
-                                                    modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
-                                                ) {
-                                                    previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
-                                                }
-                                                if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
-                                                volume?.invoke()
-                                                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                                    quality()
-                                                }
-                                                actions()
                                             }
                                         }
-                                        PlayerPane.Lyrics, PlayerPane.Queue -> Box(
-                                            Modifier.fillMaxSize().clipToBounds().padding(top = if (shortLandscape) 8.dp else 24.dp),
-                                        ) {
-                                            if (shownPane == PlayerPane.Lyrics) lyricsPane(active) else queuePane(active)
-                                        }
+                                        actions(true)
                                     }
                                 }
                             }
@@ -1115,7 +1099,7 @@ internal fun AlternateNowPlaying(
                                                 if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = true)
                                                 volume?.invoke()
                                                 quality()
-                                                actions()
+                                                actions(false)
                                                 Spacer(Modifier.height(6.dp))
                                             }
                                         }
@@ -1158,7 +1142,7 @@ internal fun AlternateNowPlaying(
                 Modifier
                     .then(if (landscape) Modifier.align(Alignment.TopCenter).width(96.dp) else Modifier.fillMaxWidth())
                     .then(if (preview) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars))
-                    .height(44.dp).then(topHold),
+                    .height(alternatePlayerHandleHeight).then(topHold),
             ) {
                 val handleShape = RoundedCornerShape(100)
                 Box(Modifier.align(Alignment.TopCenter)
