@@ -75,6 +75,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -706,12 +707,10 @@ fun DetailScreen(
                 val gridColumns = libraryGrid(maxWidth - PAGE_GUTTER * 2 - gutter).columns
                 val tabScrollScope = rememberCoroutineScope()
                 val tabStickyPx = with(LocalDensity.current) { topBarContentPadding().roundToPx() }
-                var tabsRowIndex by remember(page.browseId) { mutableStateOf(1) }
-                LaunchedEffect(listState) {
-                    snapshotFlow {
-                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "folder-tabs" }?.index
-                    }.collect { if (it != null) tabsRowIndex = it }
-                }
+                // The pill bar's row is fixed by what sits above it, so it is computed
+                // rather than remembered from when it last happened to be on screen.
+                val tabsRowIndex = 1 + (if (searching) 1 else 0) +
+                    (if (!page.description.isNullOrBlank() && page.type == BrowseType.ALBUM) 1 else 0)
                 val onSelectFolderTab: (LocalFolderTab) -> Unit = { nextTab ->
                     if (folderState != null && folderState.tab != nextTab) {
                         val prev = folderState.tab
@@ -723,12 +722,13 @@ fun DetailScreen(
                         val saved = folderState.savedScrollByTab[nextTab]
                         folderState.tab = nextTab
                         tabScrollScope.launch {
+                            // Wait for the new tab's rows to be laid out first.
+                            withFrameNanos { }
+                            withFrameNanos { }
                             if (saved != null && (saved.first > 0 || saved.second > 0)) {
                                 listState.scrollToItem(saved.first, saved.second)
                             } else if (pinned) {
                                 listState.scrollToItem(tabsRowIndex, -tabStickyPx)
-                            } else {
-                                listState.scrollToItem(0)
                             }
                         }
                     }

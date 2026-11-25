@@ -106,7 +106,8 @@ internal fun LocalLetterIndex(
     val density = LocalDensity.current
     val topInsetPx = with(density) { (topInset + 4.dp).roundToPx() }
     val fallbackBottomInsetPx = with(density) { (bottomInset - 52.dp).coerceAtLeast(80.dp).roundToPx() }
-    val bottomClearancePx = with(density) { 6.dp.roundToPx() }
+    // Clears the bottom fade and the 8.dp tap guard above the bars.
+    val bottomClearancePx = with(density) { 12.dp.roundToPx() }
     val minSlotPx = with(density) { 9.5.dp.roundToPx().coerceAtLeast(1) }
     val maxSlotPx = with(density) { 26.dp.roundToPx().coerceAtLeast(minSlotPx) }
     val minRailHeightPx = with(density) { 52.dp.roundToPx() }
@@ -123,10 +124,7 @@ internal fun LocalLetterIndex(
             .graphicsLayer { alpha = railAlpha }
             .layout { measurable, constraints ->
                 val measuredBarsPx = floatingBarsHeightPx()
-                val effectiveBottomInsetPx = if (measuredBarsPx < 0) {
-                    // Bars are beside the rail, not under it: run to the bottom edge.
-                    bottomClearancePx * 3
-                } else if (measuredBarsPx > 0) {
+                val effectiveBottomInsetPx = if (measuredBarsPx > 0) {
                     measuredBarsPx + bottomClearancePx
                 } else {
                     fallbackBottomInsetPx

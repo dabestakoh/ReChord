@@ -3717,9 +3717,7 @@ private fun BitChordApp(
                                 songSort = songSortForBrowseId(page.browseId, detailSongSorts),
                                 folder = folder,
                                 contentPadding = listPadding,
-                                // Landscape: the bars sit in the middle with free strips either
-                                // side, so the A–Z rail ignores them (-1) and runs to the bottom.
-                                floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
+                                floatingBarsHeightPx = { floatingBarsHeight.intValue },
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(
@@ -7131,7 +7129,3 @@ private fun landscapeChrome(width: Dp, height: Dp): Boolean = width >= 560.dp &&
 /** Bar row width, leaving free edge strips for the A–Z rail when side by side. */
 private fun chromeMaxWidth(sideBySide: Boolean, width: Dp): Dp =
     if (sideBySide) 880.dp.coerceAtMost(width - 96.dp) else FLOATING_BAR_MAX_WIDTH
-
-/** -1 tells the A–Z rail the bars are beside it, so it can run to the bottom. */
-private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
-    if (landscapeChrome(width, height)) -1 else measured
