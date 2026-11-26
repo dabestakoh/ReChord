@@ -8,10 +8,12 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -26,6 +29,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.ui.haptics.Haptic
 import com.music.bitchord.ui.haptics.rememberHaptics
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -333,6 +337,73 @@ internal fun Modifier.alternateTrackGesture(
                     latestPreviousAction()
                 }
             }
+        }
+    }
+}
+
+@Stable
+internal class DefaultCoverSwipeState(
+    val swipe: AlternateTrackSwipe,
+) {
+    var previousSong: Song? by mutableStateOf(null)
+    var nextSong: Song? by mutableStateOf(null)
+    var previousArt: String? by mutableStateOf(null)
+    var nextArt: String? by mutableStateOf(null)
+    var artworkWidthPx: Float by mutableFloatStateOf(0f)
+}
+
+@Composable
+internal fun rememberDefaultCoverSwipeState(
+    song: Song,
+    queue: List<Song>,
+    queueIndex: Int,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    animate: Boolean,
+): DefaultCoverSwipeState {
+    val prev = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious }
+    val next = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext }
+    val prevArt = rememberRemoteArtworkUrl(prev)
+    val nextArt = rememberRemoteArtworkUrl(next)
+    val swipe = rememberAlternateTrackSwipe(
+        song = song,
+        previous = prev,
+        next = next,
+        animate = animate,
+        record = false,
+    )
+    return remember(swipe) { DefaultCoverSwipeState(swipe) }.apply {
+        previousSong = prev
+        nextSong = next
+        previousArt = prevArt
+        nextArt = nextArt
+    }
+}
+
+@Composable
+internal fun DefaultSwipeNeighborCovers(
+    state: DefaultCoverSwipeState,
+    offsetFraction: Float,
+) {
+    if (abs(offsetFraction) <= 0.001f) return
+    state.previousSong?.let { prev ->
+        key(prev.swipeIdentity) {
+            LayoutArtwork(
+                state.previousArt,
+                Modifier.fillMaxSize().graphicsLayer {
+                    translationX = (-1f + offsetFraction) * size.width
+                },
+            )
+        }
+    }
+    state.nextSong?.let { next ->
+        key(next.swipeIdentity) {
+            LayoutArtwork(
+                state.nextArt,
+                Modifier.fillMaxSize().graphicsLayer {
+                    translationX = (1f + offsetFraction) * size.width
+                },
+            )
         }
     }
 }

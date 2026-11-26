@@ -1887,17 +1887,13 @@ fun NowPlayingScreen(
     // screen, the landscape one on the sleeve alone — the right column there is
     // full of horizontal sliders and a lyric list that should not be one stray
     // sideways drag away from changing the song.
-    val defaultPrevSong = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious }
-    val defaultNextSong = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext }
-    val defaultPrevArt = rememberRemoteArtworkUrl(defaultPrevSong)
-    val defaultNextArt = rememberRemoteArtworkUrl(defaultNextSong)
-    var defaultArtworkWidthPx by remember { mutableFloatStateOf(0f) }
-    val defaultSwipe = rememberAlternateTrackSwipe(
+    val defaultCoverSwipe = rememberDefaultCoverSwipeState(
         song = song,
-        previous = defaultPrevSong,
-        next = defaultNextSong,
+        queue = queue,
+        queueIndex = queueIndex,
+        hasPrevious = hasPrevious,
+        hasNext = hasNext,
         animate = !reduceAnimation && !videoPresentation,
-        record = false,
     )
 
     val startInfoDrag by rememberUpdatedState {
@@ -1916,12 +1912,12 @@ fun NowPlayingScreen(
         val crossed = total <= -swipeThreshold || total >= swipeThreshold
         when {
             controlsLocked -> {
-                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
+                defaultCoverSwipe.swipe.end(0f, 0f, null, reduceAnimation) {}
                 infoTransition.cancelDrag()
                 if (crossed) onBlockedControl()
             }
             total <= -swipeThreshold -> {
-                defaultSwipe.end(-1f, 0f, defaultNextSong, reduceAnimation) {}
+                defaultCoverSwipe.swipe.end(-1f, 0f, defaultCoverSwipe.nextSong, reduceAnimation) {}
                 haptics.play(Haptic.SkipNext)
                 infoTransition.finishDrag(
                     next = true, currentSong = currentPlaybackSong, canSlide = { true }, action = onNext,
@@ -1929,7 +1925,10 @@ fun NowPlayingScreen(
             }
             total >= swipeThreshold -> {
                 val restarts = previousRestarts()
-                defaultSwipe.end(if (restarts) 0f else 1f, 0f, if (restarts) null else defaultPrevSong, reduceAnimation) {}
+                defaultCoverSwipe.swipe.end(
+                    if (restarts) 0f else 1f, 0f,
+                    if (restarts) null else defaultCoverSwipe.previousSong, reduceAnimation,
+                ) {}
                 haptics.play(Haptic.SkipPrevious)
                 infoTransition.finishDrag(
                     next = false, currentSong = currentPlaybackSong,
@@ -1937,7 +1936,7 @@ fun NowPlayingScreen(
                 )
             }
             else -> {
-                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
+                defaultCoverSwipe.swipe.end(0f, 0f, null, reduceAnimation) {}
                 infoTransition.cancelDrag()
             }
         }
@@ -1950,11 +1949,11 @@ fun NowPlayingScreen(
             onDragStart = {
                 total = 0f
                 acceptsDrag = startInfoDrag()
-                if (acceptsDrag && !videoPresentation) defaultSwipe.start()
+                if (acceptsDrag && !videoPresentation) defaultCoverSwipe.swipe.start()
             },
             onDragCancel = {
                 if (!acceptsDrag) return@detectHorizontalDragGestures
-                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
+                defaultCoverSwipe.swipe.end(0f, 0f, null, reduceAnimation) {}
                 setSwipeOffset(0f)
                 infoTransition.cancelDrag()
             },
@@ -1970,8 +1969,8 @@ fun NowPlayingScreen(
                     // Damped: it's a hint, not a drag-to-position.
                     setSwipeOffset(total * 0.35f)
                 } else {
-                    val stride = defaultArtworkWidthPx.coerceAtLeast(300f)
-                    defaultSwipe.drag(
+                    val stride = defaultCoverSwipe.artworkWidthPx.coerceAtLeast(300f)
+                    defaultCoverSwipe.swipe.drag(
                         delta = delta / stride,
                         canPrevious = !controlsLocked && !previousRestarts(),
                         canNext = !controlsLocked && hasNext,
@@ -2875,13 +2874,13 @@ fun NowPlayingScreen(
                                     }
                                 }
                             } else null,
-                            coverOffsetFraction = if (!videoPresentation) ({ if (docking()) 0f else defaultSwipe.artworkOffset(song) }) else null,
-                            prevCover = defaultPrevArt,
-                            nextCover = defaultNextArt,
-                            prevKey = defaultPrevSong?.swipeIdentity,
-                            nextKey = defaultNextSong?.swipeIdentity,
+                            coverOffsetFraction = if (!videoPresentation) ({ if (docking()) 0f else defaultCoverSwipe.swipe.artworkOffset(song) }) else null,
+                            prevCover = defaultCoverSwipe.previousArt,
+                            nextCover = defaultCoverSwipe.nextArt,
+                            prevKey = defaultCoverSwipe.previousSong?.swipeIdentity,
+                            nextKey = defaultCoverSwipe.nextSong?.swipeIdentity,
                             modifier = artworkModifier
-                                .onSizeChanged { defaultArtworkWidthPx = it.width.toFloat() }
+                                .onSizeChanged { defaultCoverSwipe.artworkWidthPx = it.width.toFloat() }
                                 .then(
                                     if (dock != null) {
                                         Modifier.onGloballyPositioned { dockFrame.landscapeArt = it }
@@ -4111,30 +4110,9 @@ fun NowPlayingScreen(
                                 )
                             } else {
                                 val portraitSwipeOffset = if (!videoPresentation && !heroMode && !docking()) {
-                                    defaultSwipe.artworkOffset(song)
+                                    defaultCoverSwipe.swipe.artworkOffset(song)
                                 } else 0f
-                                if (kotlin.math.abs(portraitSwipeOffset) > 0.001f) {
-                                    defaultPrevSong?.let { prev ->
-                                        key(prev.swipeIdentity) {
-                                            LayoutArtwork(
-                                                defaultPrevArt,
-                                                Modifier.fillMaxSize().graphicsLayer {
-                                                    translationX = (-1f + portraitSwipeOffset) * size.width
-                                                },
-                                            )
-                                        }
-                                    }
-                                    defaultNextSong?.let { next ->
-                                        key(next.swipeIdentity) {
-                                            LayoutArtwork(
-                                                defaultNextArt,
-                                                Modifier.fillMaxSize().graphicsLayer {
-                                                    translationX = (1f + portraitSwipeOffset) * size.width
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
+                                DefaultSwipeNeighborCovers(defaultCoverSwipe, portraitSwipeOffset)
                                 AutoMixPlayerCover(
                                 // Decode at the sleeve's *expanded* size, always.
                                 // Coil otherwise sizes the decode to however large
@@ -4168,10 +4146,10 @@ fun NowPlayingScreen(
                                 // [PlayerArtwork.loaded] still flips the moment it does.
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .onSizeChanged { defaultArtworkWidthPx = it.width.toFloat() }
+                                    .onSizeChanged { defaultCoverSwipe.artworkWidthPx = it.width.toFloat() }
                                     .graphicsLayer {
                                         val o = if (!videoPresentation && !heroMode && !docking()) {
-                                            defaultSwipe.artworkOffset(song)
+                                            defaultCoverSwipe.swipe.artworkOffset(song)
                                         } else 0f
                                         translationX = o * size.width
                                     }
