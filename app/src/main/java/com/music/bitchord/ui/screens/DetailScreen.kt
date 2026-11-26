@@ -419,9 +419,10 @@ fun DetailScreen(
     }
     // A folder keeps its own sort — the one its top bar menu sets — rather
     // than the per-page one a release takes.
-    val folderSort = if (folder != null && folder.state.tab == LocalFolderTab.RECENTLY_ADDED) {
-        if (folder.state.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-    } else folder?.sort
+    val folderSort = folder?.let {
+        it.state.groupSorts[it.state.tab]
+            ?: if (it.state.tab == LocalFolderTab.RECENTLY_ADDED) LocalMusicSort.DATE_ADDED else it.sort
+    }
     val groupSort = folder?.state?.let { it.groupSorts[it.tab] } ?: LocalMusicSort.TITLE_ASC
     val hiResActive = folder?.state?.let { it.tab == LocalFolderTab.HI_RES || it.hiResOnly } == true
     val filteredRawSongs = remember(rawSongs, hiResActive) {
@@ -438,7 +439,6 @@ fun DetailScreen(
         if (localPage && (ascending || descending)) source.sortedWith { a, b ->
             if (ascending) trackAlphabet.compare(a.title, b.title) else trackAlphabet.compare(b.title, a.title)
         }
-        else if (recent && folderSort == LocalMusicSort.DATE_ADDED) source
         else if (folderSort != null) source.sortedForLibrary(folderSort) else source.sortedForDetail(songSort)
     }
     val scanProgress = if (folder?.onRefreshIndex != null) {

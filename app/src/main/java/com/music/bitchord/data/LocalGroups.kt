@@ -369,15 +369,20 @@ internal fun List<LocalGroup>.sortedLocalGroups(
     return when (order) {
         LocalMusicSort.TITLE_ASC -> sortedWith(byTitle)
         LocalMusicSort.TITLE_DESC -> sortedWith(byTitle.reversed())
-        LocalMusicSort.DATE_ADDED, LocalMusicSort.DATE_MODIFIED -> {
+        LocalMusicSort.DATE_ADDED, LocalMusicSort.DATE_ADDED_OLDEST -> {
             val dated = map { group ->
                 val newest = group.songs.mapNotNull { song ->
-                    if (order == LocalMusicSort.DATE_ADDED) song.localDateAddedSeconds else song.localDateModifiedSeconds
+                    song.localDateAddedSeconds
                 }.maxOrNull()
                 group to newest
             }
-            dated.sortedWith(compareByDescending<Pair<LocalGroup, Long?>> { it.second }
-                .thenComparator { a, b -> byTitle.compare(a.first, b.first) }).map { it.first }
+            val datedFirst = if (order == LocalMusicSort.DATE_ADDED) {
+                compareByDescending<Pair<LocalGroup, Long?>> { it.second ?: Long.MIN_VALUE }
+            } else {
+                compareBy<Pair<LocalGroup, Long?>> { it.second ?: Long.MAX_VALUE }
+            }
+            dated.sortedWith(datedFirst.thenComparator { a, b -> byTitle.compare(a.first, b.first) })
+                .map { it.first }
         }
     }
 }
@@ -390,9 +395,9 @@ fun List<Song>.sortedForLibrary(order: LocalMusicSort): List<Song> = when (order
         compareByDescending<Song> { it.localDateAddedSeconds ?: Long.MIN_VALUE }
             .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.videoId },
     )
-    LocalMusicSort.DATE_MODIFIED -> sortedWith(
-        compareByDescending<Song> { it.localDateModifiedSeconds ?: Long.MIN_VALUE }
-            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+    LocalMusicSort.DATE_ADDED_OLDEST -> sortedWith(
+        compareBy<Song> { it.localDateAddedSeconds ?: Long.MAX_VALUE }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.videoId },
     )
 }
 

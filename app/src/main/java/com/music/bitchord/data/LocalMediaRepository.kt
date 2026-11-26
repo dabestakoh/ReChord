@@ -732,6 +732,7 @@ object LocalMediaRepository {
                 .filter { it.isFile && LocalArtwork.isCoverFileName(it.name) }
                 .sortedWith(
                     compareBy<File> { LocalArtwork.coverSortOrder(it.name) }
+                        .thenByDescending { it.length() }
                         .thenBy { it.name.lowercase(Locale.ROOT) },
                 )
                 .map { file ->
@@ -870,6 +871,7 @@ object LocalMediaRepository {
             val sortedCovers = coverDocs
                 .sortedWith(
                     compareBy<Pair<String, LocalArtwork.SidecarCover>> { LocalArtwork.coverSortOrder(it.first) }
+                        .thenByDescending { it.second.signature.substringAfterLast(':').toLongOrNull() ?: 0L }
                         .thenBy { it.first.lowercase(Locale.ROOT) },
                 )
                 .map { it.second }

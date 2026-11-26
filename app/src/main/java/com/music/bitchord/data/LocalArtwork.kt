@@ -41,8 +41,11 @@ internal object LocalArtwork {
     internal const val REVISION_VERSION = 2
     private const val PREFIX = "localcover:"
     private const val MAX_BYTES = 16 * 1024 * 1024
-    internal val coverBaseNames = listOf("cover", "folder", "album")
+    internal val coverBaseNames = listOf("cover", "folder", "front", "albumart", "album", "artwork")
     internal val coverExtensions = setOf("jpg", "jpeg", "png", "webp")
+    private val discouragedArtworkNames = listOf(
+        "back", "rear", "booklet", "inside", "disc", "disk", "cd", "logo", "artist", "banner",
+    )
     private val artworkDispatcher = Dispatchers.IO.limitedParallelism(2)
     private const val THUMB_PX = 256
     private const val THUMB_FETCH_MAX_PX = 768
@@ -76,14 +79,15 @@ internal object LocalArtwork {
     fun isCoverFileName(name: String): Boolean {
         val dot = name.lastIndexOf('.')
         if (dot <= 0) return false
-        val base = name.substring(0, dot).lowercase(Locale.ROOT)
         val ext = name.substring(dot + 1).lowercase(Locale.ROOT)
-        return base in coverBaseNames && ext in coverExtensions
+        return ext in coverExtensions
     }
 
     fun coverSortOrder(name: String): Int {
         val base = name.substringBeforeLast('.').lowercase(Locale.ROOT)
-        return coverBaseNames.indexOf(base).let { if (it < 0) coverBaseNames.size else it }
+        val preferred = coverBaseNames.indexOf(base)
+        if (preferred >= 0) return preferred
+        return if (discouragedArtworkNames.any { token -> base.contains(token) }) 1_000 else 100
     }
 
     fun decorate(
@@ -120,7 +124,10 @@ internal object LocalArtwork {
     ): Song {
         val media = song.localUri ?: return song
         val embedded = if (song.localPath != null) "embedded:$media|path:${song.localPath}" else "embedded:$media"
-        val sidecarSources = sidecars.map { it.source }
+        val preferredSidecars = sidecars.filter { coverSortOrder(it.signature.substringBefore(':')) < 100 }
+        val otherSidecars = sidecars - preferredSidecars.toSet()
+        val preferredSources = preferredSidecars.map { it.source }
+        val otherSources = otherSidecars.map { it.source }
         val fallback = song.thumbnailUrl?.takeUnless { it.startsWith(PREFIX) }
         val localFile = song.localPath?.let(::File)
         val revision = mediaRevision?.let {
@@ -135,8 +142,22 @@ internal object LocalArtwork {
         fun url(vararg sources: String?) = PREFIX +
             (listOf(revision) + sources.filterNotNull()).joinToString("|") { Uri.encode(it) }
         return song.copy(
-            thumbnailUrl = url(embedded, *sidecarSources.toTypedArray(), fallback),
-            localAlbumArtwork = url(*sidecarSources.toTypedArray(), embedded, fallback),
+            // A row and Now Playing belong to one exact file, so its embedded
+            // sleeve wins. Album/folder tiles prefer an explicitly named shared
+            // cover, then the representative track's embedded sleeve. Arbitrary
+            // directory images are a last usable fallback on both surfaces.
+            thumbnailUrl = url(
+                embedded,
+                *preferredSources.toTypedArray(),
+                *otherSources.toTypedArray(),
+                fallback,
+            ),
+            localAlbumArtwork = url(
+                *preferredSources.toTypedArray(),
+                embedded,
+                *otherSources.toTypedArray(),
+                fallback,
+            ),
         )
     }
 
@@ -147,7 +168,9 @@ internal object LocalArtwork {
         directory.listFiles()?.filter {
             it.isFile && isCoverFileName(it.name)
         }?.sortedWith(
-            compareBy<File> { coverSortOrder(it.name) }.thenBy { it.name.lowercase(Locale.ROOT) },
+            compareBy<File> { coverSortOrder(it.name) }
+                .thenByDescending { it.length() }
+                .thenBy { it.name.lowercase(Locale.ROOT) },
         )?.map { file ->
             SidecarCover(
                 source = "file:${file.path}",
@@ -173,7 +196,6 @@ internal object LocalArtwork {
     private fun knownMissing(url: String): Boolean =
         (missingCovers.get(url) ?: 0L) > android.os.SystemClock.elapsedRealtime()
 
-    private const val MAX_IDLE_THUMBNAILS = 96
     private const val PREWARM_BATCH = 12
     private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val thumbnailLocks = Array(32) { Mutex() }
@@ -187,7 +209,6 @@ internal object LocalArtwork {
         .filterNotNull()
         .filter { it.startsWith(PREFIX) }
         .distinct()
-        .take(MAX_IDLE_THUMBNAILS)
         .toList()
 
     /** Pauses background thumbnail pre-warming while the user is actively scrolling Local Music. */
@@ -214,7 +235,7 @@ internal object LocalArtwork {
             power == null || power.currentThermalStatus < android.os.PowerManager.THERMAL_STATUS_MODERATE
     }
 
-    /** Warm a bounded set of covers after a scan. The visible rows load their own covers on demand. */
+    /** Warm every missing local thumbnail in bounded, idle-friendly batches. */
     suspend fun prewarmThumbnails(
         context: Context,
         keys: List<String>,

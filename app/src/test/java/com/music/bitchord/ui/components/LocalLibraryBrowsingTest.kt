@@ -2,6 +2,7 @@ package com.music.bitchord.ui.screens
 
 import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.sortedLocalGroups
+import com.music.bitchord.data.sortedForLibrary
 import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.model.Song
@@ -23,6 +24,22 @@ class LocalLibraryBrowsingTest {
         assertEquals(listOf("Zeta", "Beta", "Alpha"), byTitle)
         assertEquals(listOf("Z", "B", "A"), localLetterPositions(byTitle, 0, 2, alphabet).keys.toList())
         assertEquals(listOf("Beta", "Zeta", "Alpha"), byDate)
+    }
+
+    @Test fun addedDateDirectionsKeepUnknownDatesLast() {
+        val songs = listOf(
+            Song("old", "Zeta", "Artist", null, localDateAddedSeconds = 10),
+            Song("unknown", "Alpha", "Artist", null),
+            Song("new", "Beta", "Artist", null, localDateAddedSeconds = 30),
+        )
+        assertEquals(listOf("new", "old", "unknown"),
+            songs.sortedForLibrary(LocalMusicSort.DATE_ADDED).map { it.videoId })
+        assertEquals(listOf("old", "new", "unknown"),
+            songs.sortedForLibrary(LocalMusicSort.DATE_ADDED_OLDEST).map { it.videoId })
+        val groups = LocalGroups.albumsOf("local:all", songs.map { it.copy(albumName = it.title) }, emptyList())
+        val alphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = false)
+        assertEquals(listOf("Zeta", "Beta", "Alpha"),
+            groups.sortedLocalGroups(LocalMusicSort.DATE_ADDED_OLDEST, alphabet).map { it.title })
     }
 
     @Test fun letterJumpsTargetTheFirstMatchingGridRow() {

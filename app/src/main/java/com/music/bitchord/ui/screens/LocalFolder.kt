@@ -213,7 +213,6 @@ enum class LocalFolderTab {
 
     val sortOptions: List<LocalMusicSort>
         get() = when (this) {
-            RECENTLY_ADDED -> listOf(LocalMusicSort.DATE_ADDED, LocalMusicSort.TITLE_ASC)
             PLAYLISTS -> listOf(LocalMusicSort.TITLE_ASC, LocalMusicSort.TITLE_DESC)
             else -> LocalMusicSort.entries
         }
@@ -239,7 +238,6 @@ enum class LocalFolderTab {
 class LocalFolderState {
     var tab by mutableStateOf(LocalFolderTab.SONGS)
     var hiResOnly by mutableStateOf(false)
-    var recentAlphabetical by mutableStateOf(false)
     var groupSorts by mutableStateOf<Map<LocalFolderTab, LocalMusicSort>>(emptyMap())
     var savedScrollByTab by mutableStateOf<Map<LocalFolderTab, Pair<Int, Int>>>(emptyMap())
     var viewTypes by mutableStateOf<Map<LocalFolderTab, LibraryViewType>>(emptyMap())
@@ -292,8 +290,12 @@ internal fun <Input, Row> rememberPreparedLocalRows(
 ): List<Row>? {
     val latestInput by rememberUpdatedState(input)
     val latestPrepare by rememberUpdatedState(prepare)
-    var rows by remember(viewKey) { mutableStateOf(initialRows) }
+    // Keep the currently rendered rows while a new sort or refreshed index is
+    // prepared. Resetting this state with [viewKey] made large libraries flash
+    // empty and made a sort tap look as if it had done nothing.
+    var rows by remember { mutableStateOf(initialRows) }
     LaunchedEffect(viewKey) {
+        if (initialRows != null) rows = initialRows
         snapshotFlow { latestInput }.conflate().collect { pending ->
             val prepareRows = latestPrepare
             rows = withContext(Dispatchers.Default) { prepareRows(pending) }
@@ -1647,5 +1649,5 @@ internal fun LocalMusicSort.localizedLabel(): String = when (this) {
     LocalMusicSort.TITLE_ASC -> stringResource(R.string.sort_title_ascending)
     LocalMusicSort.TITLE_DESC -> stringResource(R.string.sort_title_descending)
     LocalMusicSort.DATE_ADDED -> stringResource(R.string.sort_date_added)
-    LocalMusicSort.DATE_MODIFIED -> stringResource(R.string.sort_date_modified)
+    LocalMusicSort.DATE_ADDED_OLDEST -> stringResource(R.string.sort_date_added_oldest)
 }

@@ -3475,7 +3475,9 @@ private fun BitChordApp(
                                             hiResOnly = preferences.getBoolean("hires:${page.browseId}", false)
                                             groupSorts = LocalFolderTab.entries.mapNotNull { group ->
                                                 val saved = preferences.getString("sort:${page.browseId}:${group.name}", null)
-                                                group.sortOptions.firstOrNull { it.name == saved }?.let { group to it }
+                                                val migrated = if (saved == "DATE_MODIFIED") LocalMusicSort.DATE_ADDED
+                                                    else group.sortOptions.firstOrNull { it.name == saved }
+                                                migrated?.let { group to it }
                                             }.toMap()
                                             viewTypes = LocalFolderTab.entries.mapNotNull { group ->
                                                 val saved = preferences.getString("view:${page.browseId}:${group.name}", null)
@@ -6188,6 +6190,7 @@ private fun BitChordApp(
                 viewModel = viewModel,
                 onOpenFolderPicker = { showLocalFolderPicker = true },
                 onOpenClearConfirm = { showClearLocalConfirm = true },
+                onSortApplied = { detailListState.requestScrollToItem(0) },
                 onDismiss = { folderMenuOpen = false },
             )
         }
@@ -6754,23 +6757,27 @@ private fun FolderMenuOverlay(
     viewModel: MainViewModel,
     onOpenFolderPicker: () -> Unit,
     onOpenClearConfirm: () -> Unit,
+    onSortApplied: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     BackHandler { onDismiss() }
     val downloadsFolder = menuFolder == "local:downloads"
     val tab = folderState?.tab ?: LocalFolderTab.SONGS
-    val recentState = folderState?.takeIf { tab == LocalFolderTab.RECENTLY_ADDED }
-    val groupState = folderState?.takeIf { !tab.isTrackList }
     val isConfiguredLocal = menuFolder == "local:all" &&
         localMusicScanMode != com.music.bitchord.data.settings.LocalMusicScanMode.NOT_CONFIGURED
     val canFilterHiRes = folderState != null && tab != LocalFolderTab.HI_RES &&
         (menuFolder == "local:all" || com.music.bitchord.data.LocalGroups.folderOf(menuFolder) == "local:all")
     FrostedFolderMenu(
         hazeState = hazeState,
-        sort = recentState?.let {
-            if (it.recentAlphabetical) LocalMusicSort.TITLE_ASC else LocalMusicSort.DATE_ADDED
-        } ?: groupState?.let { it.groupSorts[tab] ?: LocalMusicSort.TITLE_ASC } ?: folderSort,
+        sort = folderState?.let { state ->
+            state.groupSorts[tab]
+                ?: when {
+                    tab == LocalFolderTab.RECENTLY_ADDED -> LocalMusicSort.DATE_ADDED
+                    tab.isTrackList -> folderSort
+                    else -> LocalMusicSort.TITLE_ASC
+                }
+        } ?: folderSort,
         sorts = tab.sortOptions,
         hiResOnly = folderState?.hiResOnly == true,
         onToggleHiResOnly = if (canFilterHiRes) ({
@@ -6798,13 +6805,13 @@ private fun FolderMenuOverlay(
         }) else null,
         viewType = viewType,
         onSort = { option ->
-            if (recentState != null) recentState.recentAlphabetical = option == LocalMusicSort.TITLE_ASC
-            else if (groupState != null) {
-                groupState.groupSorts = groupState.groupSorts + (tab to option)
+            if (folderState != null) {
+                folderState.groupSorts = folderState.groupSorts + (tab to option)
                 context.getSharedPreferences("local_music_view", 0).edit()
                     .putString("sort:$menuFolder:${tab.name}", option.name).apply()
             } else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)
             else AppSettings.setLocalMusicSort(option)
+            onSortApplied()
             onDismiss()
         },
         onToggleViewType = {

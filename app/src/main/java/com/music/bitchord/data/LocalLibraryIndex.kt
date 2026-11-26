@@ -125,7 +125,6 @@ internal object LocalLibraryIndex {
     @Volatile private var cancelledSourceKey: String? = null
     private var prewarmJob: Job? = null
     private var artworkKeys: List<String> = emptyList()
-    private var completedArtworkKeys: List<String> = emptyList()
     @Volatile private var lastCompletedScanMs: Long = 0L
 
     private val mutableProgress = MutableStateFlow(ScanProgress())
@@ -437,7 +436,6 @@ internal object LocalLibraryIndex {
                     cached = null
                     cancelledSourceKey = null
                     lastCompletedScanMs = 0L
-                    synchronized(artworkLock) { completedArtworkKeys = emptyList() }
                     fileV2(appContext).delete()
                     fileV1(appContext).delete()
                     LocalArtwork.clearThumbnailCache(appContext)
@@ -631,20 +629,17 @@ internal object LocalLibraryIndex {
         if (keys.isEmpty()) return
         synchronized(artworkLock) {
             if (scanGeneration.get() != gen || mutableClearing.value) return
-            if (keys == completedArtworkKeys || (keys == artworkKeys && prewarmJob?.isActive == true)) return
+            if (keys == artworkKeys && prewarmJob?.isActive == true) return
             val oldJob = prewarmJob
             val newJob = indexScope.launch(start = CoroutineStart.LAZY) {
                 val owner = currentCoroutineContext()[Job]
                 try {
-                    val complete = LocalArtwork.prewarmThumbnails(context, keys) { done, totalArt ->
+                    LocalArtwork.prewarmThumbnails(context, keys) { done, totalArt ->
                         synchronized(artworkLock) {
                             if (prewarmJob === owner) {
                                 mutableArtworkProgress.value = if (done < totalArt) done to totalArt else null
                             }
                         }
-                    }
-                    synchronized(artworkLock) {
-                        if (complete && prewarmJob === owner) completedArtworkKeys = keys
                     }
                 } finally {
                     synchronized(artworkLock) {
@@ -732,6 +727,7 @@ internal object LocalLibraryIndex {
             ensureGeneration()
             if (currentSig != null && currentSig == previous?.mediaStoreSignature && oldEntries.isNotEmpty()) {
                 lastCompletedScanMs = System.currentTimeMillis()
+                warmArtwork(context, filterIgnored(oldEntries.map { it.song }), gen)
                 return
             }
         }
@@ -827,6 +823,7 @@ internal object LocalLibraryIndex {
             if (unchanged != previous || pendingSave != null) persistIndex(context, unchanged) { !isCancelledNow() }
             lastCompletedScanMs = System.currentTimeMillis()
             updateScanProgress(gen, ScanProgress(revokedFolders = discovery.revokedSafFolders))
+            warmArtwork(context, filterIgnored(unchanged.entries.map { it.song }), gen)
             return
         }
 
@@ -1013,10 +1010,13 @@ internal object LocalLibraryIndex {
                                     )
                                 }
                                 parsed?.let { song ->
-                                    val preservedAdded = if (prior != null) {
-                                        prior.song.localDateAddedSeconds
-                                    } else {
-                                        song.localDateAddedSeconds?.takeIf { it > 0L } ?: nowSec
+                                    val preservedAdded = when {
+                                        prior != null -> prior.song.localDateAddedSeconds
+                                        // MediaStore supplies Android's actual DATE_ADDED. SAF and raw
+                                        // filesystem providers do not, so their stable date-added value is
+                                        // the first time ReChord discovers the file, not its old mtime.
+                                        item.isMediaStore -> song.localDateAddedSeconds?.takeIf { it > 0L } ?: nowSec
+                                        else -> nowSec
                                     }
                                     CachedEntry(
                                         song = song.copy(localDateAddedSeconds = preservedAdded),
@@ -1075,10 +1075,6 @@ internal object LocalLibraryIndex {
         val saved = SavedV2(key, discovery.mediaStoreSignature, finalEntries, rejected.toMap())
         checkpointJob?.join()
         ensureGeneration()
-        val changedCovers = if (!sameSource) finalSongs else finalSongs.filter { song ->
-            val prior = priorByUri[song.localUri]?.song
-            song.thumbnailUrl != prior?.thumbnailUrl || song.localAlbumArtwork != prior?.localAlbumArtwork
-        }
         if (saved != previous || pendingSave != null || checkpointJob != null) {
             publishSongs(gen, finalSongs)
             if (showIndexProgress) {
@@ -1094,7 +1090,10 @@ internal object LocalLibraryIndex {
         }
         lastCompletedScanMs = System.currentTimeMillis()
         updateScanProgress(gen, ScanProgress(revokedFolders = discovery.revokedSafFolders))
-        if (changedCovers.isNotEmpty()) warmArtwork(context, changedCovers, gen)
+        // The worker itself checks the disk cache and reports only genuine misses.
+        // Passing the full library lets an interrupted/thermally-paused pass resume
+        // later and avoids the old 96-cover partial-cache regression.
+        warmArtwork(context, finalSongs, gen)
     }
 
     private fun publishSongs(gen: Long, songs: List<Song>) = synchronized(jobsLock) {
