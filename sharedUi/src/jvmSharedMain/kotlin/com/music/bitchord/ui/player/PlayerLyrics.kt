@@ -1681,6 +1681,7 @@ internal fun PosterLyricSpotlight(
     subLines: List<LyricLine>? = null,
     subAlpha: Float = 0.56f,
     titleTargetCoords: (() -> androidx.compose.ui.layout.LayoutCoordinates?)? = null,
+    landscape: Boolean = false,
 ) {
     val clock = rememberLyricClock(trackKey, playhead, isPlaying)
     val entries = remember(lines, subLines, subAlpha) {
@@ -1719,10 +1720,17 @@ internal fun PosterLyricSpotlight(
         val stageHeight = maxHeight
         if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return@BoxWithConstraints
         val minBaseSp = if (stageHeight < 100.dp) 14f else 22f
-        val baseSize = minOf(
-            (maxWidth.value * 0.12f).coerceIn(30f, 56f),
-            (maxHeight.value * 0.42f).coerceAtLeast(minBaseSp),
-        ).sp
+        val baseSize = if (landscape) {
+            minOf(
+                (maxWidth.value * 0.10f).coerceIn(22f, 44f),
+                (maxHeight.value * 0.28f).coerceIn(14f, 44f),
+            ).sp
+        } else {
+            minOf(
+                (maxWidth.value * 0.12f).coerceIn(30f, 56f),
+                (maxHeight.value * 0.42f).coerceAtLeast(minBaseSp),
+            ).sp
+        }
 
         if (hasLyrics) {
             Box(

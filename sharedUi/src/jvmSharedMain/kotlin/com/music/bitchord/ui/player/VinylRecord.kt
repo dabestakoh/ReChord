@@ -1046,14 +1046,14 @@ internal fun VinylTonearm(
             val g = RecordGeometry(bounds, mountTopInset, maxDiscBottom, landscape)
             val tip = g.tip(fraction)
             val armDir = tip - g.pivot
-            // Restrict touch hitbox to the headshell/cartridge head (last ~16% of the arm)
-            // plus a generous outer halo (~38dp) so track swipes across the vinyl or shaft never mistouch.
-            val headStart = g.pivot + armDir * 0.84f
+            // Restrict touch hitbox to the headshell and lower 40% of the arm
+            // plus a generous outer halo (~42.5dp) so DAPs can grab it easily while vinyl swipes stay clear.
+            val headStart = g.pivot + armDir * 0.60f
             val head = tip - headStart
             val delta = down - headStart
             val headLenSq = (head.x * head.x + head.y * head.y).coerceAtLeast(1f)
             val projection = ((head.x * delta.x + head.y * delta.y) / headLenSq).coerceIn(0f, 1f)
-            (delta - head * projection).getDistance() <= tolerance * 1.65f
+            (delta - head * projection).getDistance() <= tolerance * 1.85f
         },
         along = { _, _, _ -> true },
         fraction = { bounds, down, current, initial ->

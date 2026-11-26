@@ -671,7 +671,7 @@ internal fun AlternateNowPlaying(
                                 ) {
                                     Column(
                                         Modifier.fillMaxSize().padding(
-                                            top = alternatePlayerHandleHeight,
+                                            top = if (vinyl) alternatePlayerHandleHeight else 24.dp,
                                             bottom = landscapeFooterBottomPadding(maxHeight),
                                         ),
                                         verticalArrangement = Arrangement.spacedBy(controlsSpacing),

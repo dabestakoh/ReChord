@@ -1887,6 +1887,19 @@ fun NowPlayingScreen(
     // screen, the landscape one on the sleeve alone — the right column there is
     // full of horizontal sliders and a lyric list that should not be one stray
     // sideways drag away from changing the song.
+    val defaultPrevSong = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious }
+    val defaultNextSong = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext }
+    val defaultPrevArt = rememberRemoteArtworkUrl(defaultPrevSong)
+    val defaultNextArt = rememberRemoteArtworkUrl(defaultNextSong)
+    var defaultArtworkWidthPx by remember { mutableFloatStateOf(0f) }
+    val defaultSwipe = rememberAlternateTrackSwipe(
+        song = song,
+        previous = defaultPrevSong,
+        next = defaultNextSong,
+        animate = !reduceAnimation && !videoPresentation,
+        record = false,
+    )
+
     val startInfoDrag by rememberUpdatedState {
         infoTransition.beginDrag(
             song = song,
@@ -1903,23 +1916,30 @@ fun NowPlayingScreen(
         val crossed = total <= -swipeThreshold || total >= swipeThreshold
         when {
             controlsLocked -> {
+                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
                 infoTransition.cancelDrag()
                 if (crossed) onBlockedControl()
             }
             total <= -swipeThreshold -> {
+                defaultSwipe.end(-1f, 0f, defaultNextSong, reduceAnimation) {}
                 haptics.play(Haptic.SkipNext)
                 infoTransition.finishDrag(
                     next = true, currentSong = currentPlaybackSong, canSlide = { true }, action = onNext,
                 )
             }
             total >= swipeThreshold -> {
+                val restarts = previousRestarts()
+                defaultSwipe.end(if (restarts) 0f else 1f, 0f, if (restarts) null else defaultPrevSong, reduceAnimation) {}
                 haptics.play(Haptic.SkipPrevious)
                 infoTransition.finishDrag(
                     next = false, currentSong = currentPlaybackSong,
                     canSlide = { !previousRestarts() }, action = onPrevious,
                 )
             }
-            else -> infoTransition.cancelDrag()
+            else -> {
+                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
+                infoTransition.cancelDrag()
+            }
         }
     }
     val skipSwipeGesture = Modifier.pointerInput(showAudioPipeline, showCast, panelScrolling, controlsLocked, queueOpen) {
@@ -1930,9 +1950,11 @@ fun NowPlayingScreen(
             onDragStart = {
                 total = 0f
                 acceptsDrag = startInfoDrag()
+                if (acceptsDrag && !videoPresentation) defaultSwipe.start()
             },
             onDragCancel = {
                 if (!acceptsDrag) return@detectHorizontalDragGestures
+                defaultSwipe.end(0f, 0f, null, reduceAnimation) {}
                 setSwipeOffset(0f)
                 infoTransition.cancelDrag()
             },
@@ -1944,8 +1966,17 @@ fun NowPlayingScreen(
             onHorizontalDrag = { _, delta ->
                 if (!acceptsDrag) return@detectHorizontalDragGestures
                 total += delta
-                // Damped: it's a hint, not a drag-to-position.
-                setSwipeOffset(total * 0.35f)
+                if (videoPresentation) {
+                    // Damped: it's a hint, not a drag-to-position.
+                    setSwipeOffset(total * 0.35f)
+                } else {
+                    val stride = defaultArtworkWidthPx.coerceAtLeast(300f)
+                    defaultSwipe.drag(
+                        delta = delta / stride,
+                        canPrevious = !controlsLocked && !previousRestarts(),
+                        canNext = !controlsLocked && hasNext,
+                    )
+                }
                 infoTransition.dragBy(total)
             },
         )
@@ -2413,7 +2444,7 @@ fun NowPlayingScreen(
     DisposableEffect(Unit) { onDispose { reportLiveCanvas(false) } }
     val frostOff by PlayerSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
     val frost = if (frostOff) null else PlayerPlatform.host.rememberPlayerFrost()
-    CompositionLocalProvider(LocalPlayerAccent provides trackAccent) {
+    CompositionLocalProvider(LocalPlayerAccent provides if (disableBlendEffects) Color.White else trackAccent) {
     FrostedPlayerFrame(
         modifier = modifier,
         // Off where a music video is the backdrop: it can go bright under the
@@ -2647,6 +2678,7 @@ fun NowPlayingScreen(
                                     isPlaying = isPlaying && position.advancing,
                                     onOpenLyrics = openLyrics,
                                     titleTargetCoords = LocalPosterTitleTarget.current,
+                                    landscape = sideways,
                                 )
                             } else if (syncedLyricsEnabled && !hideLyricsPreview) {
                                 CurrentLyricStrip(
@@ -2843,7 +2875,13 @@ fun NowPlayingScreen(
                                     }
                                 }
                             } else null,
+                            coverOffsetFraction = if (!videoPresentation) ({ if (docking()) 0f else defaultSwipe.artworkOffset(song) }) else null,
+                            prevCover = defaultPrevArt,
+                            nextCover = defaultNextArt,
+                            prevKey = defaultPrevSong?.swipeIdentity,
+                            nextKey = defaultNextSong?.swipeIdentity,
                             modifier = artworkModifier
+                                .onSizeChanged { defaultArtworkWidthPx = it.width.toFloat() }
                                 .then(
                                     if (dock != null) {
                                         Modifier.onGloballyPositioned { dockFrame.landscapeArt = it }
@@ -4071,7 +4109,33 @@ fun NowPlayingScreen(
                                 AutoMixIncomingStill(
                                     heroIncomingStill, pair::reveal, pair.generation, polish = !stillMoving,
                                 )
-                            } else AutoMixPlayerCover(
+                            } else {
+                                val portraitSwipeOffset = if (!videoPresentation && !heroMode && !docking()) {
+                                    defaultSwipe.artworkOffset(song)
+                                } else 0f
+                                if (kotlin.math.abs(portraitSwipeOffset) > 0.001f) {
+                                    defaultPrevSong?.let { prev ->
+                                        key(prev.swipeIdentity) {
+                                            LayoutArtwork(
+                                                defaultPrevArt,
+                                                Modifier.fillMaxSize().graphicsLayer {
+                                                    translationX = (-1f + portraitSwipeOffset) * size.width
+                                                },
+                                            )
+                                        }
+                                    }
+                                    defaultNextSong?.let { next ->
+                                        key(next.swipeIdentity) {
+                                            LayoutArtwork(
+                                                defaultNextArt,
+                                                Modifier.fillMaxSize().graphicsLayer {
+                                                    translationX = (1f + portraitSwipeOffset) * size.width
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                AutoMixPlayerCover(
                                 // Decode at the sleeve's *expanded* size, always.
                                 // Coil otherwise sizes the decode to however large
                                 // this is when the request goes out — and changing
@@ -4104,6 +4168,13 @@ fun NowPlayingScreen(
                                 // [PlayerArtwork.loaded] still flips the moment it does.
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .onSizeChanged { defaultArtworkWidthPx = it.width.toFloat() }
+                                    .graphicsLayer {
+                                        val o = if (!videoPresentation && !heroMode && !docking()) {
+                                            defaultSwipe.artworkOffset(song)
+                                        } else 0f
+                                        translationX = o * size.width
+                                    }
                                     .drawWithContent {
                                         if (heroMode && pair?.liveOutgoing == true && !stillTakesOver()) return@drawWithContent
                                         if (staticCanvasMix) {
@@ -4128,7 +4199,8 @@ fun NowPlayingScreen(
                                             }
                                         }
                                     },
-                            )
+                                )
+                            }
 
                             // Where the clip plays when it can't have the banner:
                             // inside the same clip as the still art, taking the

@@ -982,9 +982,9 @@ internal fun PosterExpressiveLyrics(
                 (if (index > 1 && overlaps[index - 2] && overlaps[index - 1]) 1 else 0) +
                 (if (overlaps[index]) 1 else 0)).coerceIn(1, 3)
             val budget = if (concurrent > 1) {
-                (heightPx * 0.94f - stackGapPx * (concurrent - 1)) / concurrent.toFloat()
+                ((heightPx * 0.94f - stackGapPx * (concurrent - 1)) / concurrent.toFloat()).coerceAtLeast(1f)
             } else {
-                heightPx * 0.94f
+                (heightPx * 0.94f).coerceAtLeast(1f)
             }
             measurePosterLine(
                 TextMeasurer(fontFamilyResolver, density, layoutDirection, 128),
