@@ -1045,18 +1045,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * Adds [song] to every playlist in [playlists] — the picker's ticked rows —
      * and reports how each went, once, when they all have.
      *
-     * Not optimistic, unlike a rating: the picker closes on the tap and there is
-     * nothing left of it to update, and a playlist that shows a track it turned
-     * out not to have taken is worse than one that shows it a moment late. The
-     * playlist's own page is the exception — see [addOne].
+     * Not optimistic, unlike a rating: the picker waits for an acknowledged
+     * result, and a playlist that shows a track it turned out not to have taken
+     * is worse than one that shows it a moment late.
      *
-     * YouTube itself has no objection to a duplicate row, so whether the track
-     * is already there is checked here, against the playlist's open page or a
-     * fresh fetch of it, and a real duplicate is never sent.
+     * Known duplicates are checked against the open page or complete snapshot.
+     * An uncached playlist is not scanned in full before the write: doing so
+     * can make one tap wait through thousands of continuation rows.
      *
-     * One at a time rather than all at once: each check reads the playlist it
-     * is about, and a burst of parallel edits is exactly what YouTube answers
-     * with a rate limit. The duplicate check is per playlist, so a track
+     * One at a time rather than all at once: a burst of parallel edits is
+     * exactly what YouTube answers with a rate limit. The check is per playlist, so a track
      * already in one of them is skipped there and still added to the rest.
      */
     fun addToPlaylists(
@@ -1064,7 +1062,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         song: Song,
         onResult: (added: Int, alreadyThere: Int, failed: Int) -> Unit = { _, _, _ -> },
     ) {
-        if (!requireSignIn() || playlists.isEmpty()) return
+        if (!requireSignIn() || playlists.isEmpty()) return onResult(0, 0, 1)
         viewModelScope.launch {
             val outcomes = playlists.map { addOne(it, song) }
             onResult(
@@ -1090,22 +1088,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var failedCount = 0
             val uniqueSongs = songs.distinctBy { it.videoId }
             playlists.forEach { playlist ->
-                val openSongs = (_detailStack.value.firstOrNull { it.browseId == playlist.browseId }
-                    ?.songs as? UiState.Success)?.data
-                val known = openSongs ?: YtMusicRepository.allSongs(playlist.browseId).getOrNull()
-                val knownIds = known?.mapTo(HashSet()) { it.videoId }
-                val missing = uniqueSongs.filterNot { it.videoId in knownIds.orEmpty() }
+                val knownIds = knownPlaylistSongs(playlist.browseId)
+                    .mapTo(HashSet()) { it.videoId }
+                val missing = uniqueSongs.filterNot { it.videoId in knownIds }
                 alreadyThereCount += uniqueSongs.size - missing.size
                 missing.chunked(50).forEach { chunk ->
                     YtMusicRepository.addToPlaylist(playlist.playlistId, chunk.map { it.videoId }).fold(
                         onSuccess = { returned ->
                             libraryStale = true
-                            addedCount += chunk.size
                             chunk.forEach { song ->
                                 appendToOpenPlaylist(playlist.browseId, song, returned[song.videoId])
                             }
+                            addedCount += chunk.size
                         },
-                        onFailure = { failedCount += chunk.size },
+                        onFailure = {
+                            // The request can time out after YouTube accepted some or all
+                            // of a chunk. One complete listing verifies the whole chunk.
+                            val confirmed = YtMusicRepository.allSongs(playlist.browseId)
+                                .getOrNull()?.associateBy { it.videoId }.orEmpty()
+                            chunk.forEach { song ->
+                                val entry = confirmed[song.videoId]
+                                if (entry == null) failedCount++
+                                else {
+                                    libraryStale = true
+                                    appendToOpenPlaylist(playlist.browseId, entry, entry.setVideoId)
+                                    addedCount++
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -1115,15 +1125,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private enum class AddOutcome { ADDED, ALREADY_THERE, FAILED }
 
+    private suspend fun knownPlaylistSongs(browseId: String): List<Song> {
+        val open = (_detailStack.value.firstOrNull { it.browseId == browseId }
+            ?.songs as? UiState.Success)?.data.orEmpty()
+        val cached = playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.read(getApplication(), listener, browseId)?.songs
+        }.orEmpty()
+        // The open page can contain only its first continuation; keep the
+        // complete cached rows as well when deciding which songs are known.
+        return open + cached
+    }
+
     private suspend fun addOne(playlist: UserPlaylist, song: Song): AddOutcome {
-        val openSongs = (_detailStack.value.firstOrNull { it.browseId == playlist.browseId }
-            ?.songs as? UiState.Success)?.data
-        val known = openSongs
-            ?: playlistCacheListener()?.let { listener ->
-                PlaylistSnapshotCache.read(getApplication(), listener, playlist.browseId)?.songs
-            }
-            ?: YtMusicRepository.allSongs(playlist.browseId).getOrNull()
-        if (known?.any { it.videoId == song.videoId } == true) return AddOutcome.ALREADY_THERE
+        if (knownPlaylistSongs(playlist.browseId).any { it.videoId == song.videoId })
+            return AddOutcome.ALREADY_THERE
         return YtMusicRepository.addToPlaylist(playlist.playlistId, listOf(song.videoId)).fold(
             onSuccess = { added ->
                 libraryStale = true
@@ -1422,8 +1437,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Puts [song] at the end of the playlist page at [browseId], if that page
-     * is open — where YouTube itself puts it, so the order survives the next
-     * fetch.
+     * is open, and waits for its existing complete snapshot to reflect the edit.
      *
      * An empty playlist counts as open: it renders as an empty-state message, and the
      * first track added to one has to replace that message rather than be
@@ -1433,7 +1447,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * a network failure. A page still loading is left alone too: the fetch in
      * flight is newer than this and will land with the addition already in it.
      */
-    private fun appendToOpenPlaylist(browseId: String, song: Song, setVideoId: String?) {
+    private suspend fun appendToOpenPlaylist(browseId: String, song: Song, setVideoId: String?) {
         val currentRows = (_detailStack.value.firstOrNull { it.browseId == browseId }?.songs as? UiState.Success)?.data
         val newestRank = currentRows?.mapIndexed { i, entry ->
             entry.playlistAddedOrdinal ?: (currentRows.size - i).toLong()
@@ -1442,12 +1456,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             setVideoId = setVideoId,
             playlistAddedOrdinal = newestRank + 1L,
         )
-        playlistCacheListener()?.let { listener ->
-            PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
-                if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
-                else rows + added
-            }
-        }
         _detailStack.value = _detailStack.value.map { page ->
             if (page.browseId != browseId) return@map page
             val songs = when (val state = page.songs) {
@@ -1466,6 +1474,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ),
                 ),
             )
+        }
+        // Do not report success before the durable snapshot contains the edit.
+        // A fresh playlist without a snapshot still uses the open page; it will
+        // receive a complete snapshot from its normal background sync.
+        playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
+                if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
+                else rows + added
+            }.join()
         }
     }
 

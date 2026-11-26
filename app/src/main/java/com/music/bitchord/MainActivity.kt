@@ -5554,7 +5554,7 @@ private fun BitChordApp(
                 song = target,
                 startCreating = target == null,
                 onDismiss = dismiss,
-                onAdd = { picked ->
+                onAdd = { picked, finish ->
                     target?.let { song ->
                         viewModel.addToPlaylists(picked, song) { added, alreadyThere, failed ->
                             // One line for the whole batch, saying the outcome
@@ -5571,8 +5571,9 @@ private fun BitChordApp(
                                     else -> context.getString(R.string.failed)
                                 },
                             )
+                            finish()
                         }
-                    }
+                    } ?: finish()
                 },
                 onCreate = { title, privacy ->
                     viewModel.createPlaylist(title, privacy, target)
@@ -5587,7 +5588,7 @@ private fun BitChordApp(
                 song = target.songs.firstOrNull(),
                 headerTitle = target.title,
                 onDismiss = { albumPlaylistTarget = null },
-                onAdd = { picked ->
+                onAdd = { picked, finish ->
                     viewModel.addSongsToPlaylists(picked, target.songs) { added, alreadyThere, failed ->
                         showQueueNotice(
                             when {
@@ -5596,6 +5597,7 @@ private fun BitChordApp(
                                 else -> context.getString(R.string.failed)
                             },
                         )
+                        finish()
                     }
                 },
                 onCreate = { title, privacy ->
@@ -5641,7 +5643,7 @@ private fun BitChordApp(
                 startCreating = targets.isEmpty(),
                 offline = true,
                 onDismiss = dismiss,
-                onAdd = { picked ->
+                onAdd = { picked, finish ->
                     if (targets.isNotEmpty()) {
                         val result = OfflinePlaylists.add(picked.mapTo(HashSet()) { it.playlistId }, targets)
                         showQueueNotice(
@@ -5655,6 +5657,7 @@ private fun BitChordApp(
                             },
                         )
                     }
+                    finish()
                 },
                 onCreate = { title, _ ->
                     OfflinePlaylists.create(title, targets)
