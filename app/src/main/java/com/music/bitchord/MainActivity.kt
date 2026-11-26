@@ -6773,14 +6773,7 @@ private fun FolderMenuOverlay(
         (menuFolder == "local:all" || com.music.bitchord.data.LocalGroups.folderOf(menuFolder) == "local:all")
     FrostedFolderMenu(
         hazeState = hazeState,
-        sort = folderState?.let { state ->
-            state.groupSorts[tab]
-                ?: when {
-                    tab == LocalFolderTab.RECENTLY_ADDED -> LocalMusicSort.DATE_ADDED
-                    tab.isTrackList -> folderSort
-                    else -> LocalMusicSort.TITLE_ASC
-                }
-        } ?: folderSort,
+        sort = folderState?.sortFor(tab, folderSort) ?: folderSort,
         sorts = tab.sortOptions,
         hiResOnly = folderState?.hiResOnly == true,
         onToggleHiResOnly = if (canFilterHiRes) ({
@@ -6810,6 +6803,7 @@ private fun FolderMenuOverlay(
         onSort = { option ->
             if (folderState != null) {
                 folderState.groupSorts = folderState.groupSorts + (tab to option)
+                folderState.savedScrollByTab = folderState.savedScrollByTab - tab
                 context.getSharedPreferences("local_music_view", 0).edit()
                     .putString("sort:$menuFolder:${tab.name}", option.name).apply()
             } else if (downloadsFolder) AppSettings.setDownloadedMusicSort(option)

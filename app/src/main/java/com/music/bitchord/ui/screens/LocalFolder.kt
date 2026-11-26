@@ -242,6 +242,14 @@ class LocalFolderState {
     var savedScrollByTab by mutableStateOf<Map<LocalFolderTab, Pair<Int, Int>>>(emptyMap())
     var viewTypes by mutableStateOf<Map<LocalFolderTab, LibraryViewType>>(emptyMap())
 
+    /** One persisted choice per view; only the historical Songs sort uses the old setting. */
+    fun sortFor(view: LocalFolderTab, legacySongsSort: LocalMusicSort = LocalMusicSort.TITLE_ASC): LocalMusicSort =
+        groupSorts[view] ?: when (view) {
+            LocalFolderTab.RECENTLY_ADDED -> LocalMusicSort.DATE_ADDED
+            LocalFolderTab.SONGS -> legacySongsSort
+            else -> LocalMusicSort.TITLE_ASC
+        }
+
     var selectedIds by mutableStateOf<Set<String>>(emptySet())
         private set
     var selectedGroups by mutableStateOf<Set<String>>(emptySet())
@@ -301,7 +309,9 @@ internal fun <Input, Row> rememberPreparedLocalRows(
             rows = withContext(Dispatchers.Default) { prepareRows(pending) }
         }
     }
-    return rows
+    // A newly selected order already in the in-memory cache must be visible
+    // in this composition, rather than one frame after the effect starts.
+    return initialRows ?: rows
 }
 
 /**
@@ -364,7 +374,7 @@ fun rememberLocalFolderGroups(
         }
     }
 
-    fun sortFor(t: LocalFolderTab): LocalMusicSort = folder.state.groupSorts[t] ?: LocalMusicSort.TITLE_ASC
+    fun sortFor(t: LocalFolderTab): LocalMusicSort = folder.state.sortFor(t, folder.sort)
     fun alphabetFor(t: LocalFolderTab): LocalAlphabet = LocalAlphabet(
         locale,
         ignoreThe = t == LocalFolderTab.ALBUMS || t == LocalFolderTab.ARTISTS || t == LocalFolderTab.ALBUM_ARTISTS,
@@ -392,7 +402,12 @@ fun rememberLocalFolderGroups(
     if (tab.isTrackList) return emptyList<LocalGroup>() to false
 
     val cachedForTab = LocalGroups.peekCachedSortedTabGroups(songs, cacheKey(tab, input), sortFor(tab))
-        ?: if (songs.size <= 600 && !scanActive) sortedFor(tab, input, sortFor(tab)) else null
+        ?: if ((!scanActive && songs.size <= 600) ||
+                LocalGroups.peekCachedTabGroups(songs, cacheKey(tab, input)) != null) {
+            // Changing the sort of a visible view only reorders its existing
+            // groups; it does not regroup or rescan the library.
+            sortedFor(tab, input, sortFor(tab))
+        } else null
 
     val syncFiltered = remember(cachedForTab, query) {
         when {

@@ -82,6 +82,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -419,11 +420,8 @@ fun DetailScreen(
     }
     // A folder keeps its own sort — the one its top bar menu sets — rather
     // than the per-page one a release takes.
-    val folderSort = folder?.let {
-        it.state.groupSorts[it.state.tab]
-            ?: if (it.state.tab == LocalFolderTab.RECENTLY_ADDED) LocalMusicSort.DATE_ADDED else it.sort
-    }
-    val groupSort = folder?.state?.let { it.groupSorts[it.tab] } ?: LocalMusicSort.TITLE_ASC
+    val folderSort = folder?.let { it.state.sortFor(it.state.tab, it.sort) }
+    val groupSort = folderSort ?: LocalMusicSort.TITLE_ASC
     val hiResActive = folder?.state?.let { it.tab == LocalFolderTab.HI_RES || it.hiResOnly } == true
     val filteredRawSongs = remember(rawSongs, hiResActive) {
         if (hiResActive) rawSongs.filter { it.sourceHiRes } else rawSongs
@@ -451,11 +449,21 @@ fun DetailScreen(
             .copy(processed = 0, total = 0, discovered = 0)
         phases.collectAsStateWithLifecycle(initialValue = initialPhase).value
     } else com.music.bitchord.data.LocalLibraryIndex.ScanProgress()
+    // The initial index can be large, so prepare it off-thread. Once that
+    // snapshot has appeared, a menu change only sorts the same in-memory rows.
+    val hasPreparedThisInput = remember(recentSongs) { mutableStateOf(false) }
     val cachedSorted = LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey)
-        ?: if (recentSongs.size <= 400 && !scanProgress.isActive) computeSorted(recentSongs) else null
+        ?: if ((!scanProgress.isActive && recentSongs.size <= 400) || hasPreparedThisInput.value) {
+            computeSorted(recentSongs)
+        } else null
     val preparedLocalSongs = if (localPage && recentSongs.isNotEmpty()) {
         rememberPreparedLocalRows(sortCacheKey, recentSongs, cachedSorted, ::computeSorted)
     } else null
+    SideEffect {
+        if (!hasPreparedThisInput.value &&
+            LocalGroups.peekCachedSortedSongs(recentSongs, sortCacheKey) != null
+        ) hasPreparedThisInput.value = true
+    }
     val localSongsPreparing = localPage && recentSongs.isNotEmpty() && preparedLocalSongs == null
     val songs = if (localPage) {
         preparedLocalSongs.orEmpty()
