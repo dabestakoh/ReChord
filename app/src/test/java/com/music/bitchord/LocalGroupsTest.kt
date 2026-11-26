@@ -91,10 +91,28 @@ class LocalGroupsTest {
         )
         val folders = LocalGroups.foldersOf("local:all", tracks)
         assertEquals(listOf("Download", "Music", "Rock"), folders.map { it.title })
-        assertEquals(listOf("", "1A2B-3C4D", "Music"), folders.map { it.subtitle })
+        assertEquals(listOf("", "External Storage", "Music"), folders.map { it.subtitle })
         val rock = folders.last()
         assertEquals(listOf("a", "b"), rock.songs.map { it.videoId })
         // The page reads the same rows back off a fresh listing.
         assertEquals(listOf("a", "b"), LocalGroups.songsOf(rock.browseId, tracks).map { it.videoId })
+    }
+
+    @Test
+    fun foldersOf_usesFriendlyExternalNameWithoutChangingPageIds() {
+        val root = "/storage/1A2B-3C4D"
+        val tracks = listOf(
+            file("root", "Root", "$root/root.flac"),
+            file("nested", "Nested", "$root/Music/Rock/nested.flac"),
+        )
+        val named = LocalGroups.foldersOf("local:all", tracks, mapOf(root to "My Card"))
+        assertEquals(listOf("My Card", "Rock"), named.map { it.title })
+        assertEquals(listOf("", "My Card / Music"), named.map { it.subtitle })
+        assertEquals(LocalGroups.directoryPageId("local:all", root), named.first().browseId)
+        assertEquals(listOf("root"), LocalGroups.songsOf(named.first().browseId, tracks).map { it.videoId })
+
+        val unnamed = LocalGroups.foldersOf("local:all", tracks, mapOf(root to "1A2B-3C4D"))
+        assertEquals(listOf("External Storage", "Rock"), unnamed.map { it.title })
+        assertEquals(listOf("", "External Storage / Music"), unnamed.map { it.subtitle })
     }
 }

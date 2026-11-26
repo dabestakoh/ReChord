@@ -4,7 +4,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import coil3.compose.LocalPlatformContext
 import coil3.SingletonImageLoader
-import coil3.request.ImageRequest
+import com.music.bitchord.ui.graphics.browseArtworkRequest
+import com.music.bitchord.ui.graphics.rememberBrowseArtworkRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -236,21 +237,31 @@ fun HomeScreen(
     LaunchedEffect(dataReady, signedIn) {
         if (!dataReady || revealed) return@LaunchedEffect
         // Warm only the visible opening cohort; failed images and slow optional requests cannot hold Home forever.
-        val urls = buildList {
-            featured.take(2).filter { carouselVisible }.forEach { pick -> pick.images.firstOrNull()?.let {
-                add(it.croppedAt(HEADER_ART_PX))
-                add(it.croppedAt(HEADER_ART_PX * 3 / 4, HEADER_ART_PX))
-            } }
-            (state as? UiState.Success)?.data?.firstOrNull()?.items?.take(3)?.forEach {
-                add(it.thumbnailUrl?.artworkAt(CARD_ART_PX))
+        val requests = buildList {
+            if (carouselVisible) featured.take(2).forEach { pick ->
+                val width = when (pick.kind) {
+                    TopPickKind.FEATURED_ARTIST -> HEADER_ART_PX * 3 / 4
+                    TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX,
+                    TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG -> HEADER_ART_PX
+                    else -> return@forEach
+                }
+                pick.images.firstOrNull().croppedAt(width, HEADER_ART_PX)?.let {
+                    add(Triple(it, width, HEADER_ART_PX))
+                }
             }
-        }.filterNotNull().distinct()
+            visibleFeed.firstOrNull()?.items?.take(3)?.forEach { item ->
+                item.thumbnailUrl.artworkAt(CARD_ART_PX)?.let {
+                    add(Triple(it, CARD_ART_PX, CARD_ART_PX))
+                }
+            }
+        }.distinct()
         withTimeoutOrNull(2500) {
             coroutineScope {
-                urls.map { url -> async {
+                requests.map { (url, width, height) -> async {
                     try {
                         SingletonImageLoader.get(imageContext).execute(
-                            ImageRequest.Builder(imageContext).data(url).size(HEADER_ART_PX).build())
+                            browseArtworkRequest(imageContext, url, width, height),
+                        )
                     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                       catch (_: Exception) { /* The card's placeholder remains a valid fallback. */ }
                 } }.awaitAll()
@@ -550,7 +561,7 @@ fun CompactTrackRow(
     ) {
         Box(Modifier.trackArtSize(48.dp, isVideo)) {
             AsyncImage(
-                model = thumbnailUrl.artworkAt(ROW_ART_PX),
+                model = rememberBrowseArtworkRequest(thumbnailUrl.artworkAt(ROW_ART_PX), ROW_ART_PX),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -1137,7 +1148,7 @@ internal fun ShelfCard(
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     AsyncImage(
-                        model = item.thumbnailUrl.artworkAt(CARD_ART_PX),
+                        model = rememberBrowseArtworkRequest(item.thumbnailUrl.artworkAt(CARD_ART_PX), CARD_ART_PX),
                         contentDescription = null,
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

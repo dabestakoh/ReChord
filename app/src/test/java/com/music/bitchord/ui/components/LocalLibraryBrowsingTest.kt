@@ -2,6 +2,7 @@ package com.music.bitchord.ui.screens
 
 import com.music.bitchord.data.LocalGroups
 import com.music.bitchord.data.sortedLocalGroups
+import com.music.bitchord.data.sortedForLibrary
 import com.music.bitchord.data.settings.LocalMusicSort
 import com.music.bitchord.data.recentlyAddedTracks
 import com.music.bitchord.data.model.Song
@@ -11,6 +12,46 @@ import com.music.bitchord.data.LocalAlphabet
 import java.util.Locale
 
 class LocalLibraryBrowsingTest {
+    @Test fun sortChoiceIsIndependentForEveryLocalView() {
+        val state = LocalFolderState()
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.SONGS))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.ARTISTS))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.ALBUMS))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.HI_RES))
+        assertEquals(LocalMusicSort.DATE_ADDED, state.sortFor(LocalFolderTab.RECENTLY_ADDED))
+
+        state.groupSorts = mapOf(
+            LocalFolderTab.SONGS to LocalMusicSort.TITLE_DESC,
+            LocalFolderTab.ALBUMS to LocalMusicSort.DATE_ADDED_OLDEST,
+            LocalFolderTab.RECENTLY_ADDED to LocalMusicSort.TITLE_ASC,
+        )
+        assertEquals(LocalMusicSort.TITLE_DESC, state.sortFor(LocalFolderTab.SONGS))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.ARTISTS))
+        assertEquals(LocalMusicSort.DATE_ADDED_OLDEST, state.sortFor(LocalFolderTab.ALBUMS))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.RECENTLY_ADDED))
+        assertEquals(LocalMusicSort.TITLE_ASC, state.sortFor(LocalFolderTab.HI_RES))
+        // An existing Songs preference remains effective until this view picks its own sort.
+        assertEquals(LocalMusicSort.DATE_ADDED, LocalFolderState().sortFor(
+            LocalFolderTab.SONGS, LocalMusicSort.DATE_ADDED,
+        ))
+    }
+
+    @Test fun changingAViewSortReordersTheSameInMemoryRows() {
+        val songs = listOf(
+            Song("a", "Alpha", "Artist", null, albumName = "Alpha", localDateAddedSeconds = 10),
+            Song("z", "Zeta", "Artist", null, albumName = "Zeta", localDateAddedSeconds = 30),
+        )
+        val alphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = true)
+        val base = { LocalGroups.albumsOf("local:all", songs, emptyList()) }
+        fun order(sort: LocalMusicSort) = LocalGroups.getOrComputeSortedTabGroups(
+            songs, "sort-test-albums", sort, alphabet, base,
+        ).map { it.title }
+        assertEquals(listOf("Alpha", "Zeta"), order(LocalMusicSort.TITLE_ASC))
+        assertEquals(listOf("Zeta", "Alpha"), order(LocalMusicSort.TITLE_DESC))
+        assertEquals(listOf("Zeta", "Alpha"), order(LocalMusicSort.DATE_ADDED))
+        assertEquals(listOf("Alpha", "Zeta"), order(LocalMusicSort.TITLE_ASC))
+    }
+
     @Test fun groupedSortUsesDatesAndKeepsDescendingRailAligned() {
         fun track(id: String, album: String, added: Long?) =
             Song(id, id, "Artist", null, albumName = album, localDateAddedSeconds = added)
@@ -23,6 +64,22 @@ class LocalLibraryBrowsingTest {
         assertEquals(listOf("Zeta", "Beta", "Alpha"), byTitle)
         assertEquals(listOf("Z", "B", "A"), localLetterPositions(byTitle, 0, 2, alphabet).keys.toList())
         assertEquals(listOf("Beta", "Zeta", "Alpha"), byDate)
+    }
+
+    @Test fun addedDateDirectionsKeepUnknownDatesLast() {
+        val songs = listOf(
+            Song("old", "Zeta", "Artist", null, localDateAddedSeconds = 10),
+            Song("unknown", "Alpha", "Artist", null),
+            Song("new", "Beta", "Artist", null, localDateAddedSeconds = 30),
+        )
+        assertEquals(listOf("new", "old", "unknown"),
+            songs.sortedForLibrary(LocalMusicSort.DATE_ADDED).map { it.videoId })
+        assertEquals(listOf("old", "new", "unknown"),
+            songs.sortedForLibrary(LocalMusicSort.DATE_ADDED_OLDEST).map { it.videoId })
+        val groups = LocalGroups.albumsOf("local:all", songs.map { it.copy(albumName = it.title) }, emptyList())
+        val alphabet = LocalAlphabet(Locale.ENGLISH, ignoreThe = false)
+        assertEquals(listOf("Zeta", "Beta", "Alpha"),
+            groups.sortedLocalGroups(LocalMusicSort.DATE_ADDED_OLDEST, alphabet).map { it.title })
     }
 
     @Test fun letterJumpsTargetTheFirstMatchingGridRow() {

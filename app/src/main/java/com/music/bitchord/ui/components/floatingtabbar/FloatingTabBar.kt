@@ -827,6 +827,8 @@ private fun SharedTransitionScope.ExpandedTabs(
         lastHapticTab = selectedTabIndex
     }
 
+    val showGlassSelection = glassPill && showPill && !pill.isFlat
+
     // Unclipped: the lifted pill stands past the bar's edges, so it is drawn
     // here, over the bar, rather than inside the bar's clip.
     Box(
@@ -871,7 +873,7 @@ private fun SharedTransitionScope.ExpandedTabs(
                     modifier = Modifier
                         .fillMaxWidth()
                         .onSizeChanged { rowSize = it }
-                        .layerBackdrop(tabRow)
+                        .then(if (showGlassSelection) Modifier.layerBackdrop(tabRow) else Modifier)
                         .pointerInput(Unit) {
                             var totalDrag = 0f
                             var dragStartIndex = currentSelectedTabIndex
@@ -982,7 +984,7 @@ private fun SharedTransitionScope.ExpandedTabs(
             }
         }
 
-        if (glassPill && showPill && !pill.isFlat) {
+        if (showGlassSelection) {
             GlassSelectionPill(
                 motion = pill,
                 fillColor = colors.indicatorColor,

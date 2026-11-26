@@ -59,7 +59,7 @@ fun QueuePlaylistPicker(
         if (selected.isEmpty()) cancel() else if (!device) viewModel.loadPlaylists()
     }
     // Keep the transaction composed even though the picker is no longer drawn.
-    if (submitted || finished || selected.isEmpty()) return
+    if (finished || selected.isEmpty()) return
 
     val choices = if (device) {
         val playlists by OfflinePlaylists.playlists.collectAsState()
@@ -87,16 +87,20 @@ fun QueuePlaylistPicker(
         songs = selected,
         offline = device,
         onDismiss = cancel,
-        onAdd = { picked ->
+        onAdd = { picked, finish ->
             if (!submitted && !finished) {
                 submitted = true
                 when {
-                    compatible.isEmpty() -> complete(0, 0, 0)
+                    compatible.isEmpty() -> { complete(0, 0, 0); finish() }
                     device -> {
                         val counts = addToDevicePlaylists(picked, compatible)
                         complete(counts.first, counts.second, counts.third)
+                        finish()
                     }
-                    else -> viewModel.addSongsToPlaylists(picked, compatible, complete)
+                    else -> viewModel.addSongsToPlaylists(picked, compatible) { added, already, failed ->
+                        complete(added, already, failed)
+                        finish()
+                    }
                 }
             }
         },
