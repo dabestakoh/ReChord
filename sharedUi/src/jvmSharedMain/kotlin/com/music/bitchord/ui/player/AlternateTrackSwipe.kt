@@ -363,8 +363,8 @@ internal fun rememberDefaultCoverSwipeState(
 ): DefaultCoverSwipeState {
     val prev = queue.getOrNull(queueIndex - 1).takeIf { queueIndex > 0 && hasPrevious }
     val next = queue.getOrNull(queueIndex + 1).takeIf { queueIndex >= 0 && hasNext }
-    val prevArt = rememberRemoteArtworkUrl(prev)
-    val nextArt = rememberRemoteArtworkUrl(next)
+    val prevCoverUrl = rememberRemoteArtworkUrl(prev)
+    val nextCoverUrl = rememberRemoteArtworkUrl(next)
     val swipe = rememberAlternateTrackSwipe(
         song = song,
         previous = prev,
@@ -375,8 +375,8 @@ internal fun rememberDefaultCoverSwipeState(
     return remember(swipe) { DefaultCoverSwipeState(swipe) }.apply {
         previousSong = prev
         nextSong = next
-        previousArt = prevArt
-        nextArt = nextArt
+        previousArt = prevCoverUrl
+        nextArt = nextCoverUrl
     }
 }
 
