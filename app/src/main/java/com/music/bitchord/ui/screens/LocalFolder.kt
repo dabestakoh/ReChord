@@ -94,9 +94,11 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.withContext
 import com.music.bitchord.R
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import com.music.bitchord.data.LocalAlphabet
 import com.music.bitchord.data.LocalGroup
 import com.music.bitchord.data.LocalGroups
+import com.music.bitchord.data.LocalStorageVolumes
 import com.music.bitchord.data.OfflinePlaylists
 import com.music.bitchord.data.model.BrowseType
 import com.music.bitchord.data.model.CARD_ART_PX
@@ -339,11 +341,14 @@ fun rememberLocalFolderGroups(
     val singlesTitle = if (LocalGroups.isArtist(browseId)) stringResource(R.string.local_singles_other) else null
     val hiResTag = if (folder.state.hiResOnly) "1" else "0"
     val locale = LocalConfiguration.current.locales[0]
+    val context = LocalContext.current
+    val externalFallback = stringResource(R.string.local_storage_external)
+    val volumeLabels = remember(songs, locale) { LocalStorageVolumes.externalDisplayLabels(context) }
     fun cacheKey(
         targetTab: LocalFolderTab,
         source: Triple<List<Song>, List<DownloadedCollection>, List<LocalGroup>>,
     ): String =
-        "$browseId|${targetTab.name}|$hiResTag|${System.identityHashCode(source.second)}|${System.identityHashCode(source.third)}|${singlesTitle.orEmpty()}|${locale.toLanguageTag()}"
+        "$browseId|${targetTab.name}|$hiResTag|${System.identityHashCode(source.second)}|${System.identityHashCode(source.third)}|${singlesTitle.orEmpty()}|${locale.toLanguageTag()}|${volumeLabels.hashCode()}"
 
     val hiResOnly = folder.state.hiResOnly
     val input = Triple(songs, folder.collections, folder.playlists)
@@ -370,7 +375,7 @@ fun rememberLocalFolderGroups(
                 }
                 base.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
             }
-            LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, tracks)
+            LocalFolderTab.FOLDERS -> LocalGroups.foldersOf(browseId, tracks, volumeLabels, externalFallback)
         }
     }
 

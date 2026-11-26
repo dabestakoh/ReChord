@@ -3203,7 +3203,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // credit its own card had instead.
             if (local is UiState.Success) {
                 val record = Downloads.recordIdOf(browseId)?.let { Downloads.collections.value[it] }
-                val group = LocalGroups.groupOf(browseId, local.data)
+                val group = LocalGroups.groupOf(
+                    browseId, local.data,
+                    if (LocalGroups.isDirectory(browseId)) {
+                        com.music.bitchord.data.LocalStorageVolumes.externalDisplayLabels(getApplication())
+                    } else emptyMap(),
+                    text(R.string.local_storage_external),
+                )
                 if (thumbnailUrl == null) artwork = record?.thumbnailUrl ?: group?.thumbnailUrl
                 if (subtitle.isBlank()) credit = (record?.subtitle ?: group?.subtitle)?.ifBlank { null }
             }

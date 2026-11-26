@@ -142,6 +142,22 @@ object LocalStorageVolumes {
     fun readableExternalVolumes(context: Context): List<DetectedVolume> =
         detectVolumes(context).filter { !it.isPrimary && it.isReadable }
 
+    /** Volume roots and their user-facing names for Local Music folder labels. */
+    fun externalDisplayLabels(context: Context): Map<String, String> = buildMap {
+        detectVolumes(context).filter { !it.isPrimary && it.isReadable }.forEach { volume ->
+            val label = volume.label.trim()
+            val generic = label.lowercase(Locale.ROOT) in setOf("sd card", "usb drive", "external storage")
+            val display = label.takeUnless { generic }.orEmpty()
+            put(volume.canonicalPath, display)
+            // Some OEMs expose the same card under /mnt/media_rw and /storage.
+            val segment = volume.canonicalPath.substringAfterLast('/')
+            if (Regex("(?i)[0-9a-f]{4}-[0-9a-f]{4}").matches(segment)) {
+                putIfAbsent("/storage/$segment", display)
+                putIfAbsent("/mnt/media_rw/$segment", display)
+            }
+        }
+    }
+
     /**
      * Whether direct legacy / external filesystem scanning should run alongside
      * MediaStore and SAF.
