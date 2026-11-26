@@ -381,18 +381,28 @@ internal fun AutoMixGestureCover(
 }
 
 @Composable
-internal fun DecodedCover(result: DecodedAutoMixCover, modifier: Modifier) {
+internal fun DecodedCover(
+    result: DecodedAutoMixCover,
+    modifier: Modifier,
+    alignment: Alignment = Alignment.Center,
+) {
     val context = LocalPlatformContext.current
     val painter = result.painter ?: remember(result.image, context) { result.image.asPainter(context) }
-    Image(painter, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
+    Image(painter, contentDescription = null, modifier = modifier, alignment = alignment, contentScale = ContentScale.Crop)
 }
 
 @Composable
-internal fun AutoMixPlayerCover(art: PlayerArtwork, frames: AutoMixCoverFrames?, modifier: Modifier) {
+internal fun AutoMixPlayerCover(
+    art: PlayerArtwork,
+    frames: AutoMixCoverFrames?,
+    modifier: Modifier,
+    alignment: Alignment = Alignment.Center,
+) {
     AutoMixCover(frames, modifier, blur = true) { artworkModifier ->
         AsyncImage(
             model = art.request,
             contentDescription = null,
+            alignment = alignment,
             contentScale = ContentScale.Crop,
             onState = art::onState,
             modifier = artworkModifier,

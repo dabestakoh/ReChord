@@ -428,14 +428,14 @@ private fun Modifier.recordBackdrop(layer: GraphicsLayer): Modifier = drawWithCo
     drawLayer(layer)
 }
 
-internal fun DrawScope.drawCropped(image: ImageBitmap, alpha: Float = 1f) {
+internal fun DrawScope.drawCropped(image: ImageBitmap, alpha: Float = 1f, alignTop: Boolean = false) {
     if (size.width <= 0f || size.height <= 0f) return
     val scale = maxOf(size.width / image.width, size.height / image.height)
     val srcWidth = (size.width / scale).roundToInt().coerceIn(1, image.width)
     val srcHeight = (size.height / scale).roundToInt().coerceIn(1, image.height)
     drawImage(
         image = image,
-        srcOffset = IntOffset((image.width - srcWidth) / 2, (image.height - srcHeight) / 2),
+        srcOffset = IntOffset((image.width - srcWidth) / 2, if (alignTop) 0 else (image.height - srcHeight) / 2),
         srcSize = IntSize(srcWidth, srcHeight),
         dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
         alpha = alpha,
@@ -3151,6 +3151,7 @@ fun NowPlayingScreen(
                                 }
                                 .then(if (heroMode) Modifier.artworkBottomFade({ 1f }, { heroFadeFraction }) else Modifier)
                                 .hazeSource(playerHaze),
+                            alignment = if (heroMode) Alignment.TopCenter else Alignment.Center,
                         )
                     }
                     CanvasPresentationHost(heroClipMounted, standbyClip) { clip, standby ->
@@ -4131,6 +4132,7 @@ fun NowPlayingScreen(
                                 // with nothing to upscale between them.
                                 art = art,
                                 frames = autoMixFrames.baseUnderCanvas(pair),
+                                alignment = if (heroMode) Alignment.TopCenter else Alignment.Center,
                                 // TextureView-backed canvas frames can arrive
                                 // before Coil has decoded the sleeve. Alpha alone
                                 // doesn't hide this layer for that window: a
@@ -4172,9 +4174,9 @@ fun NowPlayingScreen(
                                         ) {
                                             if (canvas?.source == CanvasSource.APPLE && stillTakesOver() && coverLoaded()) {
                                                 drawContent()
-                                                drawCropped(frame.image, alpha = clipTransitionAlpha())
+                                                drawCropped(frame.image, alpha = clipTransitionAlpha(), alignTop = heroMode)
                                             } else {
-                                                drawCropped(frame.image)
+                                                drawCropped(frame.image, alignTop = heroMode)
                                             }
                                         }
                                     },

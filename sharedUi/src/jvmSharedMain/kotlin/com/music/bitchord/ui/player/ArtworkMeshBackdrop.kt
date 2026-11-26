@@ -512,8 +512,8 @@ internal fun ArtworkMeshBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.Black.copy(alpha = 0.10f),
-                    Color.Black.copy(alpha = 0.40f),
+                    Color.Black.copy(alpha = 0.08f),
+                    Color.Black.copy(alpha = 0.32f),
                 ),
             ),
         )
@@ -922,4 +922,4 @@ private fun Int.lifted(): Int {
 
 private const val MESH_VIBRANCE = 1.12f
 private const val MESH_FLOOR = 0.045f
-private const val MESH_CEILING = 0.36f
+private const val MESH_CEILING = 0.46f
