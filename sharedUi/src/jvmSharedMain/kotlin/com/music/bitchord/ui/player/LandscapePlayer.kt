@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -314,12 +315,12 @@ internal fun LandscapeArtwork(
     shadowFraction: () -> Float = { 1f },
     videoRendered: Boolean = false,
     video: (@Composable BoxScope.() -> Unit)? = null,
-    overlay: @Composable BoxScope.() -> Unit = {},
     coverOffsetFraction: (() -> Float)? = null,
     prevCover: String? = null,
     nextCover: String? = null,
     prevKey: String? = null,
     nextKey: String? = null,
+    overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val casts = artLoaded || canvasRendered || videoRendered
     val effectiveAutoMixFrames = if (videoRendered) null else autoMixFrames
