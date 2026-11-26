@@ -225,10 +225,13 @@ private fun fitPosterTitle(
     density: Density,
     fontFamily: FontFamily?,
 ): TextUnit {
+    val fitWidth = (maxWidth * 0.94f).roundToInt().coerceAtLeast(1)
     var size = baseSize * sqrt((14f / length.coerceAtLeast(1)).coerceIn(0.52f, 1f))
-    repeat(8) {
-        if (posterTitleFits(measurer, words, scales, size, maxWidth, maxHeight, density, fontFamily)) return size
-        size *= 0.9f
+    repeat(14) {
+        if (posterTitleFits(measurer, words, scales, size, fitWidth, maxHeight, density, fontFamily)) return size
+        val next = size * 0.9f
+        if (next.value < 11f) return if (size.value < 11f) 11.sp else size
+        size = next
     }
     return size
 }
@@ -282,7 +285,7 @@ internal fun PosterExpressiveTitle(
     reduceMotion: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val words = remember(text) { text.split(' ').filter { it.isNotBlank() } }
+    val words = remember(text) { text.trim().split(Regex("\\s+")).filter { it.isNotBlank() } }
     if (words.isEmpty()) return
     val scales = remember(words) { posterWordScales(words) }
     val rtl = remember(text) { posterIsRtlText(text) }
@@ -419,13 +422,20 @@ internal fun posterSideOf(entry: PosterLineEntry, duet: Boolean, rtl: Boolean): 
 internal fun posterTimedWords(line: LyricLine, nextStartMs: Long?): List<PosterTimedWord> {
     val synced = line.words.filter { it.text.isNotBlank() }
     if (synced.isNotEmpty()) {
-        return synced.map { w ->
+        return synced.flatMap { w ->
             val start = w.startMs
             val end = w.endMs.coerceAtLeast(start + 1L)
-            PosterTimedWord(w.text.trim(), start, end)
+            val trimmed = w.text.trim()
+            if (trimmed.any { it == '\n' || it == '\r' }) {
+                trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }.map { part ->
+                    PosterTimedWord(part, start, end)
+                }
+            } else {
+                listOf(PosterTimedWord(trimmed, start, end))
+            }
         }
     }
-    val rawTokens = line.text.split(' ').filter { it.isNotBlank() }
+    val rawTokens = line.text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
     val words = if (rawTokens.size == 1 && rawTokens[0].length > 8 && !posterSplitsIntoLetters(rawTokens[0])) {
         val breaker = BreakIterator.getWordInstance()
         breaker.setText(line.text)
@@ -753,13 +763,15 @@ private fun measurePosterLine(
     val subGap = with(density) { 6.dp.toPx() }
     if (words.isEmpty()) return PosterLineCells(emptyList(), 0f, maxWidth, side, emptyList(), subGap)
 
-    val subPx = (basePx * 0.3f).coerceIn(with(density) { 13.sp.toPx() }, with(density) { 19.sp.toPx() })
+    val subFloorPx = minOf(with(density) { 13.sp.toPx() }, basePx * 0.65f)
+    val subPx = (basePx * 0.3f).coerceIn(subFloorPx, with(density) { 19.sp.toPx() })
     val align = when (side) {
         PosterLineSide.LEFT -> TextAlign.Left
         PosterLineSide.CENTER -> TextAlign.Center
         PosterLineSide.RIGHT -> TextAlign.Right
     }
-    val subWidth = maxWidth.roundToInt().coerceAtLeast(1)
+    val fitWidth = (maxWidth * 0.91f).coerceAtLeast(1f)
+    val subWidth = fitWidth.roundToInt().coerceAtLeast(1)
     val subs = listOfNotNull(entry.subText?.let { it to entry.subAlpha }).map { (text, alpha) ->
         val style = TextStyle(
             fontFamily = fontFamily,
@@ -787,7 +799,7 @@ private fun measurePosterLine(
     fun style(i: Int, base: Float) =
         posterExpressiveType(with(density) { (base * scales[i]).toSp() }, fontFamily, FontWeight.Bold).copy(color = color)
 
-    val minBasePx = minOf(basePx, with(density) { 18.sp.toPx() })
+    val minBasePx = minOf(basePx, with(density) { 12.sp.toPx() })
     var base = basePx
     var attempt = 0
     while (true) {
@@ -803,7 +815,7 @@ private fun measurePosterLine(
         var widest = 0f
         wholes.forEachIndexed { i, layout ->
             val ww = layout.size.width.toFloat()
-            if (x > 0f && x + ww > maxWidth) {
+            if (x > 0f && x + ww > fitWidth) {
                 total += rowHeight * 0.98f
                 rowHeight = 0f
                 x = 0f
@@ -816,7 +828,7 @@ private fun measurePosterLine(
         }
         total += rowHeight
         val atFloor = base <= minBasePx + 0.5f
-        if ((widest <= maxWidth && total <= lineHeightBudget) || (widest <= maxWidth && atFloor) || attempt >= 10) {
+        if ((widest <= fitWidth && total <= lineHeightBudget) || (widest <= fitWidth && atFloor) || attempt >= 14) {
             var charStart = 0
             val graphemes = BreakIterator.getCharacterInstance()
             val cells = words.mapIndexed { i, w ->
@@ -965,8 +977,15 @@ internal fun PosterExpressiveLyrics(
 
         suspend fun measure(cacheKey: PosterLineCacheKey): PosterLineCells = withContext(Dispatchers.Default) {
             val index = cacheKey.index
-            val shared = overlaps[index] || (index > 0 && overlaps[index - 1])
-            val budget = if (shared) (heightPx * 0.94f - stackGapPx) / 2f else heightPx * 0.94f
+            val concurrent = (1 +
+                (if (index > 0 && overlaps[index - 1]) 1 else 0) +
+                (if (index > 1 && overlaps[index - 2] && overlaps[index - 1]) 1 else 0) +
+                (if (overlaps[index]) 1 else 0)).coerceIn(1, 3)
+            val budget = if (concurrent > 1) {
+                ((heightPx * 0.94f - stackGapPx * (concurrent - 1)) / concurrent.toFloat()).coerceAtLeast(1f)
+            } else {
+                (heightPx * 0.94f).coerceAtLeast(1f)
+            }
             measurePosterLine(
                 TextMeasurer(fontFamilyResolver, density, layoutDirection, 128),
                 entries[index],

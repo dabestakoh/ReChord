@@ -70,7 +70,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -669,7 +671,7 @@ internal fun AlternateNowPlaying(
                                 ) {
                                     Column(
                                         Modifier.fillMaxSize().padding(
-                                            top = alternatePlayerHandleHeight,
+                                            top = if (vinyl) alternatePlayerHandleHeight else 24.dp,
                                             bottom = landscapeFooterBottomPadding(maxHeight),
                                         ),
                                         verticalArrangement = Arrangement.spacedBy(controlsSpacing),
@@ -689,55 +691,89 @@ internal fun AlternateNowPlaying(
                                             val active = shownPane == pane
                                             val pillCount = if (rotatePill != null) 6 else 5
                                             when (shownPane) {
-                                                PlayerPane.Main -> Column(
-                                                    Modifier.fillMaxSize(),
-                                                    verticalArrangement = Arrangement.spacedBy(controlsSpacing),
-                                                ) {
-                                                    Column(
-                                                        Modifier.fillMaxWidth(),
-                                                        verticalArrangement = Arrangement.spacedBy(controlsSpacing),
-                                                    ) {
+                                                PlayerPane.Main -> {
+                                                    val creditsAndOrigin: @Composable () -> Unit = {
+                                                        Column(
+                                                            Modifier.fillMaxWidth(),
+                                                            verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                                        ) {
+                                                            Box(
+                                                                Modifier
+                                                                    .fillMaxWidth()
+                                                                    .onGloballyPositioned { creditsTitleCoords = it }
+                                                                    .graphicsLayer { alpha = textOpacity },
+                                                            ) {
+                                                                PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                            }
+                                                            if (playbackOrigin != null) {
+                                                                PlaybackOriginCaption(
+                                                                    playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    val mainControls: @Composable () -> Unit = {
+                                                        Column(
+                                                            Modifier.fillMaxWidth(),
+                                                            verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                                        ) {
+                                                            AdaptivePlaybackPillRow(
+                                                                buttonCount = pillCount,
+                                                                modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
+                                                            ) {
+                                                                previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
+                                                            }
+                                                            if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
+                                                            volume?.invoke()
+                                                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                                                quality()
+                                                            }
+                                                        }
+                                                    }
+                                                    if (vinyl) {
                                                         Box(
-                                                            Modifier
-                                                                .fillMaxWidth()
-                                                                .onGloballyPositioned { creditsTitleCoords = it }
-                                                                .graphicsLayer { alpha = textOpacity },
+                                                            Modifier.fillMaxSize(),
+                                                            contentAlignment = Alignment.CenterStart,
                                                         ) {
-                                                            PlayerLayoutCredits(song, onOpenAlbum, onOpenArtist)
+                                                            Column(
+                                                                Modifier
+                                                                    .fillMaxWidth()
+                                                                    .verticalScroll(rememberScrollState()),
+                                                                verticalArrangement = Arrangement.spacedBy(controlsSpacing),
+                                                            ) {
+                                                                creditsAndOrigin()
+                                                                Box(
+                                                                    Modifier
+                                                                        .fillMaxWidth()
+                                                                        .graphicsLayer { alpha = textOpacity },
+                                                                    contentAlignment = Alignment.CenterStart,
+                                                                ) {
+                                                                    if (active) key(song.swipeIdentity) { lyrics() }
+                                                                }
+                                                                mainControls()
+                                                            }
                                                         }
-                                                        if (playbackOrigin != null) {
-                                                            PlaybackOriginCaption(
-                                                                playbackOrigin, onOpenPlaybackOrigin, TextAlign.Start, PaddingValues(0.dp),
-                                                            )
-                                                        }
-                                                    }
-                                                    Box(
-                                                        Modifier
-                                                            .fillMaxWidth()
-                                                            .weight(1f)
-                                                            .clipToBounds()
-                                                            .graphicsLayer {
-                                                                alpha = textOpacity
-                                                                if (!vinyl) translationX = posterSidewaysSeekExpand * 14.dp.toPx()
-                                                            },
-                                                        contentAlignment = Alignment.CenterStart,
-                                                    ) {
-                                                        if (active) key(song.swipeIdentity) { lyrics() }
-                                                    }
-                                                    Column(
-                                                        Modifier.fillMaxWidth(),
-                                                        verticalArrangement = Arrangement.spacedBy(controlsSpacing),
-                                                    ) {
-                                                        AdaptivePlaybackPillRow(
-                                                            buttonCount = pillCount,
-                                                            modifier = Modifier.fillMaxWidth().padding(vertical = if (shortLandscape) 0.dp else 2.dp),
+                                                    } else {
+                                                        Column(
+                                                            Modifier.fillMaxSize(),
+                                                            verticalArrangement = Arrangement.spacedBy(controlsSpacing),
                                                         ) {
-                                                            previous(); play(); next(); favorite(); menu(); rotatePill?.invoke()
-                                                        }
-                                                        if (!preview) SleeveNerdStats(song, Modifier.fillMaxWidth(), reserveSpace = false)
-                                                        volume?.invoke()
-                                                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                                            quality()
+                                                            creditsAndOrigin()
+                                                            Box(
+                                                                Modifier
+                                                                    .fillMaxWidth()
+                                                                    .weight(1f)
+                                                                    .clipToBounds()
+                                                                    .graphicsLayer {
+                                                                        alpha = textOpacity
+                                                                        val maxShift = if (narrowLandscape) 6.dp else 10.dp
+                                                                        translationX = posterSidewaysSeekExpand * maxShift.toPx()
+                                                                    },
+                                                                contentAlignment = Alignment.CenterStart,
+                                                            ) {
+                                                                if (active) key(song.swipeIdentity) { lyrics() }
+                                                            }
+                                                            mainControls()
                                                         }
                                                     }
                                                 }

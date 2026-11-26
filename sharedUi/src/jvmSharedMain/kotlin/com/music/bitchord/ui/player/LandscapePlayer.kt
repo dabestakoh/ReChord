@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -314,6 +315,11 @@ internal fun LandscapeArtwork(
     shadowFraction: () -> Float = { 1f },
     videoRendered: Boolean = false,
     video: (@Composable BoxScope.() -> Unit)? = null,
+    coverOffsetFraction: (() -> Float)? = null,
+    prevCover: String? = null,
+    nextCover: String? = null,
+    prevKey: String? = null,
+    nextKey: String? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val casts = artLoaded || canvasRendered || videoRendered
@@ -343,11 +349,38 @@ internal fun LandscapeArtwork(
                     modifier = Modifier.fillMaxSize(0.36f),
                 )
             }
+            val swipeOffset = if (!videoRendered) coverOffsetFraction?.invoke() ?: 0f else 0f
+            if (kotlin.math.abs(swipeOffset) > 0.001f) {
+                if (prevKey != null) {
+                    key(prevKey) {
+                        LayoutArtwork(
+                            prevCover,
+                            Modifier.fillMaxSize().graphicsLayer {
+                                translationX = (-1f + swipeOffset) * size.width
+                            },
+                        )
+                    }
+                }
+                if (nextKey != null) {
+                    key(nextKey) {
+                        LayoutArtwork(
+                            nextCover,
+                            Modifier.fillMaxSize().graphicsLayer {
+                                translationX = (1f + swipeOffset) * size.width
+                            },
+                        )
+                    }
+                }
+            }
             AutoMixPlayerCover(
                 art = art,
                 frames = effectiveAutoMixFrames.baseUnderCanvas(effectiveCanvasPair),
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        val o = if (!videoRendered) coverOffsetFraction?.invoke() ?: 0f else 0f
+                        translationX = o * size.width
+                    }
                     .drawWithContent {
                         if (!videoRendered && (artLoaded || !canvasRendered)) drawContent()
                         if (!videoRendered && !hideCanvas && canvas?.source == CanvasSource.APPLE && transitionStillVisible()) {

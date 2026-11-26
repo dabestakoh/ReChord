@@ -126,4 +126,24 @@ class PosterExpressiveLyricsTest {
         assertEquals(PosterLineSide.LEFT, posterSideOf(lead, duet = true, rtl = false))
         assertEquals(PosterLineSide.RIGHT, posterSideOf(answer, duet = true, rtl = false))
     }
+
+    @Test
+    fun timedWordsPreservesAllLinesAcrossEmbeddedNewlines() {
+        val untimed = LyricLine(timeMs = 1_000L, text = "First line of verse\nSecond line of verse")
+        val untimedWords = posterTimedWords(untimed, nextStartMs = 5_000L)
+        assertEquals(
+            listOf("First", "line", "of", "verse", "Second", "line", "of", "verse"),
+            untimedWords.map { it.text },
+        )
+
+        val synced = LyricLine(
+            timeMs = 1_000L,
+            text = "First\nSecond",
+            words = listOf(
+                LyricWord(1_000L, 2_000L, "First\nSecond"),
+            ),
+        )
+        val syncedWords = posterTimedWords(synced, nextStartMs = 3_000L)
+        assertEquals(listOf("First", "Second"), syncedWords.map { it.text })
+    }
 }
