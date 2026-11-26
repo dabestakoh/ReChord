@@ -18,13 +18,17 @@ import coil3.request.Options
 import com.music.bitchord.data.model.Song
 import java.io.File
 import java.util.Locale
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import okio.FileSystem
@@ -55,8 +59,68 @@ internal object LocalArtwork {
 
     @Volatile private var sharedDiskCache: DiskCache? = null
     private val cacheLock = Any()
-    private val missingCovers = android.util.LruCache<String, Long>(512)
-    private const val MISSING_COVER_TTL_MS = 60_000L
+    private const val ABSENT_COVERS_FILE = "absent-covers.txt"
+    private const val MAX_ABSENT_COVERS = 50_000
+    @Volatile private var absentLoaded = false
+    @Volatile private var absentDirty = false
+    private val absentCovers = LinkedHashSet<String>()
+
+    private fun absentCoversFile(context: Context): File =
+        File(File(context.applicationContext.cacheDir, THUMB_CACHE_DIR), ABSENT_COVERS_FILE)
+
+    private fun ensureAbsentLoaded(context: Context) {
+        if (absentLoaded) return
+        val file = absentCoversFile(context)
+        val lines = runCatching {
+            if (file.isFile) file.readLines() else emptyList()
+        }.getOrDefault(emptyList())
+        synchronized(cacheLock) {
+            if (!absentLoaded) {
+                lines.forEach { line ->
+                    if (line.isNotBlank()) absentCovers.add(line)
+                }
+                while (absentCovers.size > MAX_ABSENT_COVERS) {
+                    val it = absentCovers.iterator()
+                    if (it.hasNext()) {
+                        it.next()
+                        it.remove()
+                        absentDirty = true
+                    } else break
+                }
+                absentLoaded = true
+            }
+        }
+    }
+
+    private fun recordAbsentCover(context: Context, url: String) {
+        ensureAbsentLoaded(context)
+        synchronized(cacheLock) {
+            if (absentCovers.add(url)) {
+                while (absentCovers.size > MAX_ABSENT_COVERS) {
+                    val it = absentCovers.iterator()
+                    if (it.hasNext()) {
+                        it.next()
+                        it.remove()
+                    } else break
+                }
+                absentDirty = true
+            }
+        }
+    }
+
+    private fun flushAbsentCovers(context: Context) {
+        val snapshot: List<String>
+        synchronized(cacheLock) {
+            if (!absentDirty) return
+            snapshot = absentCovers.toList()
+            absentDirty = false
+        }
+        runCatching {
+            val file = absentCoversFile(context)
+            file.parentFile?.mkdirs()
+            file.writeText(snapshot.joinToString("\n"))
+        }
+    }
 
     private fun thumbnailCache(context: Context): DiskCache {
         sharedDiskCache?.let { return it }
@@ -187,17 +251,22 @@ internal object LocalArtwork {
         synchronized(cacheLock) {
             runCatching { sharedDiskCache?.clear() }
             sharedDiskCache = null
-            missingCovers.evictAll()
+            absentCovers.clear()
+            absentLoaded = false
+            absentDirty = false
             runCatching { File(context.cacheDir, THUMB_CACHE_DIR).deleteRecursively() }
             runCatching { File(context.cacheDir, "embedded_art").deleteRecursively() }
         }
     }
 
-    private fun knownMissing(url: String): Boolean =
-        (missingCovers.get(url) ?: 0L) > android.os.SystemClock.elapsedRealtime()
+    private fun knownMissing(context: Context, url: String): Boolean {
+        ensureAbsentLoaded(context)
+        return synchronized(cacheLock) { url in absentCovers }
+    }
 
     private const val PREWARM_BATCH = 12
-    private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private const val PREWARM_CONCURRENCY = 3
+    private val prewarmDispatcher = Dispatchers.IO.limitedParallelism(PREWARM_CONCURRENCY)
     private val thumbnailLocks = Array(32) { Mutex() }
     @Volatile private var userScrollingUntilMs: Long = 0L
 
@@ -235,47 +304,64 @@ internal object LocalArtwork {
             power == null || power.currentThermalStatus < android.os.PowerManager.THERMAL_STATUS_MODERATE
     }
 
-    /** Warm every missing local thumbnail in bounded, idle-friendly batches. */
+    /** Warm every missing local thumbnail in bounded, scroll-friendly batches (continues screen-off). */
     suspend fun prewarmThumbnails(
         context: Context,
         keys: List<String>,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): Boolean = withContext(prewarmDispatcher) {
         if (keys.isEmpty()) return@withContext true
-        val lifecycle = ProcessLifecycleOwner.get().lifecycle.currentStateFlow
         if (!canWarmArtwork(context)) return@withContext false
 
-        suspend fun awaitIdle() {
-            do {
-                lifecycle.first { it.isAtLeast(Lifecycle.State.STARTED) }
+        suspend fun awaitScrollIdle() {
+            while (true) {
                 val remaining = userScrollingUntilMs - android.os.SystemClock.elapsedRealtime()
-                if (remaining > 0) delay(remaining)
-            } while (userScrollingUntilMs > android.os.SystemClock.elapsedRealtime() ||
-                !lifecycle.value.isAtLeast(Lifecycle.State.STARTED))
+                if (remaining <= 0L) break
+                delay(remaining)
+            }
         }
 
-        awaitIdle()
+        awaitScrollIdle()
+        ensureAbsentLoaded(context)
         val cache = runCatching { thumbnailCache(context) }.getOrNull() ?: return@withContext false
-        val missing = keys.filter { !knownMissing(it) && thumbnailIsMissing(cache, it) }
+        val missing = keys.filter { !knownMissing(context, it) && thumbnailIsMissing(cache, it) }
         if (missing.isEmpty()) return@withContext true
         onProgress(0, missing.size)
-        var complete = true
-        for ((index, url) in missing.withIndex()) {
-            yield()
-            if (index > 0 && index % PREWARM_BATCH == 0) delay(200L)
-            awaitIdle()
-            if (index % PREWARM_BATCH == 0 && !canWarmArtwork(context)) return@withContext false
-            thumbnailLock(url).withLock {
-                if (!knownMissing(url) && thumbnailIsMissing(cache, url)) {
-                    val bytes = decodeArtwork(context, url, cache)
-                    val handled = if (bytes != null) saveThumbnail(cache, url, bytes) else knownMissing(url)
-                    complete = complete && handled
-                }
+        val complete = AtomicBoolean(true)
+        val aborted = AtomicBoolean(false)
+        val doneCount = AtomicInteger(0)
+        val permits = Semaphore(PREWARM_CONCURRENCY)
+        try {
+            coroutineScope {
+                missing.mapIndexed { index, url ->
+                    async {
+                        permits.withPermit {
+                            if (aborted.get()) return@withPermit
+                            yield()
+                            awaitScrollIdle()
+                            if (index % PREWARM_BATCH == 0 && !canWarmArtwork(context)) {
+                                aborted.set(true)
+                                return@withPermit
+                            }
+                            thumbnailLock(url).withLock {
+                                if (!knownMissing(context, url) && thumbnailIsMissing(cache, url)) {
+                                    val bytes = decodeArtwork(context, url, cache)
+                                    val handled = if (bytes != null) saveThumbnail(cache, url, bytes) else knownMissing(context, url)
+                                    if (!handled) complete.set(false)
+                                }
+                            }
+                            val done = doneCount.incrementAndGet()
+                            if (done == missing.size || done % PREWARM_BATCH == 0) {
+                                onProgress(done, missing.size)
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
-            val done = index + 1
-            if (done == missing.size || done % PREWARM_BATCH == 0) onProgress(done, missing.size)
+        } finally {
+            flushAbsentCovers(context)
         }
-        complete
+        !aborted.get() && complete.get()
     }
 
     private fun thumbnailIsMissing(cache: DiskCache, url: String): Boolean =
@@ -339,7 +425,7 @@ internal object LocalArtwork {
     }
 
     private fun decodeArtwork(context: Context, url: String, thumbnails: DiskCache?): ByteArray? {
-        if (thumbnails != null && knownMissing(url)) return null
+        if (thumbnails != null && knownMissing(context, url)) return null
         var confirmedAbsent = true
         val sources = url.removePrefix(PREFIX).split('|').drop(1)
         for (encoded in sources) {
@@ -350,11 +436,7 @@ internal object LocalArtwork {
             if (bytes != null) decodeCover(bytes, thumbnails != null)?.let { return it }
         }
         if (confirmedAbsent && thumbnails != null && sources.isNotEmpty()) {
-            synchronized(cacheLock) {
-                if (thumbnails === sharedDiskCache) {
-                    missingCovers.put(url, android.os.SystemClock.elapsedRealtime() + MISSING_COVER_TTL_MS)
-                }
-            }
+            recordAbsentCover(context, url)
         }
         return null
     }
