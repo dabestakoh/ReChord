@@ -1718,9 +1718,10 @@ internal fun PosterLyricSpotlight(
     ) {
         val stageHeight = maxHeight
         if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return@BoxWithConstraints
+        val minBaseSp = if (stageHeight < 100.dp) 14f else 22f
         val baseSize = minOf(
             (maxWidth.value * 0.12f).coerceIn(30f, 56f),
-            (maxHeight.value * 0.42f).coerceAtLeast(22f),
+            (maxHeight.value * 0.42f).coerceAtLeast(minBaseSp),
         ).sp
 
         if (hasLyrics) {
@@ -1772,7 +1773,7 @@ internal fun PosterLyricSpotlight(
                         } else {
                             translationY = f * (stageHeight.toPx() - 24.dp.toPx()).coerceAtLeast(0f)
                         }
-                        val targetScale = (targetTitleSizeSp / baseSize.value).coerceIn(0.35f, 0.75f)
+                        val targetScale = (targetTitleSizeSp / baseSize.value).coerceIn(0.35f, 1.35f)
                         val s = 1f + (targetScale - 1f) * f
                         scaleX = s
                         scaleY = s

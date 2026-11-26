@@ -125,6 +125,7 @@ internal object LocalLibraryIndex {
     @Volatile private var cancelledSourceKey: String? = null
     private var prewarmJob: Job? = null
     private var artworkKeys: List<String> = emptyList()
+    private var completedArtworkKeys: Set<String> = emptySet()
     @Volatile private var lastCompletedScanMs: Long = 0L
 
     private val mutableProgress = MutableStateFlow(ScanProgress())
@@ -400,6 +401,7 @@ internal object LocalLibraryIndex {
             val oldJob = prewarmJob
             prewarmJob = null
             artworkKeys = emptyList()
+            completedArtworkKeys = emptySet()
             oldJob?.cancel()
             mutableArtworkProgress.value = null
         }
@@ -629,15 +631,23 @@ internal object LocalLibraryIndex {
         if (keys.isEmpty()) return
         synchronized(artworkLock) {
             if (scanGeneration.get() != gen || mutableClearing.value) return
+            if (keys.all { it in completedArtworkKeys }) return
             if (keys == artworkKeys && prewarmJob?.isActive == true) return
             val oldJob = prewarmJob
             val newJob = indexScope.launch(start = CoroutineStart.LAZY) {
                 val owner = currentCoroutineContext()[Job]
                 try {
-                    LocalArtwork.prewarmThumbnails(context, keys) { done, totalArt ->
+                    val finished = LocalArtwork.prewarmThumbnails(context, keys) { done, totalArt ->
                         synchronized(artworkLock) {
                             if (prewarmJob === owner) {
                                 mutableArtworkProgress.value = if (done < totalArt) done to totalArt else null
+                            }
+                        }
+                    }
+                    if (finished) {
+                        synchronized(artworkLock) {
+                            if (prewarmJob === owner) {
+                                completedArtworkKeys = completedArtworkKeys + keys
                             }
                         }
                     }
@@ -720,8 +730,7 @@ internal object LocalLibraryIndex {
 
         // Fast-path: pure MediaStore ALL_FOLDERS with unchanged COUNT/MAX(date_modified)/MAX(_id).
         if (isSilentCheck && reasons.keys == setOf(RefreshReason.SETTINGS_OR_PERMISSION) &&
-            sameSource && mode == LocalMusicScanMode.ALL_FOLDERS && !useLegacy &&
-            AppSettings.localMusicExcludedFolders.value.isEmpty()
+            sameSource && mode == LocalMusicScanMode.ALL_FOLDERS && !useLegacy
         ) {
             val currentSig = LocalMediaRepository.mediaStoreSignature(context)
             ensureGeneration()
@@ -807,7 +816,7 @@ internal object LocalLibraryIndex {
             return dirCovers.computeIfAbsent(path) { LocalArtwork.scanDirectoryCovers(File(it)) }
         }
 
-        if (isSilentCheck && RefreshReason.AUDIO_CHANGED !in reasons && sameSource &&
+        if (isSilentCheck && sameSource &&
             total == oldEntries.size + previouslyRejected.size &&
             discovery.files.all { item ->
                 ensureGeneration()
