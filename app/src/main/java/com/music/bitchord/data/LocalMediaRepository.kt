@@ -474,6 +474,7 @@ object LocalMediaRepository {
         videoIdByUri: Map<String, String>,
         filterNonMusic: Boolean,
         minDurationMs: Long,
+        onRejected: () -> Unit = {},
     ): Song? {
         item.mediaStoreSong?.let { return it }
 
@@ -508,7 +509,7 @@ object LocalMediaRepository {
             fastTags == null ||
             (title == null && artist == null && albumName == null && durationMs <= 0L)
 
-        if (needsFallback) {
+        val metadataReadable = if (needsFallback) {
             runCatching {
                 val retriever = MediaMetadataRetriever()
                 try {
@@ -542,10 +543,13 @@ object LocalMediaRepository {
                 } finally {
                     retriever.release()
                 }
-            }
-        }
+            }.isSuccess
+        } else true
 
-        if (hasVideo) return null
+        if (hasVideo) {
+            onRejected()
+            return null
+        }
         if (!isEligibleLocalMusic(
                 durationMs = durationMs,
                 displayName = item.displayName,
@@ -554,7 +558,10 @@ object LocalMediaRepository {
                 filterNonMusic = filterNonMusic,
                 hasVideo = false,
             )
-        ) return null
+        ) {
+            if (metadataReadable) onRejected()
+            return null
+        }
 
         val resolvedTitle = title?.removeAudioExtension()
             ?: item.displayName.substringBeforeLast('.').takeIf { it.isNotBlank() }
@@ -588,7 +595,11 @@ object LocalMediaRepository {
             localFormat = formatLabel,
             localFileSizeBytes = item.sizeBytes.takeIf { it > 0L },
         )
-        return LocalArtwork.decorateOne(baseSong, item.sidecarCovers)
+        return LocalArtwork.decorateOne(
+            song = baseSong,
+            sidecars = item.sidecarCovers,
+            mediaRevision = LocalArtwork.FileRevisionToken(item.lastModifiedMs, item.sizeBytes),
+        )
     }
 
     /**
@@ -721,6 +732,7 @@ object LocalMediaRepository {
                 .filter { it.isFile && LocalArtwork.isCoverFileName(it.name) }
                 .sortedWith(
                     compareBy<File> { LocalArtwork.coverSortOrder(it.name) }
+                        .thenByDescending { it.length() }
                         .thenBy { it.name.lowercase(Locale.ROOT) },
                 )
                 .map { file ->
@@ -859,6 +871,7 @@ object LocalMediaRepository {
             val sortedCovers = coverDocs
                 .sortedWith(
                     compareBy<Pair<String, LocalArtwork.SidecarCover>> { LocalArtwork.coverSortOrder(it.first) }
+                        .thenByDescending { it.second.signature.substringAfterLast(':').toLongOrNull() ?: 0L }
                         .thenBy { it.first.lowercase(Locale.ROOT) },
                 )
                 .map { it.second }

@@ -1,6 +1,11 @@
 package com.music.bitchord.ui.graphics
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
+import coil3.PlatformContext
+import coil3.compose.LocalPlatformContext
+import coil3.size.Scale
 import coil3.Image
 import coil3.request.ImageRequest
 
@@ -36,3 +41,23 @@ class Swatch(val rgb: Int, val population: Int)
  * unless [clearFilters].
  */
 expect fun paletteSwatches(image: ImageBitmap, maxColors: Int, clearFilters: Boolean): List<Swatch>
+
+
+internal fun browseArtworkRequest(
+    context: PlatformContext,
+    url: String,
+    width: Int,
+    height: Int = width,
+): ImageRequest = ImageRequest.Builder(context)
+    .data(url)
+    .size(width, height)
+    .scale(Scale.FILL)
+    .build()
+
+@Composable
+internal fun rememberBrowseArtworkRequest(url: String?, width: Int, height: Int = width): ImageRequest? {
+    val context = LocalPlatformContext.current
+    return remember(context, url, width, height) {
+        url?.let { browseArtworkRequest(context, it, width, height) }
+    }
+}

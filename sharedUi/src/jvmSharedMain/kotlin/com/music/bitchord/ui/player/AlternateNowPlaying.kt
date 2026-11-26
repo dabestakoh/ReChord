@@ -267,8 +267,9 @@ internal fun AlternateNowPlaying(
     val visualizerLevels = remember { FloatArray(24) }
     val visualizerRaw = remember { FloatArray(24) }
     val visualizerTick = remember { mutableLongStateOf(0L) }
-    DisposableEffect(visualizerActive) {
-        PlayerPlatform.host.setVisualizerActive(visualizerActive)
+    val captureVisualizer = visualizerActive && isPlaying && !reduceAnimation
+    DisposableEffect(captureVisualizer) {
+        PlayerPlatform.host.setVisualizerActive(captureVisualizer)
         onDispose { PlayerPlatform.host.setVisualizerActive(false) }
     }
     LaunchedEffect(visualizerActive, isPlaying, reduceAnimation) {

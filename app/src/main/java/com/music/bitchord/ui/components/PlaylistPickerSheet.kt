@@ -111,7 +111,7 @@ import kotlinx.coroutines.launch
 fun PlaylistPickerSheet(
     playlists: List<UserPlaylist>,
     loading: Boolean,
-    onAdd: (List<UserPlaylist>) -> Unit,
+    onAdd: (List<UserPlaylist>, onFinished: () -> Unit) -> Unit,
     onCreate: (String, PlaylistPrivacy) -> Unit,
     onDismiss: () -> Unit,
     song: Song? = null,
@@ -135,9 +135,10 @@ fun PlaylistPickerSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    // Once only: the sheet is still up, and tappable, while it slides away, and
-    // a second tap on the tick would file the track a second time.
+    // Once only: keep the sheet visible with a progress indicator until the
+    // request has finished, and prevent duplicate submissions while it runs.
     var closing by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
     val closeAfter: (() -> Unit) -> Unit = { action ->
         if (!closing) {
             closing = true
@@ -147,7 +148,7 @@ fun PlaylistPickerSheet(
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!submitting) onDismiss() },
         sheetState = sheetState,
         // It reaches the top of the screen, where corners would only cut two
         // notches out of the status bar's background.
@@ -160,7 +161,9 @@ fun PlaylistPickerSheet(
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
     ) {
         BackHandler {
-            if (creating && !startCreating) creating = false else closeAfter {}
+            if (!submitting) {
+                if (creating && !startCreating) creating = false else closeAfter {}
+            }
         }
 
         Column(
@@ -182,14 +185,22 @@ fun PlaylistPickerSheet(
                 SheetTopBar(
                     leadingIcon = SfIcons.Close,
                     leadingDescription = stringResource(R.string.close),
-                    onLeading = { closeAfter {} },
+                    onLeading = { if (!submitting) closeAfter {} },
                     confirmDescription = if (selected.isEmpty()) {
                         stringResource(R.string.add_to_playlist)
                     } else {
                         pluralStringResource(R.plurals.add_to_playlists_count, selected.size, selected.size)
                     },
-                    confirmEnabled = selected.isNotEmpty(),
-                    onConfirm = { closeAfter { onAdd(playlists.filter { it.playlistId in selected }) } },
+                    confirmEnabled = selected.isNotEmpty() && !submitting,
+                    confirming = submitting,
+                    onConfirm = {
+                        if (!submitting) {
+                            submitting = true
+                            onAdd(playlists.filter { it.playlistId in selected }) {
+                                closeAfter {}
+                            }
+                        }
+                    },
                 )
                 if (songs.isNotEmpty()) {
                     Text(
@@ -333,6 +344,7 @@ private fun SheetTopBar(
     confirmDescription: String,
     confirmEnabled: Boolean,
     onConfirm: () -> Unit,
+    confirming: Boolean = false,
     title: @Composable RowScope.() -> Unit = { Spacer(Modifier.weight(1f)) },
 ) {
     Row(
@@ -350,14 +362,12 @@ private fun SheetTopBar(
         }
         title()
         IconButton(onClick = onConfirm, enabled = confirmEnabled) {
-            Icon(
+            if (confirming) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            else Icon(
                 SfIcons.Check,
                 contentDescription = confirmDescription,
-                tint = if (confirmEnabled) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                },
+                tint = if (confirmEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
             )
         }
     }

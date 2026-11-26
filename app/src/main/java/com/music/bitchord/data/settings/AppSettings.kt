@@ -166,7 +166,7 @@ enum class LocalMusicSort {
     TITLE_ASC,
     TITLE_DESC,
     DATE_ADDED,
-    DATE_MODIFIED,
+    DATE_ADDED_OLDEST,
 }
 
 /** Whether Local Music has been configured and how it scans storage. */
@@ -2670,9 +2670,12 @@ object AppSettings {
     }
 
     private fun readLocalMusicSort(key: String): LocalMusicSort =
-        prefs.getString(key, null)
-            ?.let { saved -> LocalMusicSort.entries.firstOrNull { it.name == saved } }
-            ?: LocalMusicSort.TITLE_ASC
+        when (val saved = prefs.getString(key, null)) {
+            // Date modified is no longer a library ordering. Keep upgrades deterministic
+            // instead of silently treating the removed value as alphabetical.
+            "DATE_MODIFIED" -> LocalMusicSort.DATE_ADDED
+            else -> LocalMusicSort.entries.firstOrNull { it.name == saved } ?: LocalMusicSort.TITLE_ASC
+        }
 
     private fun readLibraryViewType(key: String): LibraryViewType =
         prefs.getString(key, null)

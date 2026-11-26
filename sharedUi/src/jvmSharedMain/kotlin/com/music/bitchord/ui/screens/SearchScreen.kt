@@ -1,5 +1,6 @@
 package com.music.bitchord.ui.screens
 
+import com.music.bitchord.ui.graphics.rememberBrowseArtworkRequest
 import com.music.bitchord.ui.components.uniqueKeys
 
 import com.music.bitchord.ui.components.trackArtSize
@@ -550,7 +551,7 @@ private fun TopResultCard(
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = song.thumbnailUrl?.artworkAt(ROW_ART_PX),
+                model = rememberBrowseArtworkRequest(song.thumbnailUrl?.artworkAt(ROW_ART_PX), ROW_ART_PX),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.trackArtSize(72.dp, song.isVideo).clip(RoundedCornerShape(10.dp)),
@@ -785,7 +786,7 @@ private fun TypeaheadSongRow(
         ) {
             Box(Modifier.trackArtSize(52.dp, song.isVideo)) {
                 AsyncImage(
-                    model = song.artworkAt(ROW_ART_PX),
+                    model = rememberBrowseArtworkRequest(song.artworkAt(ROW_ART_PX), ROW_ART_PX),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -1045,7 +1046,7 @@ private fun BrowseRow(item: BrowseItem, onClick: () -> Unit, onLongPress: (() ->
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(
-            model = item.thumbnailUrl.artworkAt(ROW_ART_PX),
+            model = rememberBrowseArtworkRequest(item.thumbnailUrl.artworkAt(ROW_ART_PX), ROW_ART_PX),
             contentDescription = null,
             modifier = Modifier
                 .size(52.dp)

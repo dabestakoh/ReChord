@@ -97,8 +97,8 @@ object LocalGroups {
     fun isDirectory(browseId: String?): Boolean = parse(browseId)?.kind == FOLDER
 
     /** The rows of [folderSongs] the grouping [browseId] names, in the order its page lists them. */
-    fun songsOf(browseId: String, folderSongs: List<Song>): List<Song> {
-        if (folderSongs.isNotEmpty()) {
+    fun songsOf(browseId: String, folderSongs: List<Song>, useCachedGroup: Boolean = true): List<Song> {
+        if (useCachedGroup && folderSongs.isNotEmpty()) {
             groupByIdCache[browseId]?.let { return it.songs }
         }
         val group = parse(browseId) ?: return emptyList()
@@ -190,11 +190,16 @@ object LocalGroups {
      * directories of the same name in different places stay two rows; the
      * subtitle is what tells them apart.
      */
-    fun foldersOf(folderId: String, songs: List<Song>): List<LocalGroup> =
+    fun foldersOf(
+        folderId: String,
+        songs: List<Song>,
+        volumeLabels: Map<String, String> = emptyMap(),
+        externalFallback: String = "External Storage",
+    ): List<LocalGroup> =
         songs.groupBy { it.directory() }
             .mapNotNull { (path, group) ->
                 if (path == null) return@mapNotNull null
-                folder(folderId, path, group)
+                folder(folderId, path, group, volumeLabels, externalFallback)
             }
             .sortedWith(compareBy<LocalGroup> { it.title.lowercase(Locale.ROOT) }.thenBy { it.subtitle })
 
@@ -205,14 +210,19 @@ object LocalGroups {
      * For a page opened by its id alone, such as from the player's "Playing
      * from", so it gets the same cover and credit as when its tab row opens it.
      */
-    fun groupOf(browseId: String, songs: List<Song>): LocalGroup? {
+    fun groupOf(
+        browseId: String,
+        songs: List<Song>,
+        volumeLabels: Map<String, String> = emptyMap(),
+        externalFallback: String = "External Storage",
+    ): LocalGroup? {
         groupByIdCache[browseId]?.takeIf { it.songs.size == songs.size }?.let { return it }
         val group = parse(browseId) ?: return null
         return when (group.kind) {
             ALBUM -> album(group.folderId, group.name, songs)
             RELEASE -> album(group.folderId, songs.firstOrNull()?.albumName.orEmpty(), songs).copy(browseId = browseId)
             ALBUM_ARTIST -> artist(group.folderId, group.name, songs).copy(browseId = browseId)
-            FOLDER -> folder(group.folderId, group.name, songs)
+            FOLDER -> folder(group.folderId, group.name, songs, volumeLabels, externalFallback)
             else -> artist(group.folderId, group.name, songs)
         }
     }
@@ -235,10 +245,18 @@ object LocalGroups {
         songs = songs.sortedByTitle(),
     )
 
-    private fun folder(folderId: String, path: String, songs: List<Song>) = LocalGroup(
+    private fun folder(
+        folderId: String,
+        path: String,
+        songs: List<Song>,
+        volumeLabels: Map<String, String> = emptyMap(),
+        externalFallback: String = "External Storage",
+    ) = LocalGroup(
         browseId = directoryPageId(folderId, path),
-        title = path.substringAfterLast('/').ifBlank { path },
-        subtitle = path.substringBeforeLast('/', "").readablePath(),
+        title = path.externalRoot(volumeLabels, externalFallback)?.takeIf { path == it.first }?.second
+            ?: path.substringAfterLast('/').ifBlank { path },
+        subtitle = if (path.externalRoot(volumeLabels, externalFallback)?.first == path) ""
+            else path.substringBeforeLast('/', "").readablePath(volumeLabels, externalFallback),
         thumbnailUrl = songs.firstNotNullOfOrNull { it.thumbnailUrl },
         type = BrowseType.PLAYLIST,
         songs = songs.sortedByTitle(),
@@ -321,6 +339,7 @@ object LocalGroups {
     }
 
     private val DISC_DIR_REGEX = Regex("""(?i)(cd|disc|disk)[ _-]*[0-9]+""")
+    private val VOLUME_ID_REGEX = Regex("(?i)[0-9a-f]{4}-[0-9a-f]{4}")
 
     private fun Song.releaseKey(): String {
         val title = albumName ?: return "untagged"
@@ -341,10 +360,34 @@ object LocalGroups {
      * for nearly everything on a phone and reads as noise. A memory card keeps
      * its name, since that is exactly what tells its folders apart.
      */
-    private fun String.readablePath(): String = when {
-        startsWith("/storage/emulated/0") -> removePrefix("/storage/emulated/0").trimStart('/')
-        startsWith("/storage/") -> removePrefix("/storage/")
-        else -> trimStart('/')
+    private fun String.readablePath(volumeLabels: Map<String, String>, externalFallback: String): String {
+        if (startsWith("/storage/emulated/0")) return removePrefix("/storage/emulated/0").trimStart('/')
+        externalRoot(volumeLabels, externalFallback)?.let { (root, label) ->
+            return listOf(label, removePrefix(root).trimStart('/')).filter { it.isNotBlank() }.joinToString(" / ")
+        }
+        return if (startsWith("/storage/")) removePrefix("/storage/") else trimStart('/')
+    }
+
+    /** Only the presentation changes; page IDs and song paths retain the actual volume root. */
+    private fun String.externalRoot(volumeLabels: Map<String, String>, externalFallback: String): Pair<String, String>? {
+        val root = volumeLabels.keys.filter { startsWith(it.trimEnd('/') + "/") || this == it.trimEnd('/') }
+            .maxByOrNull { it.length }
+            ?: run {
+                val prefix = when {
+                    startsWith("/storage/") -> "/storage/"
+                    startsWith("/mnt/media_rw/") -> "/mnt/media_rw/"
+                    else -> return null
+                }
+                val segment = removePrefix(prefix).substringBefore('/')
+                if (!VOLUME_ID_REGEX.matches(segment)) return null
+                prefix + segment
+            }
+        val lastSegment = root.substringAfterLast('/')
+        val label = volumeLabels[root]?.trim().orEmpty()
+            .takeUnless { it.isBlank() || it.equals(lastSegment, ignoreCase = true) ||
+                VOLUME_ID_REGEX.matches(it) }
+            ?: externalFallback
+        return root to label
     }
 }
 
@@ -369,15 +412,20 @@ internal fun List<LocalGroup>.sortedLocalGroups(
     return when (order) {
         LocalMusicSort.TITLE_ASC -> sortedWith(byTitle)
         LocalMusicSort.TITLE_DESC -> sortedWith(byTitle.reversed())
-        LocalMusicSort.DATE_ADDED, LocalMusicSort.DATE_MODIFIED -> {
+        LocalMusicSort.DATE_ADDED, LocalMusicSort.DATE_ADDED_OLDEST -> {
             val dated = map { group ->
                 val newest = group.songs.mapNotNull { song ->
-                    if (order == LocalMusicSort.DATE_ADDED) song.localDateAddedSeconds else song.localDateModifiedSeconds
+                    song.localDateAddedSeconds
                 }.maxOrNull()
                 group to newest
             }
-            dated.sortedWith(compareByDescending<Pair<LocalGroup, Long?>> { it.second }
-                .thenComparator { a, b -> byTitle.compare(a.first, b.first) }).map { it.first }
+            val datedFirst = if (order == LocalMusicSort.DATE_ADDED) {
+                compareByDescending<Pair<LocalGroup, Long?>> { it.second ?: Long.MIN_VALUE }
+            } else {
+                compareBy<Pair<LocalGroup, Long?>> { it.second ?: Long.MAX_VALUE }
+            }
+            dated.sortedWith(datedFirst.thenComparator { a, b -> byTitle.compare(a.first, b.first) })
+                .map { it.first }
         }
     }
 }
@@ -390,9 +438,9 @@ fun List<Song>.sortedForLibrary(order: LocalMusicSort): List<Song> = when (order
         compareByDescending<Song> { it.localDateAddedSeconds ?: Long.MIN_VALUE }
             .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.videoId },
     )
-    LocalMusicSort.DATE_MODIFIED -> sortedWith(
-        compareByDescending<Song> { it.localDateModifiedSeconds ?: Long.MIN_VALUE }
-            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
+    LocalMusicSort.DATE_ADDED_OLDEST -> sortedWith(
+        compareBy<Song> { it.localDateAddedSeconds ?: Long.MAX_VALUE }
+            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }.thenBy { it.videoId },
     )
 }
 

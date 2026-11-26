@@ -100,6 +100,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.music.bitchord.ui.graphics.forCompactThumbnail
+import com.music.bitchord.ui.graphics.rememberBrowseArtworkRequest
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.isMatchPending
@@ -568,24 +569,20 @@ private fun SongRowContent(
                 val platformContext = LocalPlatformContext.current
                 val artModel: Any? = if (song.localUri != null) {
                     val localUrl = song.localAlbumArtwork ?: song.thumbnailUrl
-                    val albumKey = song.albumName?.takeIf { it.isNotBlank() }?.let { album ->
-                        val dir = song.localPath?.substringBeforeLast('/', "").orEmpty()
-                        "local-album-thumb:160:$dir:$album:${song.localAlbumArtist ?: song.artist}"
-                    }
-                    remember(localUrl, albumKey) {
+                    remember(localUrl) {
                         localUrl?.let {
                             ImageRequest.Builder(platformContext)
                                 .data(it)
-                                .size(160)
-                                .apply {
-                                    if (albumKey != null) memoryCacheKey(albumKey)
-                                }
+                                .size(ROW_ART_PX)
                                 .forCompactThumbnail()
                                 .build()
                         }
                     }
                 } else {
-                    com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX)
+                    rememberBrowseArtworkRequest(
+                        com.music.bitchord.ui.player.rememberRemoteArtworkUrl(song)?.artworkAt(ROW_ART_PX),
+                        ROW_ART_PX,
+                    )
                 }
                 AsyncImage(
                     model = artModel,
