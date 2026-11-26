@@ -512,8 +512,8 @@ internal fun ArtworkMeshBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.Black.copy(alpha = 0.06f),
-                    Color.Black.copy(alpha = 0.30f),
+                    Color.Black.copy(alpha = 0.10f),
+                    Color.Black.copy(alpha = 0.40f),
                 ),
             ),
         )
@@ -909,17 +909,17 @@ private fun argb(red: Int, green: Int, blue: Int): Int =
  *
  * Saturation is nudged because averaging a block of pixels greys it — the mean
  * of a red stripe and the black around it is a dull maroon, and this puts back
- * roughly what the averaging took, not more. Lightness is only floored, off
- * pure black, which is not so much a colour choice as somewhere for the blur to
- * find an edge. Neither touches the *proportions*, which is the whole point of
- * this backdrop: a sleeve that is mostly black stays mostly black.
+ * roughly what the averaging took, not more. Lightness is floored off pure black
+ * (so the blur can find an edge) and capped below pure white so bright/white
+ * sleeves never wash out light player text and controls.
  */
 private fun Int.lifted(): Int {
     val hsl = FloatArray(3).also { ColorUtils.colorToHSL(this, it) }
     hsl[1] = (hsl[1] * MESH_VIBRANCE).coerceAtMost(1f)
-    hsl[2] = hsl[2].coerceAtLeast(MESH_FLOOR)
+    hsl[2] = hsl[2].coerceIn(MESH_FLOOR, MESH_CEILING)
     return ColorUtils.HSLToColor(hsl)
 }
 
 private const val MESH_VIBRANCE = 1.12f
 private const val MESH_FLOOR = 0.045f
+private const val MESH_CEILING = 0.36f

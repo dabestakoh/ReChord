@@ -1117,7 +1117,8 @@ fun NowPlayingScreen(
     // A music video plays its own picture where the sleeve is — see
     // [MusicVideoSurface] — and takes the place of any animated cover.
     val sideways = landscapePlayerAvailable(windowWidth, windowHeight)
-    val compactPortrait = !sideways && windowHeight < 560.dp
+    val compactPortrait = !sideways && windowHeight < 680.dp
+    val heroFadeFraction = if (compactPortrait) 0.30f else HERO_FADE_FRACTION
     val artTitleGap = if (compactPortrait) 8.dp else ART_TITLE_GAP
     val deckBottomPadding = if (compactPortrait) 6.dp else 18.dp
     val transportTopGap = if (compactPortrait) 4.dp else 8.dp
@@ -1826,7 +1827,7 @@ fun NowPlayingScreen(
     // Match the old hero's fade height in physical pixels, not its much larger
     // percentage of a portrait video. The mask ends at the real video bottom.
     fun clipFadeFraction(bottom: Dp): Float = if (bottom > 0.dp) {
-        (heroHeight.value * HERO_FADE_FRACTION / bottom.value).coerceIn(0f, 1f)
+        (heroHeight.value * heroFadeFraction / bottom.value).coerceIn(0f, 1f)
     } else 0f
     val statusBarTop = stableStatusBarInsets().asPaddingValues().calculateTopPadding()
     // What sits between the status bar and the artwork: the drag strip. Read
@@ -2365,8 +2366,8 @@ fun NowPlayingScreen(
     fun sleeveStillBottomPx(): Float = if (heroIncomingStill != null || gesturePair != null) 0f else stillBottomPx()
     fun stillFadeFraction(): Float {
         val bottom = sleeveStillBottomPx()
-        if (bottom <= 0f) return HERO_FADE_FRACTION
-        return (with(density) { heroHeight.toPx() } * HERO_FADE_FRACTION / bottom).coerceIn(0f, 1f)
+        if (bottom <= 0f) return heroFadeFraction
+        return (with(density) { heroHeight.toPx() } * heroFadeFraction / bottom).coerceIn(0f, 1f)
     }
     // Where a clip starts, read once as it mounts — see each — from its still,
     // so the first frame it paints is the one already on screen.
@@ -3148,7 +3149,7 @@ fun NowPlayingScreen(
                                         clip = true
                                     }
                                 }
-                                .then(if (heroMode) Modifier.artworkBottomFade({ 1f }, { HERO_FADE_FRACTION }) else Modifier)
+                                .then(if (heroMode) Modifier.artworkBottomFade({ 1f }, { heroFadeFraction }) else Modifier)
                                 .hazeSource(playerHaze),
                         )
                     }
@@ -3250,7 +3251,7 @@ fun NowPlayingScreen(
                                 pair?.outgoingStillBannerReveal(
                                     autoMixFrames,
                                     IntSize(playerBounds.width, with(density) { heroHeight.roundToPx() }),
-                                    HERO_FADE_FRACTION,
+                                    heroFadeFraction,
                                     clipTransitionAlpha,
                                 )
                             } else null,
@@ -3280,7 +3281,7 @@ fun NowPlayingScreen(
                             bottomFade = when {
                                 fullscreen -> 0f
                                 portrait -> clipFadeFraction(bottom)
-                                else -> HERO_FADE_FRACTION
+                                else -> heroFadeFraction
                             },
                             bottomFadeEndPx = if (portrait) with(density) { bottom.toPx() }
                                 else null,
@@ -3571,7 +3572,7 @@ fun NowPlayingScreen(
                             .widthIn(max = PLAYER_MAX_WIDTH)
                             .fillMaxWidth()
                             .padding(top = ART_BOX_TOP_PAD, bottom = deckBottomPadding)
-                            .then(if (compactPortrait) Modifier.clipToBounds() else Modifier),
+                            .then(if (compactPortrait && !heroMode) Modifier.clipToBounds() else Modifier),
                     ) {
                         if (spotifyCanvasPresentation && playerDeckSettledOpen &&
                             maxHeight != spotifyCanvasExpandedTopHeight
