@@ -766,7 +766,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     libraryStale = true
                     featuredDirty = true
                     if (status == LikeStatus.LIKE) {
-                        (song ?: findKnownSong(videoId))?.let(SessionTasteFeedback::recordCompletedOrLiked)
+                        (song ?: findKnownSong(videoId))?.let {
+                            SessionTasteFeedback.recordCompletedOrLiked(it, isLike = true)
+                        }
                         prependToLikedLists(videoId, song)
                     } else {
                         if (status == LikeStatus.DISLIKE) {
@@ -2379,13 +2381,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val file = File(getApplication<Application>().filesDir, TOP_PICKS_FILE)
         val slot = topPicksSlot()
         topPicksJob = viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                com.music.bitchord.data.stats.PersistentTasteStore.switchListener(identity)
+            }
             val stored = withContext(Dispatchers.IO) {
                 runCatching { file.takeIf { it.exists() }?.readText() }.getOrNull()?.let(TopPicks::decode)
             }?.takeIf { it.listener == identity && it.revision >= 2 && it.picks.isNotEmpty() }
             if (identity != listenerKey()) return@launch
             stored?.let { AppleArtistPhotos.seed(it.photos) }
             if (stored != null) {
-                _topPicks.value = TopPicks.fillFeaturedFromArtistPicks(stored.picks)
+                val dismissed = SessionTasteFeedback.dismissedSeedKeys()
+                val cooled = SessionTasteFeedback.cooledArtists()
+                val filteredPicks = stored.picks.filter { pick ->
+                    pick.kind == com.music.bitchord.data.model.TopPickKind.CONTINUE_LISTENING || (
+                        pick.carouselKey !in dismissed &&
+                        pick.seedTitle?.lowercase(java.util.Locale.ROOT) !in dismissed &&
+                        SessionTasteFeedback.normalizeArtist(pick.artistName ?: pick.subtitle) !in cooled
+                    )
+                }
+                _topPicks.value = TopPicks.fillFeaturedFromArtistPicks(filteredPicks)
                 topPicksSlotShown = stored.day.takeIf { stored.revision == 5 }
             } else if (!rebuild) {
                 _topPicks.value = null
@@ -2518,6 +2532,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             dislikedIds = LikeState.dislikedIds(),
             completedIds = SessionTasteFeedback.completedVideoIds() + all.songs.take(40).map { it.song.videoId },
             dismissedSeedKeys = SessionTasteFeedback.dismissedSeedKeys(),
+            artistAffinities = SessionTasteFeedback.artistAffinities(),
             cooledArtists = SessionTasteFeedback.cooledArtists(),
             timeOfDayVideoIds = tod.videoIds,
             timeOfDayArtists = tod.artistKeys,

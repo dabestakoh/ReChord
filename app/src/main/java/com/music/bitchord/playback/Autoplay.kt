@@ -159,6 +159,7 @@ internal class AutoplayRadio(
                                 SessionTasteFeedback.primaryArtistKey(it.value) in knownArtists
                             !known
                         },
+                        { -SessionTasteFeedback.artistAffinity(it.value.artists.firstOrNull()?.name ?: it.value.artist) },
                         { it.value.albumId.isNullOrBlank() && it.value.albumName.isNullOrBlank() },
                         { it.index },
                     )

@@ -973,6 +973,7 @@ class PlaybackService : MediaLibraryService() {
         val removedCurrent: Boolean,
         val after: QueueUndoFingerprint,
         val expiresAt: Long,
+        val softSkippedAutoplay: List<Song> = emptyList(),
     )
 
     /** Only a matching restoration event batch may bypass pruning/cursor advancement. */
@@ -3137,6 +3138,7 @@ class PlaybackService : MediaLibraryService() {
         removedCurrent: Boolean,
         mutationSettled: CompletableDeferred<Unit>,
         removedCount: Int,
+        softSkippedAutoplay: List<Song> = emptyList(),
         messageForCount: (Int) -> String,
     ): Boolean {
         partySync?.onLocalIntent()
@@ -3160,6 +3162,7 @@ class PlaybackService : MediaLibraryService() {
         val edit = QueueUndoEdit(
             token, before, oldPosition, removedCurrent, after,
             SystemClock.elapsedRealtime() + 4_500L,
+            softSkippedAutoplay = softSkippedAutoplay,
         )
         queueUndoEdit = edit
         QueueScreenUndo.publish(QueueUndoNotice(token, messageForCount(removedCount)))
@@ -3212,6 +3215,13 @@ class PlaybackService : MediaLibraryService() {
             boundedContextWindow = before.window?.let { QueueWindow.restore(it) }
             return false
         }
+        val removedAutoplay = indices.mapNotNull { idx ->
+            val song = before.items.getOrNull(idx)?.toSong() ?: return@mapNotNull null
+            if (song.queueTier == QueueTier.AUTOPLAY && song.localUri == null &&
+                !song.videoId.startsWith("content://") && !song.videoId.startsWith("file://")
+            ) song else null
+        }
+        removedAutoplay.forEach(SessionTasteFeedback::recordEarlySkip)
         return finishQueueUndoRemoval(
             before = before,
             raw = raw,
@@ -3219,6 +3229,7 @@ class PlaybackService : MediaLibraryService() {
             removedCurrent = removedCurrent,
             mutationSettled = mutationSettled,
             removedCount = removedCount,
+            softSkippedAutoplay = removedAutoplay,
             messageForCount = { count ->
                 resources.getQuantityString(R.plurals.queue_removed_count, count, count)
             },
@@ -3263,6 +3274,15 @@ class PlaybackService : MediaLibraryService() {
             return false
         }
         val removedCount = before.items.size - raw.mediaItemCount
+        val removedAutoplay = if (!clear) {
+            val song = before.items.getOrNull(requestedIndex)?.toSong()
+            if (song != null && song.queueTier == QueueTier.AUTOPLAY && song.localUri == null &&
+                !song.videoId.startsWith("content://") && !song.videoId.startsWith("file://")
+            ) {
+                SessionTasteFeedback.recordEarlySkip(song)
+                listOf(song)
+            } else emptyList()
+        } else emptyList()
         return finishQueueUndoRemoval(
             before = before,
             raw = raw,
@@ -3270,6 +3290,7 @@ class PlaybackService : MediaLibraryService() {
             removedCurrent = removedCurrent,
             mutationSettled = mutationSettled,
             removedCount = removedCount,
+            softSkippedAutoplay = removedAutoplay,
             messageForCount = {
                 if (clear) getString(R.string.queue_cleared)
                 else getString(
@@ -3301,6 +3322,7 @@ class PlaybackService : MediaLibraryService() {
             isQueueUndoSubsequence(edit.after.items, before.items)
         val position = if (edit.removedCurrent) edit.positionMs else
             (if (speakers.active) speakers.positionMs else raw.currentPosition).coerceAtLeast(0L)
+        edit.softSkippedAutoplay.forEach(SessionTasteFeedback::undoEarlySkip)
         invalidateQueueUndo() // Consume before any callbacks: an inverse is never itself undoable.
         boundedTopUpJob?.cancel()
         boundedTopUpJob = null

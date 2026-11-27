@@ -111,4 +111,29 @@ class SessionTasteFeedbackTest {
         assertFalse(liked[21].videoId in recIds, "Recently played song should be excluded")
         assertFalse(liked[22].videoId in recIds, "Disliked song should be excluded")
     }
+
+    @Test
+    fun queuedIntentClearsCooldownWithoutOverwritingAnchorAndUndoRevertsSkip() {
+        val anchor = song("anchor00001", "Main Vibe")
+        val target = song("queued00001", "Queued Band")
+        SessionTasteFeedback.recordCompletedOrLiked(anchor)
+
+        assertFalse(SessionTasteFeedback.recordEarlySkip(target))
+        assertTrue(SessionTasteFeedback.recordEarlySkip(target))
+        assertTrue(SessionTasteFeedback.isArtistCooled("Queued Band"))
+
+        // Queuing an online track clears cooldown and boosts affinity without changing anchor.
+        SessionTasteFeedback.recordQueuedIntent(target)
+        assertFalse(SessionTasteFeedback.isArtistCooled("Queued Band"))
+        assertTrue(SessionTasteFeedback.artistAffinity("Queued Band") > 0.0)
+        assertEquals(anchor, SessionTasteFeedback.lastGoodAnchorSong())
+
+        // Undo early skip restores prior state cleanly.
+        val s3 = song("skipundo001", "Undo Band")
+        assertFalse(SessionTasteFeedback.recordEarlySkip(s3))
+        assertTrue(SessionTasteFeedback.recordEarlySkip(s3))
+        assertTrue(SessionTasteFeedback.isArtistCooled("Undo Band"))
+        SessionTasteFeedback.undoEarlySkip(s3)
+        assertFalse(SessionTasteFeedback.isArtistCooled("Undo Band"))
+    }
 }

@@ -5,30 +5,50 @@ import com.music.bitchord.data.model.TopPick
 import java.util.Locale
 
 /**
- * Thread-safe session taste & negative-feedback tracker shared by
- * `PlaybackService`, `AutoplayRadio`, `TopPicks`, and `MainViewModel`.
+ * Thread-safe taste & feedback tracker shared by `PlaybackService`,
+ * `AutoplayRadio`, `TopPicks`, `MainViewModel`, and `PersistentTasteStore`.
  *
- * - Early skips (`< 15s`) softly demote the skipped song and cool down an
- *   artist once skipped twice in the same session.
- * - Completed (`>= 30s` / `>= 50%`) or liked tracks update [lastGoodAnchorSong]
- *   so Autoplay stays anchored to the listener's real vibe rather than an
- *   accidental tap or quick skip.
- * - "Not interested" dismissals from Home Featured immediately remove that
- *   card's seed and cool down its artist across both Featured and Autoplay.
+ * - Positive signals (likes, completions, manual Play Next / Add to Queue)
+ *   build artist affinity and clear prior cooldowns without hijacking the
+ *   currently playing radio's vibe on single queue additions.
+ * - Negative signals (early skips < 15s, swipe-removing Autoplay items,
+ *   Dislikes, and "Not interested" dismissals) demote tracks/artists and
+ *   cool down repeatedly skipped artists.
+ * - Durable across restarts per account/profile via [PersistentTasteStore].
  */
 object SessionTasteFeedback {
     const val EARLY_SKIP_THRESHOLD_MS = 15_000L
     const val ARTIST_COOLDOWN_SKIP_COUNT = 2
+    const val ARTIST_COOLDOWN_SCORE = -2.0
+
+    data class Snapshot(
+        val skippedVideoIds: List<String>,
+        val cooledArtists: List<String>,
+        val dismissedSeedKeys: List<String>,
+        val artistAffinities: Map<String, Double>,
+    )
 
     private val lock = Any()
     private val skippedIds = LinkedHashSet<String>()
     private val artistSkipCounts = HashMap<String, Int>()
     private val cooledArtistKeys = LinkedHashSet<String>()
+    private val artistAffinityMap = HashMap<String, Double>()
     private val dismissedKeys = LinkedHashSet<String>()
     private val completedIds = LinkedHashSet<String>()
     private val knownTracks = LinkedHashSet<String>()
     private val knownArtists = LinkedHashSet<String>()
     private var anchorSong: Song? = null
+
+    @Volatile
+    private var onChanged: (() -> Unit)? = null
+
+    fun setOnChangedListener(listener: (() -> Unit)?) {
+        onChanged = listener
+    }
+
+    private fun notifyChanged() {
+        onChanged?.invoke()
+    }
 
     fun normalizeArtist(name: String?): String =
         name.orEmpty()
@@ -43,53 +63,119 @@ object SessionTasteFeedback {
         return normalizeArtist(primary)
     }
 
-    /**
-     * Records an early skip on [song]. Returns `true` if the song's artist
-     * reached the cooldown threshold (so callers can prune remaining queued
-     * Autoplay items from that artist immediately).
-     */
-    fun recordEarlySkip(song: Song): Boolean = synchronized(lock) {
-        if (song.videoId.isNotBlank()) skippedIds.add(song.videoId)
-        val artistKey = primaryArtistKey(song)
-        if (artistKey.isBlank()) return@synchronized false
-        val nextCount = (artistSkipCounts[artistKey] ?: 0) + 1
-        artistSkipCounts[artistKey] = nextCount
-        if (nextCount >= ARTIST_COOLDOWN_SKIP_COUNT) {
+    private fun adjustAffinityLocked(artistKey: String, delta: Double) {
+        if (artistKey.isBlank()) return
+        val current = artistAffinityMap[artistKey] ?: 0.0
+        val next = (current + delta).coerceIn(-6.0, 10.0)
+        artistAffinityMap[artistKey] = next
+        if (next <= ARTIST_COOLDOWN_SCORE) {
             cooledArtistKeys.add(artistKey)
-        } else {
-            false
+        } else if (delta > 0.0 && next > ARTIST_COOLDOWN_SCORE) {
+            cooledArtistKeys.remove(artistKey)
         }
+    }
+
+    /**
+     * Records an early skip (`< 15s`) or removed `AUTOPLAY` suggestion.
+     * Returns `true` if the song's artist reached the cooldown threshold.
+     */
+    fun recordEarlySkip(song: Song): Boolean {
+        val cooledNow = synchronized(lock) {
+            if (song.videoId.isNotBlank()) skippedIds.add(song.videoId)
+            val artistKey = primaryArtistKey(song)
+            if (artistKey.isBlank()) return@synchronized false
+            val nextCount = (artistSkipCounts[artistKey] ?: 0) + 1
+            artistSkipCounts[artistKey] = nextCount
+            adjustAffinityLocked(artistKey, -1.0)
+            if (nextCount >= ARTIST_COOLDOWN_SKIP_COUNT) {
+                cooledArtistKeys.add(artistKey)
+                true
+            } else {
+                artistKey in cooledArtistKeys
+            }
+        }
+        notifyChanged()
+        return cooledNow
+    }
+
+    /** Reverses [recordEarlySkip] when the user taps Undo on a Queue removal. */
+    fun undoEarlySkip(song: Song) {
+        synchronized(lock) {
+            if (song.videoId.isNotBlank()) skippedIds.remove(song.videoId)
+            val artistKey = primaryArtistKey(song)
+            if (artistKey.isNotBlank()) {
+                val prev = artistSkipCounts[artistKey] ?: 0
+                if (prev <= 1) artistSkipCounts.remove(artistKey) else artistSkipCounts[artistKey] = prev - 1
+                adjustAffinityLocked(artistKey, +1.0)
+                if ((artistSkipCounts[artistKey] ?: 0) < ARTIST_COOLDOWN_SKIP_COUNT &&
+                    (artistAffinityMap[artistKey] ?: 0.0) > ARTIST_COOLDOWN_SCORE
+                ) {
+                    cooledArtistKeys.remove(artistKey)
+                }
+            }
+        }
+        notifyChanged()
     }
 
     /** Records an explicit Dislike — immediately cools down the song and its artist. */
-    fun recordDislike(song: Song): String = synchronized(lock) {
-        if (song.videoId.isNotBlank()) skippedIds.add(song.videoId)
-        val artistKey = primaryArtistKey(song)
-        if (artistKey.isNotBlank()) {
-            artistSkipCounts[artistKey] = ARTIST_COOLDOWN_SKIP_COUNT
-            cooledArtistKeys.add(artistKey)
+    fun recordDislike(song: Song): String {
+        val key = synchronized(lock) {
+            if (song.videoId.isNotBlank()) skippedIds.add(song.videoId)
+            val artistKey = primaryArtistKey(song)
+            if (artistKey.isNotBlank()) {
+                artistSkipCounts[artistKey] = ARTIST_COOLDOWN_SKIP_COUNT
+                cooledArtistKeys.add(artistKey)
+                adjustAffinityLocked(artistKey, -3.0)
+            }
+            artistKey
         }
-        artistKey
+        notifyChanged()
+        return key
     }
 
     /**
-     * Records a track the listener actually finished (`>= 30s` or `>= 50%`)
-     * or explicitly liked. Updates [lastGoodAnchorSong] and clears any prior
-     * cooldown on that song/artist.
+     * Records a track the listener finished (`>= 30s` or `>= 50%`) or liked.
+     * Updates [lastGoodAnchorSong] and boosts artist affinity.
      */
-    fun recordCompletedOrLiked(song: Song) = synchronized(lock) {
-        if (song.videoId.isNotBlank()) {
-            completedIds.add(song.videoId)
-            knownTracks.add(song.videoId)
-            skippedIds.remove(song.videoId)
+    fun recordCompletedOrLiked(song: Song, isLike: Boolean = false) {
+        synchronized(lock) {
+            if (song.videoId.isNotBlank()) {
+                completedIds.add(song.videoId)
+                knownTracks.add(song.videoId)
+                skippedIds.remove(song.videoId)
+            }
+            val artistKey = primaryArtistKey(song)
+            if (artistKey.isNotBlank()) {
+                knownArtists.add(artistKey)
+                artistSkipCounts.remove(artistKey)
+                cooledArtistKeys.remove(artistKey)
+                adjustAffinityLocked(artistKey, if (isLike) 2.0 else 1.0)
+            }
+            anchorSong = song
         }
-        val artistKey = primaryArtistKey(song)
-        if (artistKey.isNotBlank()) {
-            knownArtists.add(artistKey)
-            artistSkipCounts.remove(artistKey)
-            cooledArtistKeys.remove(artistKey)
+        notifyChanged()
+    }
+
+    /**
+     * Records deliberate Play Next / Add to Queue intent for an online song:
+     * clears prior cooldowns and boosts artist affinity without overwriting [anchorSong].
+     */
+    fun recordQueuedIntent(song: Song) {
+        synchronized(lock) {
+            if (song.videoId.isNotBlank()) {
+                knownTracks.add(song.videoId)
+                skippedIds.remove(song.videoId)
+            }
+            val artistKey = primaryArtistKey(song)
+            if (artistKey.isNotBlank()) {
+                knownArtists.add(artistKey)
+                artistSkipCounts.remove(artistKey)
+                cooledArtistKeys.remove(artistKey)
+                val current = artistAffinityMap[artistKey] ?: 0.0
+                artistAffinityMap[artistKey] = kotlin.math.max(current, 0.0) + 1.0
+            }
         }
-        anchorSong = song
+        notifyChanged()
     }
 
     /** Seeds known liked/library/history tracks and artists for Familiar vs Discovery Autoplay. */
@@ -101,11 +187,43 @@ object SessionTasteFeedback {
     }
 
     /** Records a "Not interested" dismissal on a Home Featured card. */
-    fun dismissFeaturedPick(pick: TopPick) = synchronized(lock) {
-        dismissedKeys.add(pick.carouselKey)
-        pick.seedTitle?.takeIf(String::isNotBlank)?.let { dismissedKeys.add(it.lowercase(Locale.ROOT)) }
-        val artistKey = normalizeArtist(pick.artistName ?: pick.subtitle)
-        if (artistKey.isNotBlank()) cooledArtistKeys.add(artistKey)
+    fun dismissFeaturedPick(pick: TopPick) {
+        synchronized(lock) {
+            dismissedKeys.add(pick.carouselKey)
+            pick.seedTitle?.takeIf(String::isNotBlank)?.let { dismissedKeys.add(it.lowercase(Locale.ROOT)) }
+            val artistKey = normalizeArtist(pick.artistName ?: pick.subtitle)
+            if (artistKey.isNotBlank()) {
+                cooledArtistKeys.add(artistKey)
+                adjustAffinityLocked(artistKey, -3.0)
+            }
+        }
+        notifyChanged()
+    }
+
+    /** Hydrates persisted per-account taste memory (called on startup and account switch). */
+    fun hydrate(snapshot: Snapshot) = synchronized(lock) {
+        skippedIds.clear()
+        skippedIds.addAll(snapshot.skippedVideoIds)
+        cooledArtistKeys.clear()
+        cooledArtistKeys.addAll(snapshot.cooledArtists)
+        dismissedKeys.clear()
+        dismissedKeys.addAll(snapshot.dismissedSeedKeys)
+        artistAffinityMap.clear()
+        artistAffinityMap.putAll(snapshot.artistAffinities)
+        artistSkipCounts.clear()
+        for (artist in snapshot.cooledArtists) {
+            artistSkipCounts[artist] = ARTIST_COOLDOWN_SKIP_COUNT
+        }
+        anchorSong = null
+    }
+
+    fun snapshotForPersistence(): Snapshot = synchronized(lock) {
+        Snapshot(
+            skippedVideoIds = skippedIds.toList(),
+            cooledArtists = cooledArtistKeys.toList(),
+            dismissedSeedKeys = dismissedKeys.toList(),
+            artistAffinities = artistAffinityMap.toMap(),
+        )
     }
 
     fun skippedVideoIds(): Set<String> = synchronized(lock) { skippedIds.toSet() }
@@ -114,6 +232,12 @@ object SessionTasteFeedback {
     fun completedVideoIds(): Set<String> = synchronized(lock) { completedIds.toSet() }
     fun knownTrackIds(): Set<String> = synchronized(lock) { knownTracks.toSet() }
     fun knownArtistKeys(): Set<String> = synchronized(lock) { knownArtists.toSet() }
+    fun artistAffinities(): Map<String, Double> = synchronized(lock) { artistAffinityMap.toMap() }
+    fun artistAffinity(artistName: String?): Double {
+        val key = normalizeArtist(artistName)
+        if (key.isBlank()) return 0.0
+        return synchronized(lock) { artistAffinityMap[key] ?: 0.0 }
+    }
     fun lastGoodAnchorSong(): Song? = synchronized(lock) { anchorSong }
 
     fun isArtistCooled(artistName: String?): Boolean {
@@ -134,6 +258,7 @@ object SessionTasteFeedback {
         skippedIds.clear()
         artistSkipCounts.clear()
         cooledArtistKeys.clear()
+        artistAffinityMap.clear()
         dismissedKeys.clear()
         completedIds.clear()
         knownTracks.clear()

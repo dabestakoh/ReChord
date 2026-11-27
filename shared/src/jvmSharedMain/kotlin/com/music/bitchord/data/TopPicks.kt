@@ -82,6 +82,7 @@ object TopPicks {
         val cooledArtists: Set<String> = emptySet(),
         val timeOfDayVideoIds: Set<String> = emptySet(),
         val timeOfDayArtists: Set<String> = emptySet(),
+        val artistAffinities: Map<String, Double> = emptyMap(),
     )
 
     data class Build(val picks: List<TopPick>, val complete: Boolean)
@@ -809,8 +810,10 @@ object TopPicks {
             credit(lead?.browseId ?: song.artistId, lead?.name ?: song.artist, if (song.videoId in playedIds) 0.5 else 0.15)
         }
         local.artists.forEachIndexed { index, artist ->
-            val todBonus = if (normalizedArtistName(artist.name) in local.timeOfDayArtists) 1.0 else 0.0
-            credit(artist.browseId, artist.name, (local.artists.size - index).toDouble() * 0.5 + todBonus)
+            val key = normalizedArtistName(artist.name)
+            val todBonus = if (key in local.timeOfDayArtists) 1.0 else 0.0
+            val affinityBonus = (local.artistAffinities[key] ?: 0.0).coerceIn(-3.0, 4.0)
+            credit(artist.browseId, artist.name, (local.artists.size - index).toDouble() * 0.5 + todBonus + affinityBonus)
         }
         return scores.entries
             .sortedByDescending { it.value.second }

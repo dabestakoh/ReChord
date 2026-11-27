@@ -1974,6 +1974,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
+                recordOnlineQueueIntent(song)
                 showQueueNotice(context.getString(R.string.song_added_to_queue))
             }
         }
@@ -2004,6 +2005,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
+                recordOnlineQueueIntent(song)
                 showQueueNotice(context.getString(R.string.song_will_play_next))
             }
         }
@@ -7305,6 +7307,16 @@ private fun DetailReorderContent(
         },
     )
 }
+
+private fun recordOnlineQueueIntent(song: Song) {
+    if (song.localUri == null &&
+        !song.videoId.startsWith("content://") &&
+        !song.videoId.startsWith("file://")
+    ) {
+        com.music.bitchord.playback.SessionTasteFeedback.recordQueuedIntent(song)
+    }
+}
+
 
 
 
