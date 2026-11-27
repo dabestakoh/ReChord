@@ -20,6 +20,7 @@ import com.music.bitchord.data.LikedOrderStore
 import com.music.bitchord.data.PlaylistSnapshotCache
 import com.music.bitchord.data.playlist.dedupeSongsByVideoId
 import com.music.bitchord.data.playlist.playlistEntryKey
+import com.music.bitchord.playback.SessionTasteFeedback
 import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.stats.ArtistFacts
 import com.music.bitchord.data.AppleArtistPhotos
@@ -763,7 +764,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = {
                     // Liked Music is now out of date either way.
                     libraryStale = true
+                    featuredDirty = true
                     if (status == LikeStatus.LIKE) {
+                        (song ?: findKnownSong(videoId))?.let(SessionTasteFeedback::recordCompletedOrLiked)
                         prependToLikedLists(videoId, song)
                     } else {
                         dropFromLikedLists(videoId)
@@ -1999,7 +2002,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             // drop(1): the current value is just the count so far, not a play.
-            PlaybackTracker.registeredPlays.drop(1).collect { homeStale = true }
+            PlaybackTracker.registeredPlays.drop(1).collect {
+                homeStale = true
+                if (++playsSinceFeaturedRefresh >= 3) {
+                    featuredDirty = true
+                }
+            }
         }
         viewModelScope.launch {
             BoundedContextRequests.snapshot.collect { snapshot ->
@@ -2090,13 +2098,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * It's re-fetched when the tab is next opened instead.
      */
     private var homeStale = false
+    private var featuredDirty = false
+    private var playsSinceFeaturedRefresh = 0
 
     /** Call when the home tab becomes visible. */
     fun onHomeShown() {
-        if (!homeStale) return
-        homeStale = false
-        // A first load already in flight will pick the new play up by itself.
-        if (_home.value is UiState.Success) refreshHomeRecents()
+        if (homeStale) {
+            homeStale = false
+            // A first load already in flight will pick the new play up by itself.
+            if (_home.value is UiState.Success) refreshHomeRecents()
+        }
+        if (featuredDirty && topPicksJob?.isActive != true) {
+            featuredDirty = false
+            playsSinceFeaturedRefresh = 0
+            loadTopPicks(listenerKey(), rebuild = true)
+        }
+    }
+
+    /** Dismisses a Featured card ("Not interested") and cools down its seed/artist. */
+    fun dismissTopPick(pick: TopPick) {
+        SessionTasteFeedback.dismissFeaturedPick(pick)
+        featuredDirty = true
+        val current = _topPicks.value ?: return
+        val cooledArtist = SessionTasteFeedback.normalizeArtist(pick.artistName ?: pick.subtitle)
+        _topPicks.value = current.filterNot { candidate ->
+            candidate.carouselKey == pick.carouselKey ||
+                (cooledArtist.isNotBlank() &&
+                    candidate.kind != TopPickKind.CONTINUE_LISTENING &&
+                    SessionTasteFeedback.normalizeArtist(candidate.artistName ?: candidate.subtitle) == cooledArtist)
+        }
     }
 
     /**
@@ -2459,7 +2489,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else emptyList()
         val all = lifetime.await()
         val week = recent.await()
-        val liked = (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
+        val cachedLiked = playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.read(getApplication(), listener, YtMusicRepository.LIKED_MUSIC)?.songs
+        }
+        val liked = cachedLiked?.takeIf(List<Song>::isNotEmpty)
+            ?: (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
         TopPicks.LocalTaste(
             artists = (week.artists.take(10) + all.artists.take(15)).distinctBy { it.browseId ?: it.title }
                 .map { ArtistRef(name = it.title, browseId = it.browseId) },
@@ -2471,6 +2505,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             liked = liked,
             albumIds = (week.albums.take(5) + all.albums.take(10)).mapNotNull { it.browseId }.toSet(),
             playlistSongs = (localPlaylists + remote.await()).distinctBy { it.videoId },
+            dislikedIds = LikeState.dislikedIds(),
+            completedIds = SessionTasteFeedback.completedVideoIds() + all.songs.take(40).map { it.song.videoId },
+            dismissedSeedKeys = SessionTasteFeedback.dismissedSeedKeys(),
+            cooledArtists = SessionTasteFeedback.cooledArtists(),
         )
     }
 

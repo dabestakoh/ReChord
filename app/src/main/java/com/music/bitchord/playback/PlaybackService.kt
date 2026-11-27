@@ -4552,6 +4552,7 @@ class PlaybackService : MediaLibraryService() {
 
         // currentPosition already belongs to the new item by now, so
         // the outgoing track is closed out on the last sampled value.
+        val prevPlayedMs = lastPositionSeconds * 1000L
         PlaybackTracker.onTrackChanged(lastPositionSeconds)
         lastPositionSeconds = 0
 
@@ -4576,8 +4577,33 @@ class PlaybackService : MediaLibraryService() {
         val ended = previousEnded
         val prevSong = listenBrainzSong
         val prevStart = listenBrainzStartMs
+        val prevDurMs = listenBrainzDurationMs
+        if (prevSong != null) {
+            if (ended || prevPlayedMs >= 30_000L || (prevDurMs != null && prevDurMs > 0L && prevPlayedMs * 2L >= prevDurMs)) {
+                SessionTasteFeedback.recordCompletedOrLiked(prevSong)
+            } else if (
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+                prevPlayedMs < SessionTasteFeedback.EARLY_SKIP_THRESHOLD_MS &&
+                prevSong.queueTier != com.music.bitchord.data.model.QueueTier.USER_QUEUE
+            ) {
+                if (SessionTasteFeedback.recordEarlySkip(prevSong)) {
+                    val cooledArtist = SessionTasteFeedback.primaryArtistKey(prevSong)
+                    if (cooledArtist.isNotBlank()) {
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        for (i in exoPlayer.mediaItemCount - 1 downTo currentIdx + 1) {
+                            val upcoming = exoPlayer.getMediaItemAt(i).toSong()
+                            if (upcoming.queueTier == com.music.bitchord.data.model.QueueTier.AUTOPLAY &&
+                                SessionTasteFeedback.primaryArtistKey(upcoming) == cooledArtist
+                            ) {
+                                exoPlayer.removeMediaItem(i)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (prevSong != null && ended && prevStart > 0L) {
-            submitListenBrainzFinished(prevSong, prevStart, listenBrainzDurationMs)
+            submitListenBrainzFinished(prevSong, prevStart, prevDurMs)
         }
         listenBrainzSong = newSong
         listenBrainzStartMs = if (exoPlayer.isPlaying) System.currentTimeMillis() else 0L

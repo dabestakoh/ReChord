@@ -1,5 +1,6 @@
 package com.music.bitchord.playback
 
+import com.music.bitchord.data.LikeState
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.TopPicks
 import com.music.bitchord.data.listentogether.ListenTogether
@@ -126,8 +127,37 @@ internal class AutoplayRadio(
 
     suspend fun load(existing: List<Song>, queue: List<Song>, limit: Int): List<Song> {
         fun takesVideos(seed: Song) = seed.isVideo && !MusicOnlyPlayback.isActive()
-        fun pick(source: Song, candidates: List<Song>): List<Song> =
-            QueueBuilder.extend(existing, candidates, limit, preferVideos = takesVideos(source)).map {
+        val disliked = LikeState.dislikedIds()
+        val skipped = SessionTasteFeedback.skippedVideoIds()
+        val cooled = SessionTasteFeedback.cooledArtists()
+        fun pick(source: Song, candidates: List<Song>): List<Song> {
+            val filtered = candidates.filter { song ->
+                song.videoId !in disliked &&
+                    song.videoId !in skipped &&
+                    SessionTasteFeedback.primaryArtistKey(song) !in cooled
+            }
+            val extended = QueueBuilder.extend(existing, filtered, limit * 2, preferVideos = takesVideos(source))
+            // Prevent back-to-back same-artist tracks in the upcoming Autoplay tail.
+            var prevArtist = existing.lastOrNull()?.let(SessionTasteFeedback::primaryArtistKey).orEmpty()
+            val varied = ArrayList<Song>(limit)
+            val deferred = ArrayList<Song>()
+            for (song in extended) {
+                val artist = SessionTasteFeedback.primaryArtistKey(song)
+                if (artist.isNotBlank() && artist == prevArtist) {
+                    deferred.add(song)
+                } else {
+                    varied.add(song)
+                    prevArtist = artist
+                    if (varied.size == limit) break
+                }
+            }
+            if (varied.size < limit) {
+                for (song in deferred) {
+                    varied.add(song)
+                    if (varied.size == limit) break
+                }
+            }
+            return varied.map {
                 it.copy(
                     radioName = source.radioName,
                     playbackSource = source.playbackSource,
@@ -135,9 +165,10 @@ internal class AutoplayRadio(
                     playbackSourceId = source.playbackSourceId,
                 ).asQueueEntry(QueueTier.AUTOPLAY)
             }
+        }
 
         val active = seedSong
-        if (active != null) {
+        if (active != null && !SessionTasteFeedback.isSongCooled(active)) {
             val ready = pick(active, pending)
             if (ready.isNotEmpty()) return ready
             repeat(3) {
@@ -157,10 +188,30 @@ internal class AutoplayRadio(
         }
 
         val newestFirst = queue.asReversed()
-        val online = newestFirst.firstOrNull { VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds }
-        val source = online ?: newestFirst.firstOrNull {
-            SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds
+        // Prefer the last completed/liked anchor song so an accidental tap or early skip
+        // never derails the listening session's vibe.
+        val anchor = SessionTasteFeedback.lastGoodAnchorSong()?.takeIf { song ->
+            song.videoId !in usedSeeds &&
+                song.videoId !in disliked &&
+                (VIDEO_ID.matches(song.videoId) || SourceRegistry.parseTrackKey(song.videoId) != null)
         }
+        val online = anchor?.takeIf { VIDEO_ID.matches(it.videoId) }
+            ?: newestFirst.firstOrNull {
+                VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds &&
+                    it.videoId !in disliked && !SessionTasteFeedback.isSongCooled(it)
+            }
+            ?: newestFirst.firstOrNull {
+                VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds && it.videoId !in disliked
+            }
+        val source = online
+            ?: anchor
+            ?: newestFirst.firstOrNull {
+                SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds &&
+                    it.videoId !in disliked && !SessionTasteFeedback.isSongCooled(it)
+            }
+            ?: newestFirst.firstOrNull {
+                SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds && it.videoId !in disliked
+            }
         if (source == null) {
             usedSeeds.clear()
             return emptyList()

@@ -190,7 +190,7 @@ internal fun TopPicksShelf(
                                 compact = featuredHeight(cardWidth, heightLimit) < 210.dp,
                                 listenerName = listenerName,
                                 onClick = onClick,
-                                onLongPress = onLongPress?.takeIf { pick.kind == TopPickKind.LATEST_RELEASE },
+                                onLongPress = onLongPress,
                                 modifier = Modifier.width(cardWidth).height(featuredHeight(cardWidth, heightLimit)),
                             )
                         }

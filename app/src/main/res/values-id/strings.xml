@@ -422,6 +422,7 @@
     <string name="playlist_reordered">Urutan playlist disimpan</string>
     <string name="save_order">Simpan</string>
     <string name="reset_order">Atur ulang</string>
+    <string name="not_interested">Tidak tertarik</string>
     <string name="reset_to_default">Setel ulang ke default</string>
     <string name="rich_presence_footer">Tampilkan apa yang sedang Anda putar di profil Discord Anda.</string>
     <string name="save_name">Simpan nama</string>

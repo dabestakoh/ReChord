@@ -437,6 +437,7 @@
     <string name="playlist_reordered">Ordre de la playlist enregistré</string>
     <string name="save_order">Enregistrer</string>
     <string name="reset_order">Réinitialiser</string>
+    <string name="not_interested">Pas intéressé</string>
     <string name="reset_to_default">Réinitialiser par défaut</string>
     <string name="rich_presence_footer">Affiche ce que vous écoutez sur votre profil Discord.</string>
     <string name="save_name">Enregistrer le nom</string>

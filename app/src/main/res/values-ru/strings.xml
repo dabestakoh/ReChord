@@ -455,6 +455,7 @@
     <string name="playlist_reordered">Порядок плейлиста сохранён</string>
     <string name="save_order">Сохранить</string>
     <string name="reset_order">Сбросить</string>
+    <string name="not_interested">Не интересно</string>
     <string name="reset_to_default">Сбросить по умолчанию</string>
     <string name="rich_presence_footer">Показывать, что вы слушаете, в вашем профиле Discord.</string>
     <string name="save_name">Сохранить название</string>

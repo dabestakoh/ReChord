@@ -50,6 +50,9 @@ object LikeState {
         if (next != _overrides.value) _overrides.value = next
     }
 
+    fun dislikedIds(): Set<String> =
+        _overrides.value.filterValues { it == LikeStatus.DISLIKE }.keys
+
     fun clear() {
         _overrides.value = emptyMap()
     }

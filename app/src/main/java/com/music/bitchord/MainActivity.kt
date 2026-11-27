@@ -3847,16 +3847,26 @@ private fun BitChordApp(
                                 artworkMotion = artworkMotion,
                                 replayYear = replayYearBadge,
                                 onTopPickLongPress = { pick ->
-                                    pick.browseId?.let { browseId ->
-                                        onShelfLongPress(
-                                            ShelfItem(
-                                                title = pick.title,
-                                                subtitle = pick.artistName.orEmpty(),
-                                                thumbnailUrl = pick.images.firstOrNull(),
-                                                videoId = null,
-                                                browseId = browseId,
-                                            ),
-                                        )
+                                    when (pick.kind) {
+                                        TopPickKind.CONTINUE_LISTENING -> player.song?.let(openSongMenu)
+                                        TopPickKind.LATEST_RELEASE -> pick.browseId?.let { browseId ->
+                                            onShelfLongPress(
+                                                ShelfItem(
+                                                    title = pick.title,
+                                                    subtitle = pick.artistName.orEmpty(),
+                                                    thumbnailUrl = pick.images.firstOrNull(),
+                                                    videoId = null,
+                                                    browseId = browseId,
+                                                ),
+                                            )
+                                        }
+                                        TopPickKind.RELATED_SONG,
+                                        TopPickKind.ARTIST_AND_SIMILAR -> {
+                                            if (pick.recommendations.isNotEmpty()) {
+                                                openBrowseMenu(featuredBrowseTarget(pick))
+                                            }
+                                        }
+                                        else -> Unit
                                     }
                                 },
                             )
@@ -4071,23 +4081,28 @@ private fun BitChordApp(
                                 // The same queue opening the Local Music folder and
                                 // tapping the row there would give.
                                 onLibrarySongClick = { songs, index ->
-                                    playFrom(
-                                        songs,
-                                        index,
-                                        if (searchSource == SearchSource.ADDONS) {
-                                            QueueSource(
-                                                context.getString(R.string.search_source_addons),
-                                                PlaybackSourceType.BROWSE,
-                                                "addons:search",
+                                    if (searchSource == SearchSource.ADDONS) {
+                                        songs.getOrNull(index)?.let { song ->
+                                            playRadio(
+                                                song,
+                                                QueueSource(
+                                                    context.getString(R.string.search_source_addons),
+                                                    PlaybackSourceType.SEARCH,
+                                                    "addons:search",
+                                                ),
                                             )
-                                        } else {
+                                        }
+                                    } else {
+                                        playFrom(
+                                            songs,
+                                            index,
                                             QueueSource(
                                                 context.getString(R.string.local_music),
                                                 PlaybackSourceType.BROWSE,
                                                 "local:all",
-                                            )
-                                        },
-                                    )
+                                            ),
+                                        )
+                                    }
                                 },
                             )
                             else -> LibraryScreen(
@@ -5796,7 +5811,12 @@ private fun BitChordApp(
                     QueueShuffle.enableForNextQueue()
                     play(songs, songs.indices.random())
                 }.takeIf { target.fromCard },
-                onAddToPlaylists = if (target.type == BrowseType.ALBUM && target.browseId != null && signedIn) {
+                onAddToPlaylists = if (
+                    signedIn && (
+                        (target.type == BrowseType.ALBUM && target.browseId != null) ||
+                            (target.featuredPick != null && target.songs.isNotEmpty())
+                        )
+                ) {
                     {
                         browseActions = null
                         viewModel.loadPlaylists()
@@ -5954,6 +5974,25 @@ private fun BitChordApp(
                         scope.launch { Downloads.deleteCollection(context, id) }
                     }
                 },
+                onOpenArtist = target.featuredPick?.artistBrowseId?.let { artistId ->
+                    {
+                        val pick = target.featuredPick
+                        browseActions = null
+                        viewModel.openDetail(
+                            browseId = artistId,
+                            title = pick.artistName ?: pick.subtitle,
+                            subtitle = "",
+                            thumbnailUrl = pick.images.firstOrNull(),
+                            type = BrowseType.ARTIST,
+                        )
+                    }
+                },
+                onNotInterested = target.featuredPick?.let { pick ->
+                    {
+                        browseActions = null
+                        viewModel.dismissTopPick(pick)
+                    }
+                },
             )
         }
         // In a recompose scope of its own, as the track menu's is.
@@ -5977,15 +6016,21 @@ private fun BitChordApp(
                 // Tapping the lifted card opens it, as a tap on it in the list
                 // would have. Not for a Local Music grouping, which has no page.
                 onPreviewClick = { target ->
-                    target.browseId?.let { id ->
+                    val pick = target.featuredPick
+                    if (pick != null) {
                         browseActions = null
-                        viewModel.openDetail(
-                            browseId = id,
-                            title = target.title,
-                            subtitle = target.subtitle,
-                            thumbnailUrl = target.thumbnailUrl,
-                            type = target.type,
-                        )
+                        openTopPick(pick, pick.title)
+                    } else {
+                        target.browseId?.let { id ->
+                            browseActions = null
+                            viewModel.openDetail(
+                                browseId = id,
+                                title = target.title,
+                                subtitle = target.subtitle,
+                                thumbnailUrl = target.thumbnailUrl,
+                                type = target.type,
+                            )
+                        }
                     }
                 },
             ) { target ->
@@ -7198,5 +7243,18 @@ private fun likedReorderPlaylist(
         thumbnailUrl = target.thumbnailUrl,
     )
 }
+
+/** Builds a BrowseTarget for a Home Featured card (`RELATED_SONG` or `ARTIST_AND_SIMILAR`). */
+private fun featuredBrowseTarget(pick: TopPick): BrowseTarget = BrowseTarget(
+    browseId = null,
+    title = pick.title,
+    subtitle = pick.artistName ?: pick.subtitle,
+    thumbnailUrl = pick.images.firstOrNull(),
+    type = BrowseType.PLAYLIST,
+    songs = pick.recommendations,
+    fromCard = true,
+    featuredPick = pick,
+)
+
 
 

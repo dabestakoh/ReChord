@@ -449,6 +449,7 @@
     <string name="playlist_reordered">Orden de la playlist guardado</string>
     <string name="save_order">Guardar</string>
     <string name="reset_order">Restablecer</string>
+    <string name="not_interested">No me interesa</string>
     <string name="reset_to_default">Restablecer valores predeterminados</string>
     <string name="rich_presence_footer">Muestra lo que estás escuchando en tu perfil de Discord.</string>
     <string name="save_name">Guardar nombre</string>
