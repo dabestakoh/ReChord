@@ -198,15 +198,19 @@ object PlaylistSnapshotCache {
                 return
             }
             val metadataChanged = PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)
-            val firstPageChanged = PlaylistMetadata.firstPageChanged(cached.songs, probe.songs)
+            val firstPageChanged = PlaylistMetadata.firstPageChanged(
+                cached.songs, probe.songs, hasContinuation = probe.continuation != null,
+            )
             val headerArtChanged = probe.header?.thumbnailUrl?.takeIf(String::isNotBlank)
                 ?.let { it != cached.thumbnailUrl } == true
             val headerTitleChanged = probe.header?.title?.takeIf(String::isNotBlank)
                 ?.let { it != cached.title } == true
+            val headerSubtitleChanged = probe.header?.subtitle?.takeIf(String::isNotBlank)
+                ?.let { it != cached.subtitle } == true
 
             if (!checkOnReturn && !metadataChanged && !firstPageChanged) {
-                // Even if track list is unchanged, apply refreshed collage art / title from Page 1.
-                if (headerArtChanged || headerTitleChanged) {
+                // Even if track list is unchanged, apply refreshed collage art / title / subtitle from Page 1.
+                if (headerArtChanged || headerTitleChanged || headerSubtitleChanged) {
                     val refreshed = cached.copy(
                         title = probe.header?.title?.takeIf(String::isNotBlank) ?: cached.title,
                         subtitle = probe.header?.subtitle?.takeIf(String::isNotBlank) ?: cached.subtitle,

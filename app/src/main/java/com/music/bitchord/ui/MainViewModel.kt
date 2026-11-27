@@ -1093,6 +1093,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Propagates refreshed playlist cover art, title, or subtitle from a completed
+     * cache update to the Library tab's Playlists shelf and the Add-to-Playlist picker.
+     */
+    private fun syncPlaylistPresentation(
+        browseId: String,
+        title: String?,
+        subtitle: String?,
+        thumbnailUrl: String?,
+    ) {
+        val nextTitle = title?.takeIf(String::isNotBlank)
+        val nextSubtitle = subtitle?.takeIf(String::isNotBlank)
+        val nextArt = thumbnailUrl?.takeIf(String::isNotBlank)
+        if (nextTitle == null && nextSubtitle == null && nextArt == null) return
+        val updatedPlaylists = _playlists.value.map { pl ->
+            if (pl.browseId != browseId) pl
+            else pl.copy(
+                title = nextTitle ?: pl.title,
+                subtitle = nextSubtitle ?: pl.subtitle,
+                thumbnailUrl = nextArt ?: pl.thumbnailUrl,
+            )
+        }
+        if (updatedPlaylists != _playlists.value) _playlists.value = updatedPlaylists
+        editPlaylistShelf { items ->
+            items.map { item ->
+                if (item.browseId != browseId) item
+                else item.copy(
+                    title = nextTitle ?: item.title,
+                    subtitle = nextSubtitle ?: item.subtitle,
+                    thumbnailUrl = nextArt ?: item.thumbnailUrl,
+                )
+            }
+        }
+    }
+
+    /**
      * Adds [song] to every playlist in [playlists] — the picker's ticked rows —
      * and reports how each went, once, when they all have.
      *
@@ -1547,10 +1582,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // A fresh playlist without a snapshot still uses the open page; it will
         // receive a complete snapshot from its normal background sync.
         playlistCacheListener()?.let { listener ->
+            var needsCollageRefresh = false
             PlaylistSnapshotCache.mutate(getApplication(), listener, browseId) { rows ->
-                if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
+                val next = if (rows.any { playlistEntryKey(it) == playlistEntryKey(added) }) rows
                 else rows + added
+                needsCollageRefresh = next.size <= 4
+                next
             }.join()
+            if (needsCollageRefresh) {
+                PlaylistSnapshotCache.requestSync(
+                    getApplication(), listener, browseId, force = false,
+                )
+            }
         }
     }
 
@@ -1613,10 +1656,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = {
                     libraryStale = true
                     playlistCacheListener()?.let { listener ->
-                        PlaylistSnapshotCache.mutate(getApplication(), listener, playlist.browseId) { rows ->
+                        val topFourChanged = original.take(4).map(::playlistEntryKey) !=
+                            reordered.take(4).map(::playlistEntryKey)
+                        val mutation = PlaylistSnapshotCache.mutate(getApplication(), listener, playlist.browseId) { rows ->
                             if (rows.size == reordered.size &&
                                 rows.map(::playlistEntryKey).toSet() == reordered.map(::playlistEntryKey).toSet()
                             ) reordered else rows
+                        }
+                        if (topFourChanged) {
+                            viewModelScope.launch {
+                                mutation.join()
+                                PlaylistSnapshotCache.requestSync(
+                                    getApplication(), listener, playlist.browseId, force = false,
+                                )
+                            }
                         }
                     }
                     _detailStack.value = _detailStack.value.map { page ->
@@ -1777,6 +1830,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     }
+                }
+                if (update.complete) {
+                    syncPlaylistPresentation(
+                        browseId = update.browseId,
+                        title = update.title,
+                        subtitle = update.subtitle,
+                        thumbnailUrl = update.thumbnailUrl,
+                    )
                 }
                 _detailStack.value = _detailStack.value.map { page ->
                     if (page.browseId != update.browseId || page.type != BrowseType.PLAYLIST) {

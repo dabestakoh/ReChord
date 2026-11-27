@@ -37,8 +37,13 @@ object PlaylistMetadata {
      * omit the count. Not a substitute for the six-hour complete verification:
      * edits beyond the first page may remain invisible.
      */
-    fun firstPageChanged(cached: List<Song>, fetched: List<Song>): Boolean {
+    fun firstPageChanged(
+        cached: List<Song>,
+        fetched: List<Song>,
+        hasContinuation: Boolean = true,
+    ): Boolean {
         if (fetched.isEmpty()) return false // Empty/ambiguous page is not proof of deletion.
+        if (!hasContinuation && cached.size != fetched.size) return true
         if (cached.size < fetched.size) return true
         return fetched.indices.any { index ->
             playlistEntryKey(cached[index]) != playlistEntryKey(fetched[index])

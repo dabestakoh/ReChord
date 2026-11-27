@@ -45,6 +45,14 @@ class PlaylistMetadataTest {
             listOf(song("a"), song("b"), song("c")), listOf(song("a"), song("b"))))
     }
 
+    @Test fun singlePageTailDeletionTriggersFirstPageChanged() {
+        assertTrue(PlaylistMetadata.firstPageChanged(
+            listOf(song("a"), song("b"), song("c")),
+            listOf(song("a"), song("b")),
+            hasContinuation = false,
+        ))
+    }
+
     @Test fun emptyFirstPageDoesNotDeleteValidCache() {
         assertFalse(PlaylistMetadata.firstPageChanged(listOf(song("a")), emptyList()))
     }
