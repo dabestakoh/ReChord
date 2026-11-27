@@ -41,6 +41,15 @@ object LikeState {
         if (next != _overrides.value) _overrides.value = next
     }
 
+    /** Applies externally discovered Liked Songs additions/removals so heart icons stay live. */
+    fun applyExternalLikedDelta(added: Set<String>, removed: Set<String>) {
+        if (added.isEmpty() && removed.isEmpty()) return
+        val next = _overrides.value.toMutableMap()
+        added.forEach { next[it] = LikeStatus.LIKE }
+        removed.forEach { if (next[it] == LikeStatus.LIKE) next[it] = LikeStatus.INDIFFERENT }
+        if (next != _overrides.value) _overrides.value = next
+    }
+
     fun clear() {
         _overrides.value = emptyMap()
     }

@@ -751,7 +751,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * on a round trip before the heart fills reads as the tap not having
      * registered, and people tap again.
      */
-    fun setLike(videoId: String, status: LikeStatus) {
+    fun setLike(videoId: String, status: LikeStatus, song: Song? = null) {
         if (!requireSignIn()) return
         val previous = likeStatusOf(videoId)
         if (previous == status) return
@@ -761,7 +761,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = {
                     // Liked Music is now out of date either way.
                     libraryStale = true
-                    if (status != LikeStatus.LIKE) dropFromLikedLists(videoId)
+                    if (status == LikeStatus.LIKE) {
+                        prependToLikedLists(videoId, song)
+                    } else {
+                        dropFromLikedLists(videoId)
+                    }
                     // Clearing the heart means forgetting the song, not
                     // demoting it — see [forgetFromLibrary].
                     val unliked = previous == LikeStatus.LIKE &&
@@ -800,19 +804,60 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    private fun findKnownSong(videoId: String): Song? {
+        _detailStack.value.forEach { page ->
+            (page.songs as? UiState.Success)?.data?.firstOrNull { it.videoId == videoId }?.let { return it }
+            page.suggestedSongs.firstOrNull { it.videoId == videoId }?.let { return it }
+        }
+        (_library.value as? UiState.Success)?.data?.likedSongs?.firstOrNull { it.videoId == videoId }?.let { return it }
+        return null
+    }
+
     /**
-     * Takes an un-liked track out of the lists that exist *because* it was
-     * liked — the Library tab's Liked Music section, and the Liked Music page
-     * itself if it happens to be open.
-     *
-     * Marking the library stale isn't enough on its own: that only acts when
-     * the tab is next opened, and un-liking is nearly always done from inside
-     * one of these two lists, looking straight at the row. Leaving it there
-     * reads as the tap not having worked — the menu says "Like" again while
-     * the song sits in Liked Music.
-     *
-     * Only ever removes. A track liked from somewhere else doesn't get spliced
-     * into a list that YouTube orders for itself; the next fetch places it.
+     * Prepends a newly liked track immediately into the Library Liked Music shelf,
+     * any open Liked Music detail page, and the durable VLLM snapshot cache.
+     */
+    private fun prependToLikedLists(videoId: String, song: Song?) {
+        val resolved = song ?: findKnownSong(videoId)
+        val listener = playlistCacheListener()
+        if (resolved == null) {
+            if (listener != null) {
+                PlaylistSnapshotCache.requestSync(
+                    getApplication(), listener, YtMusicRepository.LIKED_MUSIC, force = false,
+                )
+            }
+            return
+        }
+        val library = (_library.value as? UiState.Success)?.data
+        if (library != null && library.likedSongs.none { it.videoId == videoId }) {
+            _library.value = UiState.Success(
+                library.copy(likedSongs = listOf(resolved) + library.likedSongs),
+            )
+        }
+        _detailStack.value = _detailStack.value.map { page ->
+            if (page.browseId != YtMusicRepository.LIKED_MUSIC) return@map page
+            val songs = (page.songs as? UiState.Success)?.data ?: return@map page
+            if (songs.any { it.videoId == videoId }) return@map page
+            val newestRank = songs.mapIndexed { i, entry ->
+                entry.playlistAddedOrdinal ?: (songs.size - i).toLong()
+            }.maxOrNull() ?: 0L
+            page.copy(
+                songs = UiState.Success(
+                    listOf(resolved.copy(playlistAddedOrdinal = newestRank + 1L)) + songs,
+                ),
+            )
+        }
+        if (listener != null) {
+            PlaylistSnapshotCache.mutate(getApplication(), listener, YtMusicRepository.LIKED_MUSIC) { rows ->
+                if (rows.any { it.videoId == videoId }) rows
+                else listOf(resolved) + rows
+            }
+        }
+    }
+
+    /**
+     * Takes an un-liked or disliked track out of the Library Liked Music shelf,
+     * any open Liked Music page, and the durable VLLM snapshot cache.
      */
     private fun dropFromLikedLists(videoId: String) {
         val library = (_library.value as? UiState.Success)?.data
@@ -829,12 +874,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 page.copy(songs = UiState.Success(songs.filterNot { it.videoId == videoId }))
             }
         }
+        playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.mutate(getApplication(), listener, YtMusicRepository.LIKED_MUSIC) { rows ->
+                rows.filterNot { it.videoId == videoId }
+            }
+        }
     }
 
     /** The heart: liked becomes neutral, anything else becomes liked. */
-    fun toggleLike(videoId: String) = setLike(
+    fun toggleLike(videoId: String, song: Song? = null) = setLike(
         videoId,
         if (likeStatusOf(videoId) == LikeStatus.LIKE) LikeStatus.INDIFFERENT else LikeStatus.LIKE,
+        song = song,
     )
 
     /** As [toggleLike], for the thumb-down. */
@@ -1192,6 +1243,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         title = name,
                         subtitle = if (song != null) "1 song" else "",
                         thumbnailUrl = song?.thumbnailUrl,
+                        songs = listOfNotNull(song),
                     )
                 },
                 onFailure = { showPlaylistEditFailure() },
@@ -1235,13 +1287,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     accepted.addAll(chunk.map { it.videoId })
                 }
             }
+            val acceptedSongs = uniqueSongs.filter { it.videoId in accepted }
             publishCreatedPlaylist(
                 playlistId = playlistId,
                 title = name,
                 subtitle = getApplication<Application>().resources.getQuantityString(
                     R.plurals.song_count_plural, accepted.size, accepted.size,
                 ),
-                thumbnailUrl = uniqueSongs.firstOrNull { it.videoId in accepted }?.thumbnailUrl,
+                thumbnailUrl = acceptedSongs.firstOrNull()?.thumbnailUrl,
+                songs = acceptedSongs,
             )
             val counted = HashSet<String>()
             var added = 0
@@ -1264,9 +1318,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         title: String,
         subtitle: String,
         thumbnailUrl: String?,
+        songs: List<Song> = emptyList(),
     ) {
         // The account owns a playlist it has just created; no lookup needed.
-        setPlaylistOwned("VL$playlistId", true)
+        val browseId = "VL$playlistId"
+        setPlaylistOwned(browseId, true)
+        playlistCacheListener()?.let { listener ->
+            PlaylistSnapshotCache.seed(
+                context = getApplication(),
+                listener = listener,
+                browseId = browseId,
+                songs = songs,
+                title = title,
+                subtitle = subtitle,
+                thumbnailUrl = thumbnailUrl,
+                owned = true,
+            )
+        }
         libraryStale = true
         val created = UserPlaylist(
             playlistId = playlistId,
@@ -1372,7 +1440,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         viewModelScope.launch {
                             mutation.join()
                             PlaylistSnapshotCache.requestSync(
-                                getApplication(), listener, browseId, force = true,
+                                getApplication(), listener, browseId, force = false,
                             ).join()
                         }
                     }
@@ -1500,6 +1568,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             YtMusicRepository.renamePlaylist(playlist.playlistId, name).fold(
                 onSuccess = {
                     setPlaylistTitle(playlist, name)
+                    playlistCacheListener()?.let { listener ->
+                        PlaylistSnapshotCache.updateMetadata(
+                            getApplication(), listener, playlist.browseId, title = name,
+                        )
+                    }
                     libraryStale = true
                 },
                 onFailure = { showPlaylistEditFailure() },
@@ -1688,9 +1761,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         PlaylistSnapshotCache.schedule(app)
         viewModelScope.launch {
-            PlaylistSnapshotCache.updates.collectLatest { update ->
-                if (update.listener != playlistCacheListener()) return@collectLatest
+            PlaylistSnapshotCache.updates.collect { update ->
+                if (update.listener != playlistCacheListener()) return@collect
                 update.owned?.let { setPlaylistOwned(update.browseId, it) }
+                if (update.browseId == YtMusicRepository.LIKED_MUSIC) {
+                    if (update.addedVideoIds.isNotEmpty() || update.removedVideoIds.isNotEmpty()) {
+                        LikeState.applyExternalLikedDelta(update.addedVideoIds, update.removedVideoIds)
+                    }
+                    if (update.complete) {
+                        val library = (_library.value as? UiState.Success)?.data
+                        if (library != null) {
+                            val updatedLiked = update.songs.take(100)
+                            if (library.likedSongs != updatedLiked) {
+                                _library.value = UiState.Success(library.copy(likedSongs = updatedLiked))
+                            }
+                        }
+                    }
+                }
                 _detailStack.value = _detailStack.value.map { page ->
                     if (page.browseId != update.browseId || page.type != BrowseType.PLAYLIST) {
                         page
@@ -3319,6 +3406,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         PlaylistSnapshotCache.requestSync(
             getApplication(), listener, browseId, checkOnReturn = true,
         )
+    }
+
+    /**
+     * Clears probe cooldowns when returning from another app (e.g. YouTube Music)
+     * so opening any cached playlist checks Page 1 immediately, and refreshes an
+     * open playlist or the Library tab's Liked Songs preview in the background.
+     */
+    fun onAppForegroundReturn(openBrowseId: String?, onLibraryTab: Boolean) {
+        PlaylistSnapshotCache.onAppForegroundReturn()
+        if (openBrowseId != null && PlaylistSnapshotCache.isPlaylist(openBrowseId)) {
+            checkPlaylistAfterExternalReturn(openBrowseId)
+        } else if (onLibraryTab) {
+            val listener = playlistCacheListener() ?: return
+            viewModelScope.launch {
+                val cached = PlaylistSnapshotCache.read(getApplication(), listener, YtMusicRepository.LIKED_MUSIC)
+                if (cached != null) {
+                    PlaylistSnapshotCache.requestSync(
+                        getApplication(), listener, YtMusicRepository.LIKED_MUSIC, force = false,
+                    )
+                }
+            }
+        }
     }
 
     /** Force a fresh server comparison while retaining the current playable rows. */

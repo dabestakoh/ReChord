@@ -85,4 +85,54 @@ class PlaylistMetadataTest {
         assertFalse(PlaylistMetadata.hasChanged(
             listOf(song("a", "3:23"), song("b", "2:45")), "2 songs • 6 minutes"))
     }
+
+    @Test fun mergeFirstPagePrependsNewLikedSongsAndPreservesTail() {
+        val cached = (1..20).map { song("s$it").copy(setVideoId = "set-$it") }
+        val fetched = listOf(song("new1").copy(setVideoId = "set-new1")) + cached.take(9)
+        val result = PlaylistMetadata.mergeFirstPage(cached, fetched, hasContinuation = true)
+        assertTrue(result.anchored)
+        assertFalse(result.complete)
+        assertEquals(21, result.merged.size)
+        assertEquals("new1", result.merged.first().videoId)
+        assertEquals("s20", result.merged.last().videoId)
+    }
+
+    @Test fun mergeFirstPageRemovesDeletedTrackOnPageOneWithoutDroppingTail() {
+        val cached = (1..15).map { song("s$it").copy(setVideoId = "set-$it") }
+        val fetched = listOf(cached[0]) + cached.subList(2, 10)
+        val result = PlaylistMetadata.mergeFirstPage(cached, fetched, hasContinuation = true)
+        assertTrue(result.anchored)
+        assertEquals(14, result.merged.size)
+        assertFalse(result.merged.any { it.videoId == "s2" })
+        assertEquals("s15", result.merged.last().videoId)
+    }
+
+    @Test fun mergeFirstPageDeduplicatesLocallyLikedEntryReceivingSetVideoId() {
+        val localLiked = song("new1") // setVideoId == null
+        val cached = listOf(localLiked) + (1..12).map { song("s$it").copy(setVideoId = "set-$it") }
+        val serverPage = listOf(song("new1").copy(setVideoId = "set-new1")) + cached.subList(1, 8)
+        val result = PlaylistMetadata.mergeFirstPage(cached, serverPage, hasContinuation = true)
+        assertTrue(result.anchored)
+        assertEquals(13, result.merged.size)
+        assertEquals(1, result.merged.count { it.videoId == "new1" })
+        assertEquals("set-new1", result.merged.first().setVideoId)
+    }
+
+    @Test fun mergeFirstPageSinglePageMarksComplete() {
+        val cached = listOf(song("a"), song("b"))
+        val fetched = listOf(song("a"), song("b"), song("c"))
+        val result = PlaylistMetadata.mergeFirstPage(cached, fetched, hasContinuation = false)
+        assertTrue(result.anchored)
+        assertTrue(result.complete)
+        assertEquals(listOf("a", "b", "c"), result.merged.map { it.videoId })
+    }
+
+    @Test fun mergeFirstPageReturnsUnanchoredWhenNoOverlapExists() {
+        val cached = (1..10).map { song("old$it") }
+        val fetched = (1..10).map { song("brandNew$it") }
+        val result = PlaylistMetadata.mergeFirstPage(cached, fetched, hasContinuation = true)
+        assertFalse(result.anchored)
+        assertFalse(result.complete)
+        assertEquals(cached, result.merged)
+    }
 }

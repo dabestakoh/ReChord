@@ -949,7 +949,10 @@ private fun BitChordApp(
             leftForeground = true
         } else if (leftForeground) {
             leftForeground = false
-            detail?.browseId?.let(viewModel::checkPlaylistAfterExternalReturn)
+            viewModel.onAppForegroundReturn(
+                openBrowseId = detail?.browseId,
+                onLibraryTab = detail == null && visibleEntry == null && selectedTab == TAB_LIBRARY,
+            )
         }
     }
     // The reorder list lives on its playlist's page; leaving that page by any
@@ -1124,7 +1127,7 @@ private fun BitChordApp(
         }
     }
     val toggleLikeOf: (Song) -> Unit = { song ->
-        if (song.localUri != null) OfflinePlaylists.toggleLike(song) else viewModel.toggleLike(song.videoId)
+        if (song.localUri != null) OfflinePlaylists.toggleLike(song) else viewModel.toggleLike(song.videoId, song)
     }
     // Which tracks are being held on YouTube's own upload, so the player's menu
     // offers the way back out of a revert rather than the revert again.

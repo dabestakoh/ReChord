@@ -17,13 +17,20 @@ fun preservePlaylistAddedOrder(previous: List<Song>?, incoming: List<Song>): Lis
             song.playlistAddedOrdinal ?: (previous!!.size - index).toLong())
     }
     val known = baseline.associateBy(::playlistEntryKey)
+    val knownWithoutSetId = baseline
+        .filter { it.setVideoId.isNullOrBlank() }
+        .associateBy { it.videoId }
+    fun existingOrdinal(song: Song): Long? =
+        known[playlistEntryKey(song)]?.playlistAddedOrdinal
+            ?: knownWithoutSetId[song.videoId]?.playlistAddedOrdinal
+
     var highest = baseline.maxOfOrNull { it.playlistAddedOrdinal ?: 0L } ?: 0L
-    val unseen = incoming.filter { playlistEntryKey(it) !in known }
+    val unseen = incoming.filter { existingOrdinal(it) == null }
     val assigned = HashMap<String, Long>(unseen.size)
     // The service normally lists recent additions before older entries.
     unseen.asReversed().forEach { assigned[playlistEntryKey(it)] = ++highest }
     return incoming.map { song ->
         val key = playlistEntryKey(song)
-        song.copy(playlistAddedOrdinal = known[key]?.playlistAddedOrdinal ?: assigned[key])
+        song.copy(playlistAddedOrdinal = existingOrdinal(song) ?: assigned[key])
     }
 }
