@@ -188,27 +188,30 @@ internal class AutoplayRadio(
         }
 
         val newestFirst = queue.asReversed()
-        // Prefer the last completed/liked anchor song so an accidental tap or early skip
-        // never derails the listening session's vibe.
+        val queueIds = queue.mapTo(HashSet()) { it.videoId }
+        // Only fall back to an anchor that belongs to the current queue (never a stale
+        // track from an earlier listening session). When the user selects a fresh song,
+        // `newestFirst` picks that exact song first so its genre/vibe is preserved.
         val anchor = SessionTasteFeedback.lastGoodAnchorSong()?.takeIf { song ->
-            song.videoId !in usedSeeds &&
+            song.videoId in queueIds &&
+                song.videoId !in usedSeeds &&
                 song.videoId !in disliked &&
                 (VIDEO_ID.matches(song.videoId) || SourceRegistry.parseTrackKey(song.videoId) != null)
         }
-        val online = anchor?.takeIf { VIDEO_ID.matches(it.videoId) }
-            ?: newestFirst.firstOrNull {
-                VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds &&
-                    it.videoId !in disliked && !SessionTasteFeedback.isSongCooled(it)
-            }
+        val online = newestFirst.firstOrNull {
+            VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds &&
+                it.videoId !in disliked && !SessionTasteFeedback.isSongCooled(it)
+        }
+            ?: anchor?.takeIf { VIDEO_ID.matches(it.videoId) }
             ?: newestFirst.firstOrNull {
                 VIDEO_ID.matches(it.videoId) && it.videoId !in usedSeeds && it.videoId !in disliked
             }
         val source = online
-            ?: anchor
             ?: newestFirst.firstOrNull {
                 SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds &&
                     it.videoId !in disliked && !SessionTasteFeedback.isSongCooled(it)
             }
+            ?: anchor
             ?: newestFirst.firstOrNull {
                 SourceRegistry.parseTrackKey(it.videoId) != null && it.videoId !in usedSeeds && it.videoId !in disliked
             }

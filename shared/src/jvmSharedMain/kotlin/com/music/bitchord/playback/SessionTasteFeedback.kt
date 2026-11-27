@@ -101,6 +101,10 @@ object SessionTasteFeedback {
         song.videoId in skippedIds || primaryArtistKey(song) in cooledArtistKeys
     }
 
+    fun clearAnchor() = synchronized(lock) {
+        anchorSong = null
+    }
+
     fun reset() = synchronized(lock) {
         skippedIds.clear()
         artistSkipCounts.clear()

@@ -3662,6 +3662,7 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = null
         autoplaySeed = null
         autoplayRadio = AutoplayRadio()
+        SessionTasteFeedback.clearAnchor()
     }
 
     private fun clearBoundedContext() {
