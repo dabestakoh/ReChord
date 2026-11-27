@@ -684,6 +684,9 @@
     <string name="rich_presence_footer">Show what you are playing on your Discord profile.</string>
     <string name="save_name">Save name</string>
     <string name="save_order">Save</string>
+    <string name="reset_order">Reset</string>
+    <string name="not_interested">Not interested</string>
+    <string name="tune_radio_to_this">Tune radio to this</string>
     <string name="saved_to_downloads">Saved to Downloads</string>
     <string name="saved_to_youtube_music_account">Saved to your YouTube Music account</string>
     <string name="scrobble_delay">Scrobble delay</string>
@@ -1580,4 +1583,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Hi-Res only</string>
     <string name="no_hi_res_tracks">No Hi-Res tracks here</string>
+    <string name="playlist_updating">Updating</string>
 </resources>

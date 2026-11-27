@@ -482,6 +482,9 @@
     <string name="reorder_failed">Impossibile salvare il nuovo ordine</string>
     <string name="playlist_reordered">Ordine della playlist salvato</string>
     <string name="save_order">Salva</string>
+    <string name="reset_order">Ripristina</string>
+    <string name="not_interested">Non mi interessa</string>
+    <string name="tune_radio_to_this">Sintonizza radio su questo</string>
     <string name="reset_to_default">Ripristina predefiniti</string>
     <string name="rich_presence_footer">Mostra cosa stai ascoltando sul tuo profilo Discord.</string>
     <string name="save_name">Salva nome</string>
@@ -1647,4 +1650,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Solo Hi-Res</string>
     <string name="no_hi_res_tracks">Nessun brano Hi-Res qui</string>
+    <string name="playlist_updating">Aggiornamento</string>
 </resources>

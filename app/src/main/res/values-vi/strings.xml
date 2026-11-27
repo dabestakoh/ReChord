@@ -470,6 +470,9 @@
     <string name="reorder_failed">Không thể lưu thứ tự mới</string>
     <string name="playlist_reordered">Đã lưu thứ tự danh sách phát</string>
     <string name="save_order">Lưu</string>
+    <string name="reset_order">Đặt lại</string>
+    <string name="not_interested">Không quan tâm</string>
+    <string name="tune_radio_to_this">Điều chỉnh radio theo bài này</string>
     <string name="reset_to_default">Đặt lại về mặc định</string>
     <string name="rich_presence_footer">Hiển thị những gì bạn đang nghe trên hồ sơ Discord của bạn.</string>
     <string name="save_name">Lưu tên</string>
@@ -1619,4 +1622,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Chỉ Hi-Res</string>
     <string name="no_hi_res_tracks">Không có bài hát Hi-Res nào ở đây</string>
+    <string name="playlist_updating">Đang cập nhật</string>
 </resources>

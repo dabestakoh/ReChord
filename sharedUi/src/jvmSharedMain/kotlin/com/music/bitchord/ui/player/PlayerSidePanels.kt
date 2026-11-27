@@ -147,11 +147,15 @@ fun QueueSidePanel(
     onMove: (Int, Int) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
+    autoplayMode: com.music.bitchord.data.model.AutoplayMode = com.music.bitchord.data.model.AutoplayMode.FAMILIAR,
+    onAutoplayModeChange: ((com.music.bitchord.data.model.AutoplayMode) -> Unit)? = null,
 ) {
     InlineQueue(
         queue = queue,
         currentIndex = queueIndex,
         autoplayEnabled = autoplayEnabled,
+        autoplayMode = autoplayMode,
+        onAutoplayModeChange = onAutoplayModeChange,
         controlsLocked = rememberControlsLocked(),
         hazeState = remember { HazeState() },
         onJumpTo = onJumpTo,

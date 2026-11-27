@@ -265,4 +265,7 @@
     <string name="queue_download">ダウンロード</string>
     <string name="queue_selection_remove">削除</string>
     <string name="queue_add_all_to_playlist">すべてプレイリストに追加</string>
+    <string name="featured_rediscover">再発見</string>
+    <string name="autoplay_mode_familiar">おなじみ</string>
+    <string name="autoplay_mode_discovery">ディスカバリー</string>
 </resources>

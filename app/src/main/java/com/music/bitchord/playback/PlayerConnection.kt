@@ -145,6 +145,31 @@ fun MediaController.toggleAutoplay() {
     )
 }
 
+/** Removes remaining upcoming Autoplay items by [artistKey] after a Dislike. */
+fun MediaController.pruneArtistAutoplay(artistKey: String) {
+    if (artistKey.isBlank()) return
+    sendCustomCommand(
+        SessionCommand(ACTION_PRUNE_ARTIST_AUTOPLAY, Bundle.EMPTY),
+        bundleOf(EXTRA_PRUNE_ARTIST_KEY to artistKey),
+    )
+}
+
+/** Refreshes upcoming Autoplay tracks after toggling Familiar vs Discovery mode. */
+fun MediaController.refreshAutoplayMode() {
+    sendCustomCommand(
+        SessionCommand(ACTION_REFRESH_AUTOPLAY_MODE, Bundle.EMPTY),
+        Bundle.EMPTY,
+    )
+}
+
+/** Re-anchors upcoming Autoplay suggestions to [song] without interrupting playback. */
+fun MediaController.tuneRadioTo(song: Song) {
+    sendCustomCommand(
+        SessionCommand(ACTION_TUNE_RADIO, Bundle.EMPTY),
+        bundleOf(EXTRA_SWAP_MEDIA_ITEM to song.toSongBundle()),
+    )
+}
+
 /**
  * Routes Shuffle through the playback service so changing its state and
  * reordering the service-owned queue happen as one operation.

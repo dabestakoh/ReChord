@@ -15,9 +15,11 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -102,11 +104,14 @@ import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
 import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.ui.icons.BitChordIcons
+import androidx.compose.material3.darkColorScheme
+import com.music.bitchord.data.model.AutoplayMode
 import com.music.bitchord.data.model.QueueEntryIdentity
 import com.music.bitchord.data.model.QueueTier
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.playback.autoplaySectionStart
 import com.music.bitchord.ui.AppUi
+import com.music.bitchord.ui.components.PillSegmentedControl
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlin.math.abs
@@ -366,6 +371,8 @@ internal fun InlineQueue(
     onDragActiveChange: (Boolean) -> Unit = {},
     /** Space occupied by the phone deck over the stable, full-height viewport. */
     playerDeckInset: Dp = 0.dp,
+    autoplayMode: AutoplayMode = AutoplayMode.FAMILIAR,
+    onAutoplayModeChange: ((AutoplayMode) -> Unit)? = null,
     /** Phone only: let queue scrolling dismiss/restore the lower half player. */
     collapsePlayerOnScroll: Boolean = false,
     onRevealPlayer: () -> Unit = {},
@@ -512,8 +519,26 @@ internal fun InlineQueue(
                 } else stringResource(Res.string.queue),
                 style = MaterialTheme.typography.titleLarge,
                 color = Color.White,
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (!selectionState.active && autoplayEnabled && onAutoplayModeChange != null && !controlsLocked) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AutoplayModeHeaderPill(
+                        autoplayMode = autoplayMode,
+                        onSelect = onAutoplayModeChange,
+                        reduceDynamicBlur = reduceDynamicBlur,
+                        compact = maxWidth < 156.dp,
+                    )
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             if (selectionState.active) {
                 TextButton(
                     onClick = { selectionState.selectAll(allTracks) },
@@ -529,6 +554,8 @@ internal fun InlineQueue(
                     text = stringResource(Res.string.queue_select),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = if (controlsLocked) 0.25f else 0.75f),
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(percent = 50))
                         .clickable(enabled = !controlsLocked, onClick = selectionState::start)
@@ -866,6 +893,80 @@ private fun QueueClearButton(style: TextStyle, locked: Boolean, onClear: () -> U
             .clickable(enabled = !locked, onClick = onClear)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
+}
+
+@Composable
+private fun AutoplayModeHeaderPill(
+    autoplayMode: AutoplayMode,
+    onSelect: (AutoplayMode) -> Unit,
+    reduceDynamicBlur: Boolean,
+    compact: Boolean,
+) {
+    val familiarLabel = stringResource(Res.string.autoplay_mode_familiar)
+    val discoveryLabel = stringResource(Res.string.autoplay_mode_discovery)
+    val shape = RoundedCornerShape(percent = 50)
+    val trackColor = if (reduceDynamicBlur) Color(0xFF242426) else Color.White.copy(alpha = 0.10f)
+    val activeColor = if (reduceDynamicBlur) Color(0xFF3A3A3E) else Color.White.copy(alpha = 0.22f)
+    val borderMod = if (reduceDynamicBlur) {
+        Modifier
+    } else {
+        Modifier.border(0.5.dp, Color.White.copy(alpha = 0.16f), shape)
+    }
+
+    if (compact) {
+        val next = if (autoplayMode == AutoplayMode.FAMILIAR) AutoplayMode.DISCOVERY else AutoplayMode.FAMILIAR
+        val label = if (autoplayMode == AutoplayMode.FAMILIAR) familiarLabel else discoveryLabel
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .background(activeColor)
+                .then(borderMod)
+                .clickable { onSelect(next) }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(trackColor)
+            .then(borderMod)
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            AutoplayMode.FAMILIAR to familiarLabel,
+            AutoplayMode.DISCOVERY to discoveryLabel,
+        ).forEach { (mode, label) ->
+            val selected = autoplayMode == mode
+            Box(
+                modifier = Modifier
+                    .clip(shape)
+                    .background(if (selected) activeColor else Color.Transparent)
+                    .clickable { onSelect(mode) }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = if (selected) 1f else 0.65f),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1221,7 +1322,7 @@ private fun InlineQueueRow(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .trackArtSize(44.dp, song.isVideo)
+                .size(44.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .thumbnailBorder(RoundedCornerShape(6.dp))
                 .background(Color.White.copy(alpha = 0.08f)),

@@ -79,6 +79,8 @@ data class BrowseTarget(
      * questions about the download record, not about what this menu is.
      */
     val downloadId: String? = null,
+    /** Set when this menu was opened by long-pressing a Home Featured card. */
+    val featuredPick: com.music.bitchord.data.model.TopPick? = null,
 )
 
 /**
@@ -151,6 +153,8 @@ fun BrowseActionsMenu(
      */
     onRenameInSheet: (() -> Unit)? = null,
     startRenaming: Boolean = false,
+    onOpenArtist: (() -> Unit)? = null,
+    onNotInterested: (() -> Unit)? = null,
 ) {
     var renaming by remember { mutableStateOf(startRenaming) }
     var confirmingDelete by remember { mutableStateOf(false) }
@@ -298,6 +302,12 @@ fun BrowseActionsMenu(
                         confirmingDeleteDownload = true
                     }
                 }
+            }
+            onOpenArtist?.let {
+                ActionRow(SfIcons.Artist, stringResource(R.string.open_artist), onClick = it)
+            }
+            onNotInterested?.let {
+                ActionRow(SfIcons.Close, stringResource(R.string.not_interested), onClick = it)
             }
         }
     }

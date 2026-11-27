@@ -244,6 +244,8 @@ import com.music.bitchord.playback.toMediaItem
 import com.music.bitchord.playback.MusicOnlyPlayback
 import com.music.bitchord.playback.toSong
 import com.music.bitchord.playback.toDirectYouTubeMediaItem
+import com.music.bitchord.playback.pruneArtistAutoplay
+import com.music.bitchord.playback.refreshAutoplayMode
 import com.music.bitchord.playback.toggleAutoplay
 import com.music.bitchord.playback.toggleShuffle
 import com.music.bitchord.playback.upgradeQuality
@@ -949,7 +951,10 @@ private fun BitChordApp(
             leftForeground = true
         } else if (leftForeground) {
             leftForeground = false
-            detail?.browseId?.let(viewModel::checkPlaylistAfterExternalReturn)
+            viewModel.onAppForegroundReturn(
+                openBrowseId = detail?.browseId,
+                onLibraryTab = detail == null && visibleEntry == null && selectedTab == TAB_LIBRARY,
+            )
         }
     }
     // The reorder list lives on its playlist's page; leaving that page by any
@@ -1124,7 +1129,7 @@ private fun BitChordApp(
         }
     }
     val toggleLikeOf: (Song) -> Unit = { song ->
-        if (song.localUri != null) OfflinePlaylists.toggleLike(song) else viewModel.toggleLike(song.videoId)
+        if (song.localUri != null) OfflinePlaylists.toggleLike(song) else viewModel.toggleLike(song.videoId, song)
     }
     // Which tracks are being held on YouTube's own upload, so the player's menu
     // offers the way back out of a revert rather than the revert again.
@@ -1969,6 +1974,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
+                recordOnlineQueueIntent(song)
                 showQueueNotice(context.getString(R.string.song_added_to_queue))
             }
         }
@@ -1999,6 +2005,7 @@ private fun BitChordApp(
                     playbackSourceId = current?.playbackSourceId,
                 ).asQueueEntry(QueueTier.USER_QUEUE)
                 it.addMediaItem(at, queued.toMediaItem())
+                recordOnlineQueueIntent(song)
                 showQueueNotice(context.getString(R.string.song_will_play_next))
             }
         }
@@ -2850,6 +2857,13 @@ private fun BitChordApp(
             repeatMode = player.repeatMode,
             shuffleEnabled = shuffleEnabled,
             autoplayEnabled = autoplayEnabled,
+            autoplayMode = AppSettings.autoplayMode.collectAsStateWithLifecycle().value,
+            onAutoplayModeChange = { mode ->
+                if (AppSettings.autoplayMode.value != mode) {
+                    AppSettings.setAutoplayMode(mode)
+                    controller?.refreshAutoplayMode()
+                }
+            },
             signedIn = signedIn,
             likeStatus = likeStatusOf(song),
             onToggleLike = { toggleLikeOf(song) },
@@ -3740,30 +3754,22 @@ private fun BitChordApp(
                                 folder = folder,
                                 contentPadding = listPadding,
                                 floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
+                                onRefreshPlaylist = if (com.music.bitchord.data.PlaylistSnapshotCache.isPlaylist(page.browseId)) {
+                                    { viewModel.refreshPlaylist(page.browseId) }
+                                } else null,
                                 reorder = if (reordering != null) {
                                     { palette ->
-                                        ReorderPlaylistPage(
-                                            playlist = reordering,
-                                            entries = reorderEntries,
-                                            saving = reorderSaving,
+                                        DetailReorderContent(
+                                            reordering = reordering,
+                                            reorderEntries = reorderEntries,
+                                            reorderSaving = reorderSaving,
                                             palette = palette,
-                                            contentPadding = PaddingValues(
-                                                bottom = listPadding.calculateBottomPadding(),
-                                            ),
+                                            bottomPadding = listPadding.calculateBottomPadding(),
+                                            viewModel = viewModel,
+                                            onSetSaving = { reorderSaving = it },
+                                            onClearIfSame = { if (reorderTarget == reordering) reorderTarget = null },
                                             onClose = { reorderTarget = null },
-                                            onSave = { reordered ->
-                                                val original = (reorderEntries as? UiState.Success)?.data.orEmpty()
-                                                reorderSaving = true
-                                                viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
-                                                    reorderSaving = false
-                                                    showQueueNotice(
-                                                        context.getString(
-                                                            if (saved) R.string.playlist_reordered else R.string.reorder_failed,
-                                                        ),
-                                                    )
-                                                    if (saved && reorderTarget == reordering) reorderTarget = null
-                                                }
-                                            },
+                                            onNotice = showQueueNotice,
                                         )
                                     }
                                 } else {
@@ -3830,17 +3836,7 @@ private fun BitChordApp(
                                 artworkMotion = artworkMotion,
                                 replayYear = replayYearBadge,
                                 onTopPickLongPress = { pick ->
-                                    pick.browseId?.let { browseId ->
-                                        onShelfLongPress(
-                                            ShelfItem(
-                                                title = pick.title,
-                                                subtitle = pick.artistName.orEmpty(),
-                                                thumbnailUrl = pick.images.firstOrNull(),
-                                                videoId = null,
-                                                browseId = browseId,
-                                            ),
-                                        )
-                                    }
+                                    handleTopPickLongPress(pick, player.song, openSongMenu, openBrowseMenu)
                                 },
                             )
                             TAB_EXPLORE -> selectedMoodGenre?.let { category ->
@@ -4054,23 +4050,28 @@ private fun BitChordApp(
                                 // The same queue opening the Local Music folder and
                                 // tapping the row there would give.
                                 onLibrarySongClick = { songs, index ->
-                                    playFrom(
-                                        songs,
-                                        index,
-                                        if (searchSource == SearchSource.ADDONS) {
-                                            QueueSource(
-                                                context.getString(R.string.search_source_addons),
-                                                PlaybackSourceType.BROWSE,
-                                                "addons:search",
+                                    if (searchSource == SearchSource.ADDONS) {
+                                        songs.getOrNull(index)?.let { song ->
+                                            playRadio(
+                                                song,
+                                                QueueSource(
+                                                    context.getString(R.string.search_source_addons),
+                                                    PlaybackSourceType.SEARCH,
+                                                    "addons:search",
+                                                ),
                                             )
-                                        } else {
+                                        }
+                                    } else {
+                                        playFrom(
+                                            songs,
+                                            index,
                                             QueueSource(
                                                 context.getString(R.string.local_music),
                                                 PlaybackSourceType.BROWSE,
                                                 "local:all",
-                                            )
-                                        },
-                                    )
+                                            ),
+                                        )
+                                    }
                                 },
                             )
                             else -> LibraryScreen(
@@ -4193,7 +4194,7 @@ private fun BitChordApp(
                     )
                 }
 
-                FrostedTopBar(
+                if (reorderTarget == null) FrostedTopBar(
                     title = when (route) {
                         AppRoute.Spotify -> stringResource(R.string.spotify)
                         AppRoute.Downloads -> stringResource(R.string.downloads)
@@ -4945,6 +4946,10 @@ private fun BitChordApp(
                 onToggleLike = { toggleLikeOf(song) },
                 onToggleDislike = {
                     val previousStatus = viewModel.toggleDislike(song.videoId)
+                    if (previousStatus != null && previousStatus != LikeStatus.DISLIKE) {
+                        val cooledArtist = com.music.bitchord.playback.SessionTasteFeedback.recordDislike(song)
+                        controller?.pruneArtistAutoplay(cooledArtist)
+                    }
                     if (
                         previousStatus != null &&
                         shouldSkipAfterDislike(
@@ -5779,7 +5784,12 @@ private fun BitChordApp(
                     QueueShuffle.enableForNextQueue()
                     play(songs, songs.indices.random())
                 }.takeIf { target.fromCard },
-                onAddToPlaylists = if (target.type == BrowseType.ALBUM && target.browseId != null && signedIn) {
+                onAddToPlaylists = if (
+                    signedIn && (
+                        (target.type == BrowseType.ALBUM && target.browseId != null) ||
+                            (target.featuredPick != null && target.songs.isNotEmpty())
+                        )
+                ) {
                     {
                         browseActions = null
                         viewModel.loadPlaylists()
@@ -5885,7 +5895,7 @@ private fun BitChordApp(
                         viewModel.retitleDetail(p.browseId, name.trim())
                     }
                 },
-                onReorder = playlist?.let { p ->
+                onReorder = (playlist ?: likedReorderPlaylist(target, signedIn, context))?.let { p ->
                     {
                         browseActions = null
                         // Rearranged on the playlist's own page: open it first
@@ -5937,6 +5947,25 @@ private fun BitChordApp(
                         scope.launch { Downloads.deleteCollection(context, id) }
                     }
                 },
+                onOpenArtist = target.featuredPick?.artistBrowseId?.let { artistId ->
+                    {
+                        val pick = target.featuredPick
+                        browseActions = null
+                        viewModel.openDetail(
+                            browseId = artistId,
+                            title = pick.artistName ?: pick.subtitle,
+                            subtitle = "",
+                            thumbnailUrl = pick.images.firstOrNull(),
+                            type = BrowseType.ARTIST,
+                        )
+                    }
+                },
+                onNotInterested = target.featuredPick?.let { pick ->
+                    {
+                        browseActions = null
+                        viewModel.dismissTopPick(pick)
+                    }
+                },
             )
         }
         // In a recompose scope of its own, as the track menu's is.
@@ -5960,15 +5989,19 @@ private fun BitChordApp(
                 // Tapping the lifted card opens it, as a tap on it in the list
                 // would have. Not for a Local Music grouping, which has no page.
                 onPreviewClick = { target ->
-                    target.browseId?.let { id ->
+                    if (target.featuredPick != null) {
                         browseActions = null
-                        viewModel.openDetail(
-                            browseId = id,
-                            title = target.title,
-                            subtitle = target.subtitle,
-                            thumbnailUrl = target.thumbnailUrl,
-                            type = target.type,
-                        )
+                    } else {
+                        target.browseId?.let { id ->
+                            browseActions = null
+                            viewModel.openDetail(
+                                browseId = id,
+                                title = target.title,
+                                subtitle = target.subtitle,
+                                thumbnailUrl = target.thumbnailUrl,
+                                type = target.type,
+                            )
+                        }
                     }
                 },
             ) { target ->
@@ -7166,4 +7199,124 @@ private fun bottomScrimMaxWidth(width: Dp, height: Dp): Dp =
 /** -1 signals landscape side-by-side mode so the A–Z rail aligns level with the bottom edge of the Now Playing pill. */
 private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
     if (landscapeChrome(width, height)) -1 else measured
+
+/** Returns a synthetic reorder target for Liked Music (`VLLM`) when signed in. */
+private fun likedReorderPlaylist(
+    target: BrowseTarget,
+    signedIn: Boolean,
+    context: android.content.Context,
+): UserPlaylist? {
+    if (!signedIn || target.browseId != YtMusicRepository.LIKED_MUSIC) return null
+    return UserPlaylist(
+        playlistId = "LM",
+        title = target.title.ifBlank { context.getString(R.string.auto_liked) },
+        subtitle = target.subtitle,
+        thumbnailUrl = target.thumbnailUrl,
+    )
+}
+
+/** Builds a BrowseTarget for a Home Featured card (`RELATED_SONG` or `ARTIST_AND_SIMILAR`). */
+private fun featuredBrowseTarget(pick: TopPick): BrowseTarget = BrowseTarget(
+    browseId = null,
+    title = pick.title,
+    subtitle = pick.artistName ?: pick.subtitle,
+    thumbnailUrl = pick.images.firstOrNull(),
+    type = BrowseType.PLAYLIST,
+    songs = pick.recommendations,
+    fromCard = true,
+    featuredPick = pick,
+)
+
+/** Builds a BrowseTarget for a Home Featured `LATEST_RELEASE` album card. */
+private fun featuredLatestReleaseTarget(pick: TopPick): BrowseTarget = BrowseTarget(
+    browseId = pick.browseId,
+    title = pick.title,
+    subtitle = pick.artistName ?: pick.subtitle,
+    thumbnailUrl = pick.images.firstOrNull(),
+    type = BrowseType.ALBUM,
+    fromCard = true,
+    featuredPick = pick,
+)
+
+private fun handleTopPickLongPress(
+    pick: TopPick,
+    currentSong: Song?,
+    openSongMenu: (Song) -> Unit,
+    openBrowseMenu: (BrowseTarget) -> Unit,
+) {
+    when (pick.kind) {
+        TopPickKind.CONTINUE_LISTENING -> currentSong?.let(openSongMenu)
+        TopPickKind.LATEST_RELEASE -> pick.browseId?.let {
+            openBrowseMenu(featuredLatestReleaseTarget(pick))
+        }
+        TopPickKind.RELATED_SONG,
+        TopPickKind.ARTIST_AND_SIMILAR,
+        TopPickKind.REDISCOVER_LIKED -> {
+            if (pick.recommendations.isNotEmpty()) {
+                openBrowseMenu(featuredBrowseTarget(pick))
+            }
+        }
+        else -> Unit
+    }
+}
+
+@Composable
+private fun DetailReorderContent(
+    reordering: UserPlaylist,
+    reorderEntries: UiState<List<Song>>,
+    reorderSaving: Boolean,
+    palette: com.music.bitchord.ui.theme.ArtworkPalette,
+    bottomPadding: Dp,
+    viewModel: MainViewModel,
+    onSetSaving: (Boolean) -> Unit,
+    onClearIfSame: () -> Unit,
+    onClose: () -> Unit,
+    onNotice: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    ReorderPlaylistPage(
+        playlist = reordering,
+        entries = reorderEntries,
+        saving = reorderSaving,
+        palette = palette,
+        contentPadding = PaddingValues(bottom = bottomPadding),
+        onClose = onClose,
+        onResetOrder = if (
+            reordering.browseId == YtMusicRepository.LIKED_MUSIC &&
+            viewModel.hasCustomLikedOrder()
+        ) {
+            {
+                onSetSaving(true)
+                viewModel.resetLikedOrder {
+                    onSetSaving(false)
+                    onClearIfSame()
+                }
+            }
+        } else null,
+        onSave = { original, reordered ->
+            onSetSaving(true)
+            viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
+                onSetSaving(false)
+                onNotice(
+                    context.getString(
+                        if (saved) R.string.playlist_reordered else R.string.reorder_failed,
+                    ),
+                )
+                if (saved) onClearIfSame()
+            }
+        },
+    )
+}
+
+private fun recordOnlineQueueIntent(song: Song) {
+    if (song.localUri == null &&
+        !song.videoId.startsWith("content://") &&
+        !song.videoId.startsWith("file://")
+    ) {
+        com.music.bitchord.playback.SessionTasteFeedback.recordQueuedIntent(song)
+    }
+}
+
+
+
 

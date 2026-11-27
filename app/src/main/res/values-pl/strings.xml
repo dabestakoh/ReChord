@@ -397,6 +397,9 @@
     <string name="reorder_failed">Nie udało się zapisać nowej kolejności</string>
     <string name="playlist_reordered">Zapisano kolejność playlisty</string>
     <string name="save_order">Zapisz</string>
+    <string name="reset_order">Resetuj</string>
+    <string name="not_interested">Nie interesuje mnie</string>
+    <string name="tune_radio_to_this">Dostrój radio do tego utworu</string>
     <string name="reset_to_default">Przywróć domyślne</string>
     <string name="rich_presence_footer">Pokaż w co grasz na swoim profilu na Discordzie.</string>
     <string name="save_name">Zapisz nazwę</string>
@@ -1758,4 +1761,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Tylko Hi-Res</string>
     <string name="no_hi_res_tracks">Brak utworów Hi-Res</string>
+    <string name="playlist_updating">Aktualizowanie</string>
 </resources>

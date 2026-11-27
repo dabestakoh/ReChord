@@ -209,10 +209,14 @@ fun HomeScreen(
                 .takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }.orEmpty()
             val artists = picks.filter { it.kind == TopPickKind.ARTIST_AND_SIMILAR }
                 .take(2).takeIf { HomeSections.visible(HomeSections.ARTIST, homeSections) }.orEmpty()
+            val rediscover = picks.firstOrNull { it.kind == TopPickKind.REDISCOVER_LIKED }
+                ?.takeIf { HomeSections.visible(HomeSections.SONG, homeSections) }
             for (index in 0 until maxOf(songs.size, artists.size)) {
                 songs.getOrNull(index)?.let(::add)
+                if (index == 1) rediscover?.let(::add)
                 artists.getOrNull(index)?.let(::add)
             }
+            if (songs.size <= 1 && artists.size <= 1) rediscover?.let(::add)
         }.let { cards ->
             val releaseArt = cards.firstOrNull { it.kind == TopPickKind.LATEST_RELEASE }
                 ?.images?.firstOrNull()?.substringBefore('=')?.substringBefore('?')
@@ -242,7 +246,8 @@ fun HomeScreen(
                 val width = when (pick.kind) {
                     TopPickKind.FEATURED_ARTIST -> HEADER_ART_PX * 3 / 4
                     TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX,
-                    TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG -> HEADER_ART_PX
+                    TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG,
+                    TopPickKind.REDISCOVER_LIKED -> HEADER_ART_PX
                     else -> return@forEach
                 }
                 pick.images.firstOrNull().croppedAt(width, HEADER_ART_PX)?.let {

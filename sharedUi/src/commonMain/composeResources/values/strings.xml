@@ -354,4 +354,7 @@
     <string name="queue_download">Download</string>
     <string name="queue_selection_remove">Remove</string>
     <string name="queue_add_all_to_playlist">Add all to playlist</string>
+    <string name="featured_rediscover">Rediscover</string>
+    <string name="autoplay_mode_familiar">Familiar</string>
+    <string name="autoplay_mode_discovery">Discovery</string>
 </resources>

@@ -265,4 +265,7 @@
     <string name="queue_download">ดาวน์โหลด</string>
     <string name="queue_selection_remove">นำออก</string>
     <string name="queue_add_all_to_playlist">เพิ่มทั้งหมดลงเพลย์ลิสต์</string>
+    <string name="featured_rediscover">ฟังอีกครั้ง</string>
+    <string name="autoplay_mode_familiar">คุ้นเคย</string>
+    <string name="autoplay_mode_discovery">ค้นพบใหม่</string>
 </resources>

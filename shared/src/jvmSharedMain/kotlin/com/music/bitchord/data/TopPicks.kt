@@ -76,6 +76,13 @@ object TopPicks {
         val recent: List<Song> = emptyList(),
         val albumIds: Set<String> = emptySet(),
         val playlistSongs: List<Song> = emptyList(),
+        val dislikedIds: Set<String> = emptySet(),
+        val completedIds: Set<String> = emptySet(),
+        val dismissedSeedKeys: Set<String> = emptySet(),
+        val cooledArtists: Set<String> = emptySet(),
+        val timeOfDayVideoIds: Set<String> = emptySet(),
+        val timeOfDayArtists: Set<String> = emptySet(),
+        val artistAffinities: Map<String, Double> = emptyMap(),
     )
 
     data class Build(val picks: List<TopPick>, val complete: Boolean)
@@ -231,8 +238,51 @@ object TopPicks {
                 add(pick.copy(recommendations = tracks))
                 if (++artistCards == 2) break
             }
+            rediscoverLikedPick(history, local, used)?.let(::add)
         }
         return fillFeaturedFromArtistPicks(listOfNotNull(lead) + featured)
+    }
+
+    /**
+     * Builds a zero-network "Rediscover from Liked" Featured card from older
+     * Liked Songs (`drop(20)`) that the listener hasn't heard recently.
+     */
+    internal fun rediscoverLikedPick(
+        history: List<Song>,
+        local: LocalTaste,
+        excludeIds: Set<String> = emptySet(),
+    ): TopPick? {
+        if ("rediscover-liked" in local.dismissedSeedKeys) return null
+        val recentIds = (local.recent + history).mapTo(HashSet()) { it.videoId }
+        val candidates = local.liked.drop(20).filter { song ->
+            !song.isVideo &&
+                youtubeVideoId.matches(song.videoId) &&
+                song.videoId !in recentIds &&
+                song.videoId !in excludeIds &&
+                song.videoId !in local.dislikedIds &&
+                normalizedArtistName(primaryArtist(song)) !in local.cooledArtists
+        }
+            .distinctBy { it.videoId }
+            .sortedByDescending { it.videoId in local.completedIds }
+            .take(16)
+        if (candidates.size < 3) return null
+        val lead = candidates.first()
+        val artists = candidates.mapNotNull { primaryArtist(it).takeIf(String::isNotBlank) }
+            .distinct()
+            .take(3)
+            .joinToString(", ")
+        return TopPick(
+            kind = TopPickKind.REDISCOVER_LIKED,
+            title = lead.title,
+            subtitle = artists.ifBlank { lead.artist },
+            artistName = primaryArtist(lead).takeIf(String::isNotBlank),
+            artistBrowseId = lead.artists.firstOrNull { !it.browseId.isNullOrBlank() }?.browseId
+                ?: lead.artistId?.takeIf(String::isNotBlank),
+            images = candidates.mapNotNull { it.thumbnailUrl }.distinct().take(4),
+            recommendations = candidates,
+            likedSeed = true,
+            seedTitle = "rediscover-liked",
+        )
     }
 
     /**
@@ -340,18 +390,48 @@ object TopPicks {
 
     internal fun featuredSeeds(history: List<Song>, local: LocalTaste): List<Song> {
         val playlistIds = local.playlistSongs.mapTo(HashSet()) { it.videoId }
+        val likedIds = local.liked.mapTo(HashSet()) { it.videoId }
+        val recentIds = local.recent.mapTo(HashSet()) { it.videoId }
         val familiar = (local.genres + local.recentGenres).map { it.lowercase(Locale.ROOT) }.distinct()
         val frequencies = history.groupingBy { it.videoId }.eachCount()
         val remote = history.distinctBy { it.videoId }.sortedByDescending { frequencies[it.videoId] }
-        val sources = listOf(local.recent.take(20), remote.take(30), local.liked.take(10), local.songs.take(30))
+        val recentLikes = local.liked.take(15)
+        // Sample older "deep-cut" liked tracks (favoring tracks the listener finished
+        // or hasn't heard recently) so Featured stays fresh across the full Liked library.
+        val deepCutLikes = local.liked.drop(15)
+            .sortedWith(
+                compareByDescending<Song> { it.videoId in local.completedIds }
+                    .thenBy { it.videoId in recentIds },
+            )
+            .take(10)
+        val sources = listOf(
+            local.recent.take(20),
+            remote.take(30),
+            recentLikes,
+            deepCutLikes,
+            local.songs.take(30),
+        )
         val candidates = (0 until sources.maxOf { it.size }).flatMap { index ->
             sources.mapNotNull { it.getOrNull(index) }
         } + local.playlistSongs.take(12)
-        val ranked = candidates.filter { !it.isVideo && youtubeVideoId.matches(it.videoId) }
+        val ranked = candidates.filter { song ->
+            !song.isVideo &&
+                youtubeVideoId.matches(song.videoId) &&
+                song.videoId !in local.dislikedIds &&
+                song.title.lowercase(Locale.ROOT) !in local.dismissedSeedKeys &&
+                normalizedArtistName(primaryArtist(song)) !in local.cooledArtists
+        }
             .distinctBy { it.videoId }
             .withIndex()
             .sortedBy { (index, song) ->
-                index - (if (song.videoId in playlistIds) 2 else 0) - (if (song.albumId in local.albumIds) 1 else 0)
+                val doubleConfirmed = if (song.videoId in likedIds && song.videoId in local.completedIds) 3 else 0
+                val timeOfDayMatch = if (
+                    song.videoId in local.timeOfDayVideoIds ||
+                    normalizedArtistName(primaryArtist(song)) in local.timeOfDayArtists
+                ) 2 else 0
+                index - doubleConfirmed - timeOfDayMatch -
+                    (if (song.videoId in playlistIds) 2 else 0) -
+                    (if (song.albumId in local.albumIds) 1 else 0)
             }
             .map { it.value }
             .distinctBy { primaryArtist(it).ifBlank { it.videoId } }
@@ -386,18 +466,36 @@ object TopPicks {
                 limiter.withPermit {
                     val related = retryFeaturedRequest(interrupted) { YtMusicRepository.relatedSongs(seed.videoId) }.orEmpty()
                     val artistCounts = mutableMapOf<String, Int>()
-                    val tracks = related.filter { !QueueBuilder.isSameRecording(seed, it) && !it.isVideo }
-                        .distinctBy { it.videoId }.sortedBy { it.videoId in known }
+                    // Stay within YouTube Music's top relevance/popularity window (top 16)
+                    // and prefer official catalogued releases over uncatalogued/obscure uploads.
+                    val tracks = related.filter { song ->
+                        !QueueBuilder.isSameRecording(seed, song) &&
+                            !song.isVideo &&
+                            song.videoId !in local.dislikedIds &&
+                            normalizedArtistName(primaryArtist(song)) !in local.cooledArtists
+                    }
+                        .distinctBy { it.videoId }
+                        .take(24)
+                        .withIndex()
+                        .sortedWith(
+                            compareBy<IndexedValue<Song>> { it.value.videoId in known }
+                                .thenBy { it.value.albumId.isNullOrBlank() && it.value.albumName.isNullOrBlank() }
+                                .thenBy { it.index },
+                        )
+                        .map { it.value }
                         .filter { song ->
                             val artist = primaryArtist(song).ifBlank { song.videoId }
                             val count = artistCounts.getOrDefault(artist, 0)
                             artistCounts[artist] = count + 1
                             count < 3
-                        }.take(24)
+                        }.take(16)
                     if (tracks.isNotEmpty()) onPick(index, TopPick(
                         kind = TopPickKind.RELATED_SONG,
                         title = seed.title,
                         subtitle = seed.artist,
+                        artistName = primaryArtist(seed).takeIf(String::isNotBlank),
+                        artistBrowseId = seed.artists.firstOrNull { !it.browseId.isNullOrBlank() }?.browseId
+                            ?: seed.artistId?.takeIf(String::isNotBlank),
                         images = listOfNotNull(seed.thumbnailUrl ?: tracks.firstOrNull()?.thumbnailUrl),
                         recommendations = tracks,
                         likedSeed = seed.videoId in liked,
@@ -684,26 +782,38 @@ object TopPicks {
         fun credit(id: String?, name: String, weight: Double) {
             if (id == null || !id.startsWith("UC") || name.isBlank()) return
             if (name.equals("Various Artists", ignoreCase = true)) return
+            if (normalizedArtistName(name) in local.cooledArtists) return
             val (_, score) = scores[id] ?: (name to 0.0)
             scores[id] = name to score + weight
         }
         history.forEachIndexed { index, song ->
+            if (song.videoId in local.dislikedIds) return@forEachIndexed
             val recency = 1.0 - index.toDouble() / history.size.coerceAtLeast(1)
             val lead = song.artists.firstOrNull { it.browseId != null }
             if (lead != null) credit(lead.browseId, lead.name, 0.25 + recency * recency * 1.25)
             else credit(song.artistId, song.artist, 0.25 + recency * recency * 1.25)
         }
-        local.liked.take(30).distinctBy { it.videoId }.forEach { song ->
+        val likedWindow = local.liked.distinctBy { it.videoId }.take(60)
+        val likedSize = likedWindow.size.coerceAtLeast(1)
+        likedWindow.forEachIndexed { index, song ->
+            if (song.videoId in local.dislikedIds) return@forEachIndexed
+            val recency = 1.0 - index.toDouble() / likedSize
+            val baseWeight = 1.0 + recency * 1.2
+            val completedBonus = if (song.videoId in local.completedIds) 0.6 else 0.0
             val lead = song.artists.firstOrNull { it.browseId != null }
-            credit(lead?.browseId ?: song.artistId, lead?.name ?: song.artist, 2.0)
+            credit(lead?.browseId ?: song.artistId, lead?.name ?: song.artist, baseWeight + completedBonus)
         }
         val playedIds = (history + local.songs + local.recent).mapTo(HashSet()) { it.videoId }
         local.playlistSongs.distinctBy { it.videoId }.forEach { song ->
+            if (song.videoId in local.dislikedIds) return@forEach
             val lead = song.artists.firstOrNull { it.browseId != null }
             credit(lead?.browseId ?: song.artistId, lead?.name ?: song.artist, if (song.videoId in playedIds) 0.5 else 0.15)
         }
         local.artists.forEachIndexed { index, artist ->
-            credit(artist.browseId, artist.name, (local.artists.size - index).toDouble() * 0.5)
+            val key = normalizedArtistName(artist.name)
+            val todBonus = if (key in local.timeOfDayArtists) 1.0 else 0.0
+            val affinityBonus = (local.artistAffinities[key] ?: 0.0).coerceIn(-3.0, 4.0)
+            credit(artist.browseId, artist.name, (local.artists.size - index).toDouble() * 0.5 + todBonus + affinityBonus)
         }
         return scores.entries
             .sortedByDescending { it.value.second }

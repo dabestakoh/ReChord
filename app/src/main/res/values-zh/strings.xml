@@ -421,6 +421,9 @@
     <string name="reorder_failed">无法保存新的顺序</string>
     <string name="playlist_reordered">已保存播放列表顺序</string>
     <string name="save_order">保存</string>
+    <string name="reset_order">重置</string>
+    <string name="not_interested">不感兴趣</string>
+    <string name="tune_radio_to_this">以此曲调整电台</string>
     <string name="reset_to_default">恢复默认设置</string>
     <string name="rich_presence_footer">在你的 Discord 个人资料中显示正在播放的内容。</string>
     <string name="save_name">保存名称</string>
@@ -1679,4 +1682,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">仅 Hi-Res</string>
     <string name="no_hi_res_tracks">此处没有 Hi-Res 曲目</string>
+    <string name="playlist_updating">正在更新</string>
 </resources>

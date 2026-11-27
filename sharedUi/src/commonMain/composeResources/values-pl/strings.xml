@@ -265,4 +265,7 @@
     <string name="queue_download">Pobierz</string>
     <string name="queue_selection_remove">Usuń</string>
     <string name="queue_add_all_to_playlist">Dodaj wszystkie do playlisty</string>
+    <string name="featured_rediscover">Odkryj ponownie</string>
+    <string name="autoplay_mode_familiar">Znane</string>
+    <string name="autoplay_mode_discovery">Odkrywanie</string>
 </resources>

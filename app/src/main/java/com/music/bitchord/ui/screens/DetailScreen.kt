@@ -67,9 +67,13 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import com.music.bitchord.ui.components.PullToRefresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
@@ -316,6 +320,7 @@ private fun String.looksLikeCredit() = CREDIT_SEPARATOR.containsMatchIn(this)
  * the tint — since that picture runs edge to edge up under the bar. Nothing in
  * either is re-blurred while the page scrolls.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
     page: DetailPage,
@@ -383,6 +388,8 @@ fun DetailScreen(
      */
     folder: LocalFolder? = null,
     floatingBarsHeightPx: () -> Int = { 0 },
+    /** Pull-to-refresh callback for cached online playlists (null for local/album/artist pages). */
+    onRefreshPlaylist: (() -> Unit)? = null,
     /**
      * Set while this playlist's songs are being rearranged: drawn in place of
      * the track list, over the same page colour, and handed the page's
@@ -390,6 +397,16 @@ fun DetailScreen(
      */
     reorder: (@Composable (ArtworkPalette) -> Unit)? = null,
 ) {
+    val syncingPlaylistIds by com.music.bitchord.data.PlaylistSnapshotCache.syncingBrowseIds.collectAsStateWithLifecycle()
+    val isPlaylistSyncing = onRefreshPlaylist != null && page.browseId in syncingPlaylistIds
+    var manualPlaylistRefreshing by remember(page.browseId) { mutableStateOf(false) }
+    LaunchedEffect(manualPlaylistRefreshing, isPlaylistSyncing) {
+        if (!manualPlaylistRefreshing) return@LaunchedEffect
+        if (!isPlaylistSyncing) {
+            delay(350)
+            if (!isPlaylistSyncing) manualPlaylistRefreshing = false
+        }
+    }
     val rawSongs = (page.songs as? UiState.Success)?.data.orEmpty()
     val localRoot = LocalGroups.folderOf(page.browseId)
     val localArtistPage = localRoot == "local:all" && LocalGroups.isArtist(page.browseId)
@@ -771,13 +788,16 @@ fun DetailScreen(
 
                 if (reorder != null) {
                     reorder(palette)
-                } else LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    // The artist photo runs edge-to-edge up under the glass bar;
-                    // a release header clears the bar itself, see [ReleaseHeader].
-                    contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
-                ) {
+                } else {
+                    val playlistPullState = rememberPullToRefreshState()
+                    val listContent: @Composable () -> Unit = {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            // The artist photo runs edge-to-edge up under the glass bar;
+                            // a release header clears the bar itself, see [ReleaseHeader].
+                            contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding()),
+                        ) {
             item(key = "header") {
                 if (isArtist) {
                     ArtistHeader(page = page, palette = palette, artHeight = artHeight, appleArt = appleArt, signature = signature)
@@ -789,6 +809,8 @@ fun DetailScreen(
                         fullBleed = fullBleedSleeve,
                         showSleeve = page.browseId != "local:all" && !localArtistPage,
                         compactLandscape = isCompactLandscape && localPage,
+                        isSyncing = isPlaylistSyncing,
+                        manualRefreshing = manualPlaylistRefreshing,
                         localArtistPhoto = localArtistPhoto,
                         artistAlbumCount = if (localArtistPage && !searching) {
                             folderGroups.count { it.songs.firstOrNull()?.albumName != null }
@@ -1135,7 +1157,23 @@ fun DetailScreen(
                 }
             }
             if (isArtist) aboutItem()
-        }
+                        }
+                    }
+                    if (onRefreshPlaylist != null) {
+                        PullToRefresh(
+                            refreshing = manualPlaylistRefreshing && isPlaylistSyncing,
+                            onRefresh = {
+                                manualPlaylistRefreshing = true
+                                onRefreshPlaylist()
+                            },
+                            state = playlistPullState,
+                        ) {
+                            listContent()
+                        }
+                    } else {
+                        listContent()
+                    }
+                }
 
                 val canPinTabs = folder != null && folderState != null && folder.tabs.size > 1 &&
                     !folder.isNotConfigured && !folderState.selecting
@@ -1294,7 +1332,20 @@ private fun ReleaseHeader(
     /** The Cached songs folder's: saves every track on it to Downloads. Null hides it. */
     onDownloadAll: (() -> Unit)? = null,
     compactLandscape: Boolean = false,
+    isSyncing: Boolean = false,
+    manualRefreshing: Boolean = false,
 ) {
+    var showUpdating by remember(page.browseId) { mutableStateOf(false) }
+    LaunchedEffect(isSyncing, manualRefreshing) {
+        if (!isSyncing) {
+            showUpdating = false
+        } else if (manualRefreshing) {
+            showUpdating = true
+        } else {
+            delay(250)
+            showUpdating = true
+        }
+    }
     val (credit, details) = page.headerLines(songs.size, songs.playtime())
     val meta = artistAlbumCount?.let { count ->
         listOf(pluralStringResource(R.plurals.album_count, count, count), details)
@@ -1365,14 +1416,44 @@ private fun ReleaseHeader(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (meta.isNotBlank()) {
-                    Text(
-                        text = meta,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.onBackgroundVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                if (meta.isNotBlank() || showUpdating) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (meta.isNotBlank()) {
+                            Text(
+                                text = meta,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.onBackgroundVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                        AnimatedVisibility(
+                            visible = showUpdating,
+                            enter = fadeIn(tween(180)),
+                            exit = fadeOut(tween(220)),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(11.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = palette.accent,
+                                )
+                                Text(
+                                    text = stringResource(R.string.playlist_updating),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.onBackgroundVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
                 }
                 if (songs.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
@@ -1567,17 +1648,47 @@ private fun ReleaseHeader(
                     },
             )
         }
-        if (meta.isNotBlank()) {
+        if (meta.isNotBlank() || showUpdating) {
             Spacer(Modifier.height(if (compactLandscape) 2.dp else 4.dp))
-            Text(
-                text = meta,
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.onBackgroundVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
                 modifier = Modifier.padding(horizontal = HEADER_GUTTER),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette.onBackgroundVariant,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = showUpdating,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(220)),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(11.dp),
+                            strokeWidth = 1.5.dp,
+                            color = palette.accent,
+                        )
+                        Text(
+                            text = stringResource(R.string.playlist_updating),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.onBackgroundVariant,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
 
         if (songs.isNotEmpty()) {

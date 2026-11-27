@@ -345,4 +345,7 @@
     <string name="queue_download">다운로드</string>
     <string name="queue_selection_remove">제거</string>
     <string name="queue_add_all_to_playlist">모두 재생목록에 추가</string>
+    <string name="featured_rediscover">다시 듣기</string>
+    <string name="autoplay_mode_familiar">익숙한 곡</string>
+    <string name="autoplay_mode_discovery">새로운 곡</string>
 </resources>

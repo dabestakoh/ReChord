@@ -265,4 +265,7 @@
     <string name="queue_download">הורדה</string>
     <string name="queue_selection_remove">הסר</string>
     <string name="queue_add_all_to_playlist">הוספת הכול לפלייליסט</string>
+    <string name="featured_rediscover">לגלות מחדש</string>
+    <string name="autoplay_mode_familiar">מוכר</string>
+    <string name="autoplay_mode_discovery">גילוי</string>
 </resources>

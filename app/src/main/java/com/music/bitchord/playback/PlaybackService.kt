@@ -208,6 +208,10 @@ import java.util.UUID
 
 /** Session command used by both the player UI and the media notification. */
 const val ACTION_TOGGLE_AUTOPLAY = "com.music.bitchord.action.TOGGLE_AUTOPLAY"
+const val ACTION_PRUNE_ARTIST_AUTOPLAY = "com.music.bitchord.action.PRUNE_ARTIST_AUTOPLAY"
+const val EXTRA_PRUNE_ARTIST_KEY = "com.music.bitchord.extra.PRUNE_ARTIST_KEY"
+const val ACTION_REFRESH_AUTOPLAY_MODE = "com.music.bitchord.action.REFRESH_AUTOPLAY_MODE"
+const val ACTION_TUNE_RADIO = "com.music.bitchord.action.TUNE_RADIO"
 
 /** Backoff before each retry of a failed bounded continuation page. */
 private val BOUNDED_CONTINUATION_RETRIES_MS = longArrayOf(2_000L, 5_000L, 15_000L)
@@ -917,6 +921,9 @@ class PlaybackService : MediaLibraryService() {
     private val clearBoundedContextCommand = SessionCommand(ACTION_CLEAR_BOUNDED_CONTEXT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
     private val autoplayCommand = SessionCommand(ACTION_TOGGLE_AUTOPLAY, Bundle.EMPTY)
+    private val pruneArtistAutoplayCommand = SessionCommand(ACTION_PRUNE_ARTIST_AUTOPLAY, Bundle.EMPTY)
+    private val refreshAutoplayModeCommand = SessionCommand(ACTION_REFRESH_AUTOPLAY_MODE, Bundle.EMPTY)
+    private val tuneRadioCommand = SessionCommand(ACTION_TUNE_RADIO, Bundle.EMPTY)
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     private val startStationCommand = SessionCommand(ACTION_START_STATION, Bundle.EMPTY)
     private val revertToOriginalCommand = SessionCommand(ACTION_REVERT_TO_ORIGINAL, Bundle.EMPTY)
@@ -966,6 +973,7 @@ class PlaybackService : MediaLibraryService() {
         val removedCurrent: Boolean,
         val after: QueueUndoFingerprint,
         val expiresAt: Long,
+        val softSkippedAutoplay: List<Song> = emptyList(),
     )
 
     /** Only a matching restoration event batch may bypass pruning/cursor advancement. */
@@ -993,6 +1001,8 @@ class PlaybackService : MediaLibraryService() {
     /** The upcoming ids read-ahead was last asked to warm, so an unchanged queue isn't asked again. */
     private var preferredPrefetchRequest: List<String>? = null
     private var autoplaySeed: String? = null
+    private val autoplayModeStash = mutableMapOf<com.music.bitchord.data.model.AutoplayMode, List<Song>>()
+    private var autoplayModeStashSeed: String? = null
 
     /** Index in the live queue represented by entry zero of the persisted window. */
     private var persistedQueueStart = 0
@@ -3128,6 +3138,7 @@ class PlaybackService : MediaLibraryService() {
         removedCurrent: Boolean,
         mutationSettled: CompletableDeferred<Unit>,
         removedCount: Int,
+        softSkippedAutoplay: List<Song> = emptyList(),
         messageForCount: (Int) -> String,
     ): Boolean {
         partySync?.onLocalIntent()
@@ -3151,6 +3162,7 @@ class PlaybackService : MediaLibraryService() {
         val edit = QueueUndoEdit(
             token, before, oldPosition, removedCurrent, after,
             SystemClock.elapsedRealtime() + 4_500L,
+            softSkippedAutoplay = softSkippedAutoplay,
         )
         queueUndoEdit = edit
         QueueScreenUndo.publish(QueueUndoNotice(token, messageForCount(removedCount)))
@@ -3203,6 +3215,13 @@ class PlaybackService : MediaLibraryService() {
             boundedContextWindow = before.window?.let { QueueWindow.restore(it) }
             return false
         }
+        val removedAutoplay = indices.mapNotNull { idx ->
+            val song = before.items.getOrNull(idx)?.toSong() ?: return@mapNotNull null
+            if (song.queueTier == QueueTier.AUTOPLAY && song.localUri == null &&
+                !song.videoId.startsWith("content://") && !song.videoId.startsWith("file://")
+            ) song else null
+        }
+        removedAutoplay.forEach(SessionTasteFeedback::recordEarlySkip)
         return finishQueueUndoRemoval(
             before = before,
             raw = raw,
@@ -3210,6 +3229,7 @@ class PlaybackService : MediaLibraryService() {
             removedCurrent = removedCurrent,
             mutationSettled = mutationSettled,
             removedCount = removedCount,
+            softSkippedAutoplay = removedAutoplay,
             messageForCount = { count ->
                 resources.getQuantityString(R.plurals.queue_removed_count, count, count)
             },
@@ -3254,6 +3274,15 @@ class PlaybackService : MediaLibraryService() {
             return false
         }
         val removedCount = before.items.size - raw.mediaItemCount
+        val removedAutoplay = if (!clear) {
+            val song = before.items.getOrNull(requestedIndex)?.toSong()
+            if (song != null && song.queueTier == QueueTier.AUTOPLAY && song.localUri == null &&
+                !song.videoId.startsWith("content://") && !song.videoId.startsWith("file://")
+            ) {
+                SessionTasteFeedback.recordEarlySkip(song)
+                listOf(song)
+            } else emptyList()
+        } else emptyList()
         return finishQueueUndoRemoval(
             before = before,
             raw = raw,
@@ -3261,6 +3290,7 @@ class PlaybackService : MediaLibraryService() {
             removedCurrent = removedCurrent,
             mutationSettled = mutationSettled,
             removedCount = removedCount,
+            softSkippedAutoplay = removedAutoplay,
             messageForCount = {
                 if (clear) getString(R.string.queue_cleared)
                 else getString(
@@ -3292,6 +3322,7 @@ class PlaybackService : MediaLibraryService() {
             isQueueUndoSubsequence(edit.after.items, before.items)
         val position = if (edit.removedCurrent) edit.positionMs else
             (if (speakers.active) speakers.positionMs else raw.currentPosition).coerceAtLeast(0L)
+        edit.softSkippedAutoplay.forEach(SessionTasteFeedback::undoEarlySkip)
         invalidateQueueUndo() // Consume before any callbacks: an inverse is never itself undoable.
         boundedTopUpJob?.cancel()
         boundedTopUpJob = null
@@ -3662,6 +3693,9 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = null
         autoplaySeed = null
         autoplayRadio = AutoplayRadio()
+        autoplayModeStash.clear()
+        autoplayModeStashSeed = null
+        SessionTasteFeedback.clearAnchor()
     }
 
     private fun clearBoundedContext() {
@@ -3937,6 +3971,7 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
+            var partialBatches = 0
             val radio = autoplayRadio
             val contextAtStart = boundedContextToken
             val partyAtStart = party.code
@@ -3971,6 +4006,7 @@ class PlaybackService : MediaLibraryService() {
                     return@launch
                 }
                 if (resolved.isNotEmpty()) {
+                    var addedCount = 0
                     if (latestParty.inParty) {
                         // Do not mutate ExoPlayer directly here. The server's
                         // state broadcast reconciles every device atomically,
@@ -3988,6 +4024,7 @@ class PlaybackService : MediaLibraryService() {
                             autoplaySeed = null
                             return@launch
                         }
+                        addedCount = resolved.size
                     } else {
                         // The queue may have changed while the radio request
                         // was out — a station landing behind it is the usual
@@ -4008,10 +4045,17 @@ class PlaybackService : MediaLibraryService() {
                                 latestPlayer.seekToNextMediaItem()
                                 if (latestPlayer.playbackState == Player.STATE_IDLE) latestPlayer.prepare()
                             }
+                            addedCount = fresh.size
                         }
                     }
                     if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += resolved
-                    return@launch
+                    remaining = MAX_QUEUED_AUTOPLAY -
+                        (latestPlayer.currentMediaItemIndex + 1 until latestPlayer.mediaItemCount)
+                            .count { latestPlayer.getMediaItemAt(it).fromAutoplay }
+                    if (remaining <= 0 || addedCount == 0 || ++partialBatches >= 3) {
+                        return@launch
+                    }
+                    continue
                 }
 
                 // Empty and failed responses used to leave [autoplaySeed]
@@ -4210,8 +4254,22 @@ class PlaybackService : MediaLibraryService() {
         // the optimistic state with YouTube in the background.
         LikeState.set(videoId, target)
         refreshCustomLayouts()
+        val currentSong = player?.currentMediaItem?.toSong()?.takeIf { it.videoId == videoId }
         favoriteActionJob = scope.launch {
             YtMusicRepository.rate(videoId, target)
+                .onSuccess {
+                    com.music.bitchord.data.PlaylistSnapshotCache.mutateActive(
+                        this@PlaybackService,
+                        YtMusicRepository.LIKED_MUSIC,
+                    ) { rows ->
+                        if (target == LikeStatus.LIKE) {
+                            if (currentSong == null || rows.any { it.videoId == videoId }) rows
+                            else listOf(currentSong) + rows
+                        } else {
+                            rows.filterNot { it.videoId == videoId }
+                        }
+                    }
+                }
                 .onFailure {
                     LikeState.set(videoId, previous)
                     refreshCustomLayouts()
@@ -4538,6 +4596,7 @@ class PlaybackService : MediaLibraryService() {
 
         // currentPosition already belongs to the new item by now, so
         // the outgoing track is closed out on the last sampled value.
+        val prevPlayedMs = lastPositionSeconds * 1000L
         PlaybackTracker.onTrackChanged(lastPositionSeconds)
         lastPositionSeconds = 0
 
@@ -4562,8 +4621,33 @@ class PlaybackService : MediaLibraryService() {
         val ended = previousEnded
         val prevSong = listenBrainzSong
         val prevStart = listenBrainzStartMs
+        val prevDurMs = listenBrainzDurationMs
+        if (prevSong != null) {
+            if (ended || prevPlayedMs >= 30_000L || (prevDurMs != null && prevDurMs > 0L && prevPlayedMs * 2L >= prevDurMs)) {
+                SessionTasteFeedback.recordCompletedOrLiked(prevSong)
+            } else if (
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+                prevPlayedMs < SessionTasteFeedback.EARLY_SKIP_THRESHOLD_MS &&
+                prevSong.queueTier != com.music.bitchord.data.model.QueueTier.USER_QUEUE
+            ) {
+                if (SessionTasteFeedback.recordEarlySkip(prevSong)) {
+                    val cooledArtist = SessionTasteFeedback.primaryArtistKey(prevSong)
+                    if (cooledArtist.isNotBlank()) {
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        for (i in exoPlayer.mediaItemCount - 1 downTo currentIdx + 1) {
+                            val upcoming = exoPlayer.getMediaItemAt(i).toSong()
+                            if (upcoming.queueTier == com.music.bitchord.data.model.QueueTier.AUTOPLAY &&
+                                SessionTasteFeedback.primaryArtistKey(upcoming) == cooledArtist
+                            ) {
+                                exoPlayer.removeMediaItem(i)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (prevSong != null && ended && prevStart > 0L) {
-            submitListenBrainzFinished(prevSong, prevStart, listenBrainzDurationMs)
+            submitListenBrainzFinished(prevSong, prevStart, prevDurMs)
         }
         listenBrainzSong = newSong
         listenBrainzStartMs = if (exoPlayer.isPlaying) System.currentTimeMillis() else 0L
@@ -9919,6 +10003,9 @@ class PlaybackService : MediaLibraryService() {
                 .add(boundedContextCommand)
                 .add(clearBoundedContextCommand)
                 .add(autoplayCommand)
+                .add(pruneArtistAutoplayCommand)
+                .add(refreshAutoplayModeCommand)
+                .add(tuneRadioCommand)
                 .add(shuffleCommand)
                 .add(startStationCommand)
                 .add(revertToOriginalCommand)
@@ -10002,6 +10089,76 @@ class PlaybackService : MediaLibraryService() {
                 ACTION_START_BOUNDED_CONTEXT -> startBoundedContext(args)
                 ACTION_CLEAR_BOUNDED_CONTEXT -> clearBoundedContext()
                 ACTION_TOGGLE_AUTOPLAY -> toggleAutoplayFromNotification()
+                ACTION_PRUNE_ARTIST_AUTOPLAY -> {
+                    val artistKey = args.getString(EXTRA_PRUNE_ARTIST_KEY).orEmpty()
+                    val exoPlayer = player
+                    if (exoPlayer != null && artistKey.isNotBlank()) {
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        for (i in exoPlayer.mediaItemCount - 1 downTo currentIdx + 1) {
+                            val upcoming = exoPlayer.getMediaItemAt(i).toSong()
+                            if (upcoming.queueTier == com.music.bitchord.data.model.QueueTier.AUTOPLAY &&
+                                SessionTasteFeedback.primaryArtistKey(upcoming) == artistKey
+                            ) {
+                                exoPlayer.removeMediaItem(i)
+                            }
+                        }
+                    }
+                }
+                ACTION_REFRESH_AUTOPLAY_MODE -> {
+                    val exoPlayer = player
+                    val current = exoPlayer?.currentMediaItem?.toSong()
+                    val targetMode = AppSettings.autoplayMode.value
+                    val previousMode = if (targetMode == com.music.bitchord.data.model.AutoplayMode.FAMILIAR) {
+                        com.music.bitchord.data.model.AutoplayMode.DISCOVERY
+                    } else {
+                        com.music.bitchord.data.model.AutoplayMode.FAMILIAR
+                    }
+                    if (exoPlayer != null && current != null) {
+                        if (autoplayModeStashSeed != current.videoId) {
+                            autoplayModeStash.clear()
+                            autoplayModeStashSeed = current.videoId
+                        }
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        val upcomingAutoplay = (currentIdx + 1 until exoPlayer.mediaItemCount)
+                            .map { exoPlayer.getMediaItemAt(it) }
+                            .filter { it.fromAutoplay }
+                            .map { it.toSong() }
+                        if (upcomingAutoplay.isNotEmpty()) {
+                            autoplayModeStash[previousMode] = upcomingAutoplay
+                            val reclaimedIds = upcomingAutoplay.mapTo(HashSet()) { it.videoId }
+                            sessionSongHistory.removeAll { it.videoId in reclaimedIds }
+                        }
+                    }
+                    autoplayLoadJob?.cancel()
+                    autoplayLoadJob = null
+                    autoplaySeed = null
+                    autoplayRadio = AutoplayRadio()
+                    dropAutoplayTracksFromQueue()
+                    val stashed = if (current != null && autoplayModeStashSeed == current.videoId) {
+                        autoplayModeStash.remove(targetMode)
+                    } else {
+                        null
+                    }
+                    if (exoPlayer != null && !stashed.isNullOrEmpty()) {
+                        val disliked = com.music.bitchord.data.LikeState.dislikedIds()
+                        val queuedNow = (0 until exoPlayer.mediaItemCount)
+                            .map { exoPlayer.getMediaItemAt(it).toSong() }
+                        val restored = stashed.filter { song ->
+                            song.videoId !in disliked &&
+                                !SessionTasteFeedback.isSongCooled(song) &&
+                                queuedNow.none { QueueBuilder.isSameRecording(it, song) }
+                        }.take(MAX_QUEUED_AUTOPLAY)
+                        if (restored.isNotEmpty()) {
+                            exoPlayer.addMediaItems(restored.map { it.toMediaItem() })
+                            if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += restored
+                        }
+                        if (restored.size < MAX_QUEUED_AUTOPLAY) {
+                            loadAutoplayForCurrentTrack()
+                        }
+                    } else {
+                        loadAutoplayForCurrentTrack()
+                    }
+                }
                 ACTION_TOGGLE_SHUFFLE -> toggleShuffleFromSession()
                 ACTION_START_STATION -> startStationFromSession()
                 ACTION_REVERT_TO_ORIGINAL -> revertCurrentToOriginal()

@@ -265,4 +265,7 @@
     <string name="queue_download">İndir</string>
     <string name="queue_selection_remove">Kaldır</string>
     <string name="queue_add_all_to_playlist">Tümünü çalma listesine ekle</string>
+    <string name="featured_rediscover">Yeniden keşfet</string>
+    <string name="autoplay_mode_familiar">Tanıdık</string>
+    <string name="autoplay_mode_discovery">Keşif</string>
 </resources>

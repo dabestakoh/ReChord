@@ -265,4 +265,7 @@
     <string name="queue_download">Загрузить</string>
     <string name="queue_selection_remove">Удалить</string>
     <string name="queue_add_all_to_playlist">Добавить все в плейлист</string>
+    <string name="featured_rediscover">Забытые треки</string>
+    <string name="autoplay_mode_familiar">Знакомое</string>
+    <string name="autoplay_mode_discovery">Открытия</string>
 </resources>
