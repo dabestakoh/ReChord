@@ -24,7 +24,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,9 +98,33 @@ object PlaylistSnapshotCache {
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val updates = updatesFlow.asSharedFlow()
+    private val syncingLock = Any()
+    private val syncingCounts = HashMap<String, Int>()
+    private val _syncing = MutableStateFlow<Set<String>>(emptySet())
+    val syncingBrowseIds: StateFlow<Set<String>> = _syncing.asStateFlow()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
 
     fun isPlaylist(browseId: String): Boolean = browseId.startsWith("VL")
+
+    private fun beginSyncing(browseId: String) {
+        synchronized(syncingLock) {
+            val count = (syncingCounts[browseId] ?: 0) + 1
+            syncingCounts[browseId] = count
+            if (count == 1) _syncing.value = _syncing.value + browseId
+        }
+    }
+
+    private fun endSyncing(browseId: String) {
+        synchronized(syncingLock) {
+            val next = (syncingCounts[browseId] ?: 1) - 1
+            if (next <= 0) {
+                syncingCounts.remove(browseId)
+                _syncing.value = _syncing.value - browseId
+            } else {
+                syncingCounts[browseId] = next
+            }
+        }
+    }
 
     /** Clears probe cooldowns when returning from another app (e.g., YouTube Music). */
     fun onAppForegroundReturn() {
@@ -179,19 +206,36 @@ object PlaylistSnapshotCache {
             lastReturnFullCheck[key] = now
         }
         val startedRevision = revision(key).get()
-        var firstPageToScan = firstPage
-        // A short header probe can notice additions/removals before the six-hour
-        // full recheck. A matching or unavailable summary is NOT a full
-        // verification; it never advances cached.checkedAt.
-        if (!force && firstPage == null && cached != null &&
+        // Short-circuit before marking syncing when probe cooldown hasn't elapsed.
+        val probeEligible = !force && firstPage == null && cached != null &&
             System.currentTimeMillis() - cached.checkedAt < REVALIDATE_AFTER_MS
-        ) {
+        if (probeEligible) {
             val probeNow = System.currentTimeMillis()
             val last = lastMetadataProbe[key] ?: 0L
             if (!checkOnReturn && probeNow - last < METADATA_PROBE_AFTER_MS) return
             // Record the attempt before calling the network. A failed request
             // must not cause another request on every rapid re-open.
             lastMetadataProbe[key] = probeNow
+        }
+        beginSyncing(key.browseId)
+        try {
+            syncNetwork(context, key, cached, startedRevision, firstPage, probeEligible, checkOnReturn)
+        } finally {
+            endSyncing(key.browseId)
+        }
+    }
+
+    private suspend fun syncNetwork(
+        context: Context,
+        key: Key,
+        cached: Snapshot?,
+        startedRevision: Long,
+        firstPage: YtMusicRepository.SongPage?,
+        probeEligible: Boolean,
+        checkOnReturn: Boolean,
+    ) {
+        var firstPageToScan = firstPage
+        if (probeEligible && cached != null) {
             val probe = YtMusicRepository.browseSongs(key.browseId).getOrNull()
             if (probe == null) {
                 Log.d(TAG, "Playlist metadata probe failed; keeping complete cached songs")

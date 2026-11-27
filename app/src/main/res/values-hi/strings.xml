@@ -1708,4 +1708,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">केवल Hi-Res</string>
     <string name="no_hi_res_tracks">यहाँ कोई Hi-Res ट्रैक नहीं है</string>
+    <string name="playlist_updating">अपडेट हो रहा है</string>
 </resources>

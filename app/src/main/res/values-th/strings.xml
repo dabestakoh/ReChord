@@ -1685,4 +1685,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">เฉพาะ Hi-Res</string>
     <string name="no_hi_res_tracks">ไม่มีเพลง Hi-Res ที่นี่</string>
+    <string name="playlist_updating">กำลังอัปเดต</string>
 </resources>

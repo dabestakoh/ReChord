@@ -1713,4 +1713,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Apenas Hi-Res</string>
     <string name="no_hi_res_tracks">Nenhuma faixa Hi-Res aqui</string>
+    <string name="playlist_updating">Atualizando</string>
 </resources>

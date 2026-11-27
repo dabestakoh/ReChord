@@ -1665,4 +1665,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Yalnızca Hi-Res</string>
     <string name="no_hi_res_tracks">Burada Hi-Res parça yok</string>
+    <string name="playlist_updating">Güncelleniyor</string>
 </resources>

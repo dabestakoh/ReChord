@@ -3743,6 +3743,9 @@ private fun BitChordApp(
                                 folder = folder,
                                 contentPadding = listPadding,
                                 floatingBarsHeightPx = { railBarsPx(windowWidth, windowHeight, floatingBarsHeight.intValue) },
+                                onRefreshPlaylist = if (com.music.bitchord.data.PlaylistSnapshotCache.isPlaylist(page.browseId)) {
+                                    { viewModel.refreshPlaylist(page.browseId) }
+                                } else null,
                                 reorder = if (reordering != null) {
                                     { palette ->
                                         ReorderPlaylistPage(

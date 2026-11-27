@@ -1679,4 +1679,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Hanya Hi-Res</string>
     <string name="no_hi_res_tracks">Tidak ada lagu Hi-Res di sini</string>
+    <string name="playlist_updating">Memperbarui</string>
 </resources>

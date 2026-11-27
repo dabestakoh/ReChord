@@ -1752,4 +1752,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Только Hi-Res</string>
     <string name="no_hi_res_tracks">Здесь нет Hi-Res треков</string>
+    <string name="playlist_updating">Обновление</string>
 </resources>

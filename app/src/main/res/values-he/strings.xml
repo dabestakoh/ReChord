@@ -1713,4 +1713,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">Hi-Res בלבד</string>
     <string name="no_hi_res_tracks">אין כאן רצועות Hi-Res</string>
+    <string name="playlist_updating">מתעדכן</string>
 </resources>

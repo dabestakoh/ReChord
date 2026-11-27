@@ -3491,6 +3491,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Online playlist browseIds currently syncing from YouTube Music in the background. */
+    val syncingPlaylists: StateFlow<Set<String>> = PlaylistSnapshotCache.syncingBrowseIds
+
     /** Force a fresh server comparison while retaining the current playable rows. */
     fun refreshPlaylist(browseId: String) {
         if (!PlaylistSnapshotCache.isPlaylist(browseId)) return

@@ -1674,4 +1674,5 @@
     <string name="local_tab_hi_res">Hi-Res</string>
     <string name="local_filter_hi_res_only">僅 Hi-Res</string>
     <string name="no_hi_res_tracks">此處沒有 Hi-Res 曲目</string>
+    <string name="playlist_updating">更新中</string>
 </resources>
