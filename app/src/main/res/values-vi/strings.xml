@@ -472,6 +472,7 @@
     <string name="save_order">Lưu</string>
     <string name="reset_order">Đặt lại</string>
     <string name="not_interested">Không quan tâm</string>
+    <string name="tune_radio_to_this">Điều chỉnh radio theo bài này</string>
     <string name="reset_to_default">Đặt lại về mặc định</string>
     <string name="rich_presence_footer">Hiển thị những gì bạn đang nghe trên hồ sơ Discord của bạn.</string>
     <string name="save_name">Lưu tên</string>

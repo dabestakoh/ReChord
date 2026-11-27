@@ -423,6 +423,7 @@
     <string name="save_order">Simpan</string>
     <string name="reset_order">Atur ulang</string>
     <string name="not_interested">Tidak tertarik</string>
+    <string name="tune_radio_to_this">Sesuaikan radio ke ini</string>
     <string name="reset_to_default">Setel ulang ke default</string>
     <string name="rich_presence_footer">Tampilkan apa yang sedang Anda putar di profil Discord Anda.</string>
     <string name="save_name">Simpan nama</string>

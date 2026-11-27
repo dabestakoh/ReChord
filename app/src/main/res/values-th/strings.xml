@@ -451,6 +451,7 @@
     <string name="save_order">บันทึก</string>
     <string name="reset_order">รีเซ็ต</string>
     <string name="not_interested">ไม่สนใจ</string>
+    <string name="tune_radio_to_this">ปรับวิทยุตามเพลงนี้</string>
     <string name="reset_to_default">รีเซ็ตเป็นค่าเริ่มต้น</string>
     <string name="rich_presence_footer">แสดงสิ่งที่คุณกำลังเล่นบนโปรไฟล์ Discord ของคุณ</string>
     <string name="save_name">บันทึกชื่อ</string>

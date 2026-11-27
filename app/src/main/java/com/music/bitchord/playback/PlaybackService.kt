@@ -208,6 +208,10 @@ import java.util.UUID
 
 /** Session command used by both the player UI and the media notification. */
 const val ACTION_TOGGLE_AUTOPLAY = "com.music.bitchord.action.TOGGLE_AUTOPLAY"
+const val ACTION_PRUNE_ARTIST_AUTOPLAY = "com.music.bitchord.action.PRUNE_ARTIST_AUTOPLAY"
+const val EXTRA_PRUNE_ARTIST_KEY = "com.music.bitchord.extra.PRUNE_ARTIST_KEY"
+const val ACTION_REFRESH_AUTOPLAY_MODE = "com.music.bitchord.action.REFRESH_AUTOPLAY_MODE"
+const val ACTION_TUNE_RADIO = "com.music.bitchord.action.TUNE_RADIO"
 
 /** Backoff before each retry of a failed bounded continuation page. */
 private val BOUNDED_CONTINUATION_RETRIES_MS = longArrayOf(2_000L, 5_000L, 15_000L)
@@ -917,6 +921,9 @@ class PlaybackService : MediaLibraryService() {
     private val clearBoundedContextCommand = SessionCommand(ACTION_CLEAR_BOUNDED_CONTEXT, Bundle.EMPTY)
     private val favoriteCommand = SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY)
     private val autoplayCommand = SessionCommand(ACTION_TOGGLE_AUTOPLAY, Bundle.EMPTY)
+    private val pruneArtistAutoplayCommand = SessionCommand(ACTION_PRUNE_ARTIST_AUTOPLAY, Bundle.EMPTY)
+    private val refreshAutoplayModeCommand = SessionCommand(ACTION_REFRESH_AUTOPLAY_MODE, Bundle.EMPTY)
+    private val tuneRadioCommand = SessionCommand(ACTION_TUNE_RADIO, Bundle.EMPTY)
     private val shuffleCommand = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     private val startStationCommand = SessionCommand(ACTION_START_STATION, Bundle.EMPTY)
     private val revertToOriginalCommand = SessionCommand(ACTION_REVERT_TO_ORIGINAL, Bundle.EMPTY)
@@ -9960,6 +9967,9 @@ class PlaybackService : MediaLibraryService() {
                 .add(boundedContextCommand)
                 .add(clearBoundedContextCommand)
                 .add(autoplayCommand)
+                .add(pruneArtistAutoplayCommand)
+                .add(refreshAutoplayModeCommand)
+                .add(tuneRadioCommand)
                 .add(shuffleCommand)
                 .add(startStationCommand)
                 .add(revertToOriginalCommand)
@@ -10043,6 +10053,42 @@ class PlaybackService : MediaLibraryService() {
                 ACTION_START_BOUNDED_CONTEXT -> startBoundedContext(args)
                 ACTION_CLEAR_BOUNDED_CONTEXT -> clearBoundedContext()
                 ACTION_TOGGLE_AUTOPLAY -> toggleAutoplayFromNotification()
+                ACTION_PRUNE_ARTIST_AUTOPLAY -> {
+                    val artistKey = args.getString(EXTRA_PRUNE_ARTIST_KEY).orEmpty()
+                    val exoPlayer = player
+                    if (exoPlayer != null && artistKey.isNotBlank()) {
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        for (i in exoPlayer.mediaItemCount - 1 downTo currentIdx + 1) {
+                            val upcoming = exoPlayer.getMediaItemAt(i).toSong()
+                            if (upcoming.queueTier == com.music.bitchord.data.model.QueueTier.AUTOPLAY &&
+                                SessionTasteFeedback.primaryArtistKey(upcoming) == artistKey
+                            ) {
+                                exoPlayer.removeMediaItem(i)
+                            }
+                        }
+                    }
+                }
+                ACTION_REFRESH_AUTOPLAY_MODE -> {
+                    autoplayLoadJob?.cancel()
+                    autoplayLoadJob = null
+                    autoplaySeed = null
+                    autoplayRadio = AutoplayRadio()
+                    dropAutoplayTracksFromQueue()
+                    loadAutoplayForCurrentTrack()
+                }
+                ACTION_TUNE_RADIO -> {
+                    val bundle = args.getBundle(EXTRA_SWAP_MEDIA_ITEM)
+                    if (bundle != null) {
+                        val targetSong = songFromBundle(bundle)
+                        SessionTasteFeedback.recordCompletedOrLiked(targetSong)
+                        autoplayLoadJob?.cancel()
+                        autoplayLoadJob = null
+                        autoplaySeed = null
+                        autoplayRadio.tuneTo(targetSong)
+                        dropAutoplayTracksFromQueue()
+                        loadAutoplayForCurrentTrack()
+                    }
+                }
                 ACTION_TOGGLE_SHUFFLE -> toggleShuffleFromSession()
                 ACTION_START_STATION -> startStationFromSession()
                 ACTION_REVERT_TO_ORIGINAL -> revertCurrentToOriginal()

@@ -46,6 +46,9 @@ object PlaybackTracker {
     /** Report watched time once this much new audio has gone by. */
     private const val REPORT_INTERVAL_SECONDS = 30L
 
+    /** Minimum seconds listened before registering a track in YouTube History & Recents. */
+    private const val MIN_HISTORY_SECONDS = 30L
+
     /**
      * Attempts at opening a session before the play is written off.
      *
@@ -105,32 +108,24 @@ object PlaybackTracker {
     @Volatile
     private var opening: String? = null
 
+    /** Track currently playing that hasn't yet reached [MIN_HISTORY_SECONDS]. */
+    @Volatile
+    private var pendingVideoId: String? = null
+
     /**
      * Call when [videoId] becomes audible — both on play/resume and when the
      * queue moves on. A no-op while the same track is already being tracked, so
      * a pause/resume does not register a second play.
+     *
+     * History registration is deferred until [MIN_HISTORY_SECONDS] (30s) in
+     * [onProgress] so quick skips never pollute YouTube History or Home Recents.
      */
     fun onPlaying(videoId: String) {
         if (!VIDEO_ID.matches(videoId)) return
         if (Innertube.cookie == null) return
-        // A downloaded track plays perfectly well with the radio off — the
-        // whole point of downloading it — so this is the one place that has
-        // to ask before trying rather than let a request find out the hard
-        // way. [meteredConnection] is null exactly when there is no active
-        // network, which is the one case worth skipping outright rather than
-        // spending three retries on: nothing here is urgent enough to wait
-        // for connectivity to return, and the play was still counted by
-        // whichever surface reads local listening history.
         if (AppSettings.meteredConnection.value == null) return
-        if (session?.videoId == videoId || opening == videoId) return
-        opening = videoId
-        scope.launch(TrackLog.about(videoId)) {
-            try {
-                openWithRetries(videoId)
-            } finally {
-                if (opening == videoId) opening = null
-            }
-        }
+        if (session?.videoId == videoId || opening == videoId || pendingVideoId == videoId) return
+        pendingVideoId = videoId
     }
 
     /**
@@ -141,6 +136,7 @@ object PlaybackTracker {
     fun onVersionSwapped(fromVideoId: String, toVideoId: String) {
         session?.takeIf { it.videoId == fromVideoId }?.videoId = toVideoId
         if (opening == fromVideoId) opening = toVideoId
+        if (pendingVideoId == fromVideoId) pendingVideoId = toVideoId
     }
 
     /**
@@ -149,6 +145,7 @@ object PlaybackTracker {
      * two-minute mark is reported as two minutes rather than lost.
      */
     fun onTrackChanged(positionSeconds: Long) {
+        pendingVideoId = null
         val closing = session ?: return
         session = null
         scope.launch(TrackLog.about(closing.videoId)) {
@@ -165,6 +162,20 @@ object PlaybackTracker {
      * [REPORT_INTERVAL_SECONDS] of new audio.
      */
     fun onProgress(videoId: String, positionSeconds: Long) {
+        if (session == null && opening != videoId && pendingVideoId == videoId &&
+            positionSeconds >= MIN_HISTORY_SECONDS
+        ) {
+            pendingVideoId = null
+            opening = videoId
+            scope.launch(TrackLog.about(videoId)) {
+                try {
+                    openWithRetries(videoId)
+                } finally {
+                    if (opening == videoId) opening = null
+                }
+            }
+            return
+        }
         val current = session ?: return
         if (current.videoId != videoId) return
         if (!current.atrSent && positionSeconds >= current.tracking.atrAfterSeconds) {
@@ -198,6 +209,7 @@ object PlaybackTracker {
      * is a teardown that is about to cancel everything in sight.
      */
     fun onPlaybackFinished(positionSeconds: Long) {
+        pendingVideoId = null
         val closing = session ?: return
         session = null
         scope.launch(TrackLog.about(closing.videoId)) {

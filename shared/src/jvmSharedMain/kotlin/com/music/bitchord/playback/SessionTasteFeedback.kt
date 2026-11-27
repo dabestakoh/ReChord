@@ -26,6 +26,8 @@ object SessionTasteFeedback {
     private val cooledArtistKeys = LinkedHashSet<String>()
     private val dismissedKeys = LinkedHashSet<String>()
     private val completedIds = LinkedHashSet<String>()
+    private val knownTracks = LinkedHashSet<String>()
+    private val knownArtists = LinkedHashSet<String>()
     private var anchorSong: Song? = null
 
     fun normalizeArtist(name: String?): String =
@@ -59,6 +61,17 @@ object SessionTasteFeedback {
         }
     }
 
+    /** Records an explicit Dislike — immediately cools down the song and its artist. */
+    fun recordDislike(song: Song): String = synchronized(lock) {
+        if (song.videoId.isNotBlank()) skippedIds.add(song.videoId)
+        val artistKey = primaryArtistKey(song)
+        if (artistKey.isNotBlank()) {
+            artistSkipCounts[artistKey] = ARTIST_COOLDOWN_SKIP_COUNT
+            cooledArtistKeys.add(artistKey)
+        }
+        artistKey
+    }
+
     /**
      * Records a track the listener actually finished (`>= 30s` or `>= 50%`)
      * or explicitly liked. Updates [lastGoodAnchorSong] and clears any prior
@@ -67,14 +80,24 @@ object SessionTasteFeedback {
     fun recordCompletedOrLiked(song: Song) = synchronized(lock) {
         if (song.videoId.isNotBlank()) {
             completedIds.add(song.videoId)
+            knownTracks.add(song.videoId)
             skippedIds.remove(song.videoId)
         }
         val artistKey = primaryArtistKey(song)
         if (artistKey.isNotBlank()) {
+            knownArtists.add(artistKey)
             artistSkipCounts.remove(artistKey)
             cooledArtistKeys.remove(artistKey)
         }
         anchorSong = song
+    }
+
+    /** Seeds known liked/library/history tracks and artists for Familiar vs Discovery Autoplay. */
+    fun setKnownTaste(trackIds: Set<String>, artistNames: Set<String>) = synchronized(lock) {
+        knownTracks.clear()
+        knownTracks.addAll(trackIds.filter(String::isNotBlank))
+        knownArtists.clear()
+        artistNames.map(::normalizeArtist).filterTo(knownArtists, String::isNotBlank)
     }
 
     /** Records a "Not interested" dismissal on a Home Featured card. */
@@ -89,6 +112,8 @@ object SessionTasteFeedback {
     fun cooledArtists(): Set<String> = synchronized(lock) { cooledArtistKeys.toSet() }
     fun dismissedSeedKeys(): Set<String> = synchronized(lock) { dismissedKeys.toSet() }
     fun completedVideoIds(): Set<String> = synchronized(lock) { completedIds.toSet() }
+    fun knownTrackIds(): Set<String> = synchronized(lock) { knownTracks.toSet() }
+    fun knownArtistKeys(): Set<String> = synchronized(lock) { knownArtists.toSet() }
     fun lastGoodAnchorSong(): Song? = synchronized(lock) { anchorSong }
 
     fun isArtistCooled(artistName: String?): Boolean {
@@ -111,6 +136,8 @@ object SessionTasteFeedback {
         cooledArtistKeys.clear()
         dismissedKeys.clear()
         completedIds.clear()
+        knownTracks.clear()
+        knownArtists.clear()
         anchorSong = null
     }
 }

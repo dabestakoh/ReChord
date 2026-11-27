@@ -265,4 +265,7 @@
     <string name="queue_download">下載</string>
     <string name="queue_selection_remove">移除</string>
     <string name="queue_add_all_to_playlist">全部新增到播放列表</string>
+    <string name="featured_rediscover">重新發現</string>
+    <string name="autoplay_mode_familiar">熟悉</string>
+    <string name="autoplay_mode_discovery">探索</string>
 </resources>

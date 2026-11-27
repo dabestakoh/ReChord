@@ -265,4 +265,7 @@
     <string name="queue_download">डाउनलोड करें</string>
     <string name="queue_selection_remove">हटाएं</string>
     <string name="queue_add_all_to_playlist">सभी को प्लेलिस्ट में जोड़ें</string>
+    <string name="featured_rediscover">फिर से खोजें</string>
+    <string name="autoplay_mode_familiar">परिचित</string>
+    <string name="autoplay_mode_discovery">नया खोजें</string>
 </resources>

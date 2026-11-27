@@ -437,6 +437,7 @@
     <string name="save_order">Speichern</string>
     <string name="reset_order">Zurücksetzen</string>
     <string name="not_interested">Kein Interesse</string>
+    <string name="tune_radio_to_this">Radio darauf abstimmen</string>
     <string name="reset_to_default">Auf Standard zurücksetzen</string>
     <string name="rich_presence_footer">Zeige, was du gerade hörst, auf deinem Discord-Profil.</string>
     <string name="save_name">Namen speichern</string>

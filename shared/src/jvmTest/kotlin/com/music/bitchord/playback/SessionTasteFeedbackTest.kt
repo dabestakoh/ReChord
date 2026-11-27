@@ -80,4 +80,35 @@ class SessionTasteFeedbackTest {
         assertFalse(liked[2].videoId in seedIds, "Dismissed seed title must not be seeded")
         assertTrue(deepCutId in seedIds, "Double-confirmed deep-cut liked song should be seeded")
     }
+
+    @Test
+    fun recordDislikeImmediatelyCoolsArtist() {
+        val s = song("ccccccccccc", "Disliked Band")
+        val cooledKey = SessionTasteFeedback.recordDislike(s)
+        assertEquals("disliked band", cooledKey)
+        assertTrue(SessionTasteFeedback.isArtistCooled("Disliked Band"))
+        assertTrue(SessionTasteFeedback.isSongCooled(s))
+    }
+
+    @Test
+    fun rediscoverLikedPickUsesOlderUnheardLikedSongs() {
+        val liked = (1..26).map { i ->
+            val id = "vid${i.toString().padStart(8, '0')}"
+            song(id, "Artist $i", "Title $i")
+        }
+        val local = TopPicks.LocalTaste(
+            liked = liked,
+            recent = listOf(liked[21]),
+            completedIds = setOf(liked[24].videoId),
+            dislikedIds = setOf(liked[22].videoId),
+        )
+        val pick = TopPicks.rediscoverLikedPick(emptyList(), local)
+        assertTrue(pick != null)
+        assertEquals(TopPickKind.REDISCOVER_LIKED, pick.kind)
+        val recIds = pick.recommendations.map { it.videoId }
+        assertEquals(liked[24].videoId, recIds.first(), "Completed deep-cut liked song should lead")
+        assertFalse(liked[0].videoId in recIds, "Newest 20 liked songs should be excluded")
+        assertFalse(liked[21].videoId in recIds, "Recently played song should be excluded")
+        assertFalse(liked[22].videoId in recIds, "Disliked song should be excluded")
+    }
 }

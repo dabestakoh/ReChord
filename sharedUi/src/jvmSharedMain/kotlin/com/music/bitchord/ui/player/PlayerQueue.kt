@@ -102,11 +102,14 @@ import androidx.compose.ui.unit.Velocity
 import coil3.compose.AsyncImage
 import com.music.bitchord.ui.components.thumbnailBorder
 import com.music.bitchord.ui.icons.BitChordIcons
+import androidx.compose.material3.darkColorScheme
+import com.music.bitchord.data.model.AutoplayMode
 import com.music.bitchord.data.model.QueueEntryIdentity
 import com.music.bitchord.data.model.QueueTier
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.playback.autoplaySectionStart
 import com.music.bitchord.ui.AppUi
+import com.music.bitchord.ui.components.PillSegmentedControl
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlin.math.abs
@@ -366,6 +369,8 @@ internal fun InlineQueue(
     onDragActiveChange: (Boolean) -> Unit = {},
     /** Space occupied by the phone deck over the stable, full-height viewport. */
     playerDeckInset: Dp = 0.dp,
+    autoplayMode: AutoplayMode = AutoplayMode.FAMILIAR,
+    onAutoplayModeChange: ((AutoplayMode) -> Unit)? = null,
     /** Phone only: let queue scrolling dismiss/restore the lower half player. */
     collapsePlayerOnScroll: Boolean = false,
     onRevealPlayer: () -> Unit = {},
@@ -635,7 +640,11 @@ internal fun InlineQueue(
                     "autoplay-heading", autoplayEnabled || tracks.autoplay.isNotEmpty(), reduceAnimation,
                     hasPreviousSection = tracks.history.isNotEmpty() || tracks.user.isNotEmpty() || tracks.context.isNotEmpty(),
                 ) {
-                    AutoplayHeading(hasTracks = tracks.autoplay.isNotEmpty()) {
+                    AutoplayHeading(
+                        hasTracks = tracks.autoplay.isNotEmpty(),
+                        autoplayMode = autoplayMode,
+                        onAutoplayModeChange = if (!controlsLocked) onAutoplayModeChange else null,
+                    ) {
                         if (canAddAll && !selectionState.active && tracks.autoplay.isNotEmpty()) {
                             QueueAddAllButton(controlsLocked) { addAll(tracks.autoplay) }
                         }
@@ -871,37 +880,67 @@ private fun QueueClearButton(style: TextStyle, locked: Boolean, onClear: () -> U
 @Composable
 private fun AutoplayHeading(
     hasTracks: Boolean,
+    autoplayMode: AutoplayMode = AutoplayMode.FAMILIAR,
+    onAutoplayModeChange: ((AutoplayMode) -> Unit)? = null,
     modifier: Modifier = Modifier,
     trailing: @Composable () -> Unit = {},
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = 12.dp),
     ) {
-        Icon(
-            BitChordIcons.Infinity,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.75f),
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stringResource(Res.string.autoplay),
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                BitChordIcons.Infinity,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.75f),
+                modifier = Modifier.size(18.dp),
             )
-            Text(
-                text = stringResource(
-                    if (hasTracks) Res.string.autoplay_queue_description else Res.string.autoplay_empty_description,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.55f),
-            )
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(Res.string.autoplay),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                )
+                Text(
+                    text = stringResource(
+                        if (hasTracks) Res.string.autoplay_queue_description else Res.string.autoplay_empty_description,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            }
+            QueueHeadingActions(content = trailing)
         }
-        QueueHeadingActions(content = trailing)
+        if (onAutoplayModeChange != null) {
+            Spacer(Modifier.height(10.dp))
+            val familiarLabel = stringResource(Res.string.autoplay_mode_familiar)
+            val discoveryLabel = stringResource(Res.string.autoplay_mode_discovery)
+            // InlineQueue is always dark-styled (white text); force dark surface/onSurface
+            // so PillSegmentedControl keeps crisp contrast even when the app uses Light theme.
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    surface = Color(0xFF1C1C1E),
+                    onSurface = Color.White,
+                    onSurfaceVariant = Color.White.copy(alpha = 0.65f),
+                ),
+            ) {
+                PillSegmentedControl(
+                    options = listOf(familiarLabel, discoveryLabel),
+                    selectedIndex = if (autoplayMode == AutoplayMode.DISCOVERY) 1 else 0,
+                    onSelect = { index ->
+                        onAutoplayModeChange(
+                            if (index == 1) AutoplayMode.DISCOVERY else AutoplayMode.FAMILIAR,
+                        )
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -1221,7 +1260,7 @@ private fun InlineQueueRow(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .trackArtSize(44.dp, song.isVideo)
+                .size(44.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .thumbnailBorder(RoundedCornerShape(6.dp))
                 .background(Color.White.copy(alpha = 0.08f)),

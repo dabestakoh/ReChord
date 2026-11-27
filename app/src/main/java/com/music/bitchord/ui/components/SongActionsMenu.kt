@@ -198,6 +198,8 @@ fun SongActionsMenu(
     fromQueue: Boolean = false,
     /** Enters multi-select mode in the queue with this row checked. */
     onSelectSongs: (() -> Unit)? = null,
+    /** Re-anchors upcoming Autoplay tracks to this queued song without interrupting playback. */
+    onTuneRadio: (() -> Unit)? = null,
 ) {
     var showingSongInfo by remember(song.videoId) { mutableStateOf(false) }
     var pickingSleepTimer by remember { mutableStateOf(false) }
@@ -354,6 +356,14 @@ fun SongActionsMenu(
             accent = palette.accent,
             onClick = onStartRadio,
         )
+        if (fromQueue && !isOffline && onTuneRadio != null) {
+            ActionRow(
+                icon = SfIcons.Radio,
+                label = stringResource(R.string.tune_radio_to_this),
+                accent = palette.accent,
+                onClick = onTuneRadio,
+            )
+        }
         if (!fromQueue) {
             ActionRow(
                 icon = SfIcons.PlayNext,

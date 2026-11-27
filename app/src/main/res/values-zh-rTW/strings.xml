@@ -423,6 +423,7 @@
     <string name="save_order">儲存</string>
     <string name="reset_order">重設</string>
     <string name="not_interested">不感興趣</string>
+    <string name="tune_radio_to_this">以此曲調整電台</string>
     <string name="reset_to_default">恢復預設設定</string>
     <string name="rich_presence_footer">在你的 Discord 個人資料中顯示正在播放的內容。</string>
     <string name="save_name">儲存名稱</string>

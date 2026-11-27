@@ -470,6 +470,9 @@ object AppSettings {
     /** Keep playing similar music once the queue runs out. */
     val autoplay = MutableStateFlow(true)
 
+    /** Autoplay balance: Familiar (closer to known artists/tracks) vs Discovery (fresh relevant tracks). */
+    val autoplayMode = MutableStateFlow(com.music.bitchord.data.model.AutoplayMode.FAMILIAR)
+
     /** Whether the queue is held in shuffled order (Mix button). */
     val shuffleEnabled = MutableStateFlow(false)
 
@@ -1161,6 +1164,11 @@ object AppSettings {
             AppFont.valueOf(prefs.getString(KEY_APP_FONT, null) ?: AppFont.DEFAULT.name)
         }.getOrDefault(AppFont.DEFAULT)
         autoplay.value = prefs.getBoolean(KEY_AUTOPLAY, true)
+        autoplayMode.value = runCatching {
+            com.music.bitchord.data.model.AutoplayMode.valueOf(
+                prefs.getString("autoplay_mode", null) ?: com.music.bitchord.data.model.AutoplayMode.FAMILIAR.name,
+            )
+        }.getOrDefault(com.music.bitchord.data.model.AutoplayMode.FAMILIAR)
         shuffleEnabled.value = prefs.getBoolean(KEY_SHUFFLE_ENABLED, false)
         repeatMode.value = prefs.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
         showNerdStats.value = prefs.getBoolean(KEY_NERD_STATS, false)
@@ -1747,6 +1755,11 @@ object AppSettings {
     fun setHideRecents(value: Boolean) {
         hideRecents.value = value
         prefs.edit().putBoolean(KEY_HIDE_RECENTS, value).apply()
+    }
+
+    fun setAutoplayMode(mode: com.music.bitchord.data.model.AutoplayMode) {
+        autoplayMode.value = mode
+        prefs.edit().putString("autoplay_mode", mode.name).apply()
     }
 
     fun setHideHomeVideos(value: Boolean) {

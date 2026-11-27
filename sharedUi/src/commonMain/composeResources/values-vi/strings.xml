@@ -265,4 +265,7 @@
     <string name="queue_download">Tải xuống</string>
     <string name="queue_selection_remove">Xóa</string>
     <string name="queue_add_all_to_playlist">Thêm tất cả vào danh sách phát</string>
+    <string name="featured_rediscover">Nghe lại</string>
+    <string name="autoplay_mode_familiar">Quen thuộc</string>
+    <string name="autoplay_mode_discovery">Khám phá</string>
 </resources>

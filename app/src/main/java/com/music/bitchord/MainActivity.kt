@@ -244,7 +244,10 @@ import com.music.bitchord.playback.toMediaItem
 import com.music.bitchord.playback.MusicOnlyPlayback
 import com.music.bitchord.playback.toSong
 import com.music.bitchord.playback.toDirectYouTubeMediaItem
+import com.music.bitchord.playback.pruneArtistAutoplay
+import com.music.bitchord.playback.refreshAutoplayMode
 import com.music.bitchord.playback.toggleAutoplay
+import com.music.bitchord.playback.tuneRadioTo
 import com.music.bitchord.playback.toggleShuffle
 import com.music.bitchord.playback.upgradeQuality
 import com.music.bitchord.playback.revertToOriginal
@@ -2853,6 +2856,13 @@ private fun BitChordApp(
             repeatMode = player.repeatMode,
             shuffleEnabled = shuffleEnabled,
             autoplayEnabled = autoplayEnabled,
+            autoplayMode = AppSettings.autoplayMode.collectAsStateWithLifecycle().value,
+            onAutoplayModeChange = { mode ->
+                if (AppSettings.autoplayMode.value != mode) {
+                    AppSettings.setAutoplayMode(mode)
+                    controller?.refreshAutoplayMode()
+                }
+            },
             signedIn = signedIn,
             likeStatus = likeStatusOf(song),
             onToggleLike = { toggleLikeOf(song) },
@@ -3849,19 +3859,12 @@ private fun BitChordApp(
                                 onTopPickLongPress = { pick ->
                                     when (pick.kind) {
                                         TopPickKind.CONTINUE_LISTENING -> player.song?.let(openSongMenu)
-                                        TopPickKind.LATEST_RELEASE -> pick.browseId?.let { browseId ->
-                                            onShelfLongPress(
-                                                ShelfItem(
-                                                    title = pick.title,
-                                                    subtitle = pick.artistName.orEmpty(),
-                                                    thumbnailUrl = pick.images.firstOrNull(),
-                                                    videoId = null,
-                                                    browseId = browseId,
-                                                ),
-                                            )
+                                        TopPickKind.LATEST_RELEASE -> pick.browseId?.let {
+                                            openBrowseMenu(featuredLatestReleaseTarget(pick))
                                         }
                                         TopPickKind.RELATED_SONG,
-                                        TopPickKind.ARTIST_AND_SIMILAR -> {
+                                        TopPickKind.ARTIST_AND_SIMILAR,
+                                        TopPickKind.REDISCOVER_LIKED -> {
                                             if (pick.recommendations.isNotEmpty()) {
                                                 openBrowseMenu(featuredBrowseTarget(pick))
                                             }
@@ -4941,6 +4944,12 @@ private fun BitChordApp(
                         queueSelectTarget = index to song
                     }
                 } else null,
+                onTuneRadio = if (fromQueue && !controlsLocked) {
+                    {
+                        songActions = null
+                        controller?.tuneRadioTo(song)
+                    }
+                } else null,
                 signedIn = signedIn,
                 likeStatus = likeStatusOf(song),
                 onPlayNext = { playNext(song); songActions = null },
@@ -4977,6 +4986,10 @@ private fun BitChordApp(
                 onToggleLike = { toggleLikeOf(song) },
                 onToggleDislike = {
                     val previousStatus = viewModel.toggleDislike(song.videoId)
+                    if (previousStatus != null && previousStatus != LikeStatus.DISLIKE) {
+                        val cooledArtist = com.music.bitchord.playback.SessionTasteFeedback.recordDislike(song)
+                        controller?.pruneArtistAutoplay(cooledArtist)
+                    }
                     if (
                         previousStatus != null &&
                         shouldSkipAfterDislike(
@@ -6016,10 +6029,8 @@ private fun BitChordApp(
                 // Tapping the lifted card opens it, as a tap on it in the list
                 // would have. Not for a Local Music grouping, which has no page.
                 onPreviewClick = { target ->
-                    val pick = target.featuredPick
-                    if (pick != null) {
+                    if (target.featuredPick != null) {
                         browseActions = null
-                        openTopPick(pick, pick.title)
                     } else {
                         target.browseId?.let { id ->
                             browseActions = null
@@ -7252,6 +7263,17 @@ private fun featuredBrowseTarget(pick: TopPick): BrowseTarget = BrowseTarget(
     thumbnailUrl = pick.images.firstOrNull(),
     type = BrowseType.PLAYLIST,
     songs = pick.recommendations,
+    fromCard = true,
+    featuredPick = pick,
+)
+
+/** Builds a BrowseTarget for a Home Featured `LATEST_RELEASE` album card. */
+private fun featuredLatestReleaseTarget(pick: TopPick): BrowseTarget = BrowseTarget(
+    browseId = pick.browseId,
+    title = pick.title,
+    subtitle = pick.artistName ?: pick.subtitle,
+    thumbnailUrl = pick.images.firstOrNull(),
+    type = BrowseType.ALBUM,
     fromCard = true,
     featuredPick = pick,
 )

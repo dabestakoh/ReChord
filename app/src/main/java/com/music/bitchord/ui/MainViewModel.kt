@@ -769,6 +769,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         (song ?: findKnownSong(videoId))?.let(SessionTasteFeedback::recordCompletedOrLiked)
                         prependToLikedLists(videoId, song)
                     } else {
+                        if (status == LikeStatus.DISLIKE) {
+                            (song ?: findKnownSong(videoId))?.let(SessionTasteFeedback::recordDislike)
+                        }
                         dropFromLikedLists(videoId)
                     }
                     // Clearing the heart means forgetting the song, not
@@ -2494,11 +2497,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val liked = cachedLiked?.takeIf(List<Song>::isNotEmpty)
             ?: (_library.value as? UiState.Success)?.data?.likedSongs.orEmpty()
+        val tod = com.music.bitchord.data.stats.TimeOfDayTasteStore.forHour(getApplication())
+        val topArtists = (week.artists.take(10) + all.artists.take(15)).distinctBy { it.browseId ?: it.title }
+        val topSongs = all.songs.take(60).map { it.song }
+        val recentSongs = week.songs.take(25).map { it.song }
+        SessionTasteFeedback.setKnownTaste(
+            trackIds = (liked.take(200) + topSongs + recentSongs).mapTo(HashSet()) { it.videoId },
+            artistNames = (topArtists.map { it.title } + liked.take(100).map { it.artist }).toSet(),
+        )
         TopPicks.LocalTaste(
-            artists = (week.artists.take(10) + all.artists.take(15)).distinctBy { it.browseId ?: it.title }
-                .map { ArtistRef(name = it.title, browseId = it.browseId) },
-            songs = all.songs.take(60).map { it.song },
-            recent = week.songs.take(25).map { it.song },
+            artists = topArtists.map { ArtistRef(name = it.title, browseId = it.browseId) },
+            songs = topSongs,
+            recent = recentSongs,
             genres = all.genres.take(3).map { it.title },
             recentGenres = week.genres.take(4).map { it.title },
             genresForArtist = ArtistFacts::genresFor,
@@ -2509,6 +2519,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             completedIds = SessionTasteFeedback.completedVideoIds() + all.songs.take(40).map { it.song.videoId },
             dismissedSeedKeys = SessionTasteFeedback.dismissedSeedKeys(),
             cooledArtists = SessionTasteFeedback.cooledArtists(),
+            timeOfDayVideoIds = tod.videoIds,
+            timeOfDayArtists = tod.artistKeys,
         )
     }
 

@@ -44,6 +44,16 @@ enum class TopPickKind {
 
     /** Music the listener hasn't played yet — YouTube's Discover Mix. */
     DISCOVERY_STATION,
+
+    /** Older Liked Songs the listener used to finish and hasn't played recently. */
+    REDISCOVER_LIKED,
+}
+
+/** Autoplay balance mode toggled in the Queue sheet. */
+@Serializable
+enum class AutoplayMode {
+    FAMILIAR,
+    DISCOVERY,
 }
 
 /**

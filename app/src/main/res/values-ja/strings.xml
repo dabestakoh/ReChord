@@ -423,6 +423,7 @@
     <string name="save_order">保存</string>
     <string name="reset_order">リセット</string>
     <string name="not_interested">興味なし</string>
+    <string name="tune_radio_to_this">この曲でラジオを調整</string>
     <string name="reset_to_default">デフォルトに戻す</string>
     <string name="rich_presence_footer">Discordのプロフィールに再生中の曲を表示します。</string>
     <string name="save_name">名前を保存</string>

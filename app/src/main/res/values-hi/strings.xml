@@ -437,6 +437,7 @@
     <string name="save_order">सेव करें</string>
     <string name="reset_order">रीसेट करें</string>
     <string name="not_interested">दिलचस्पी नहीं है</string>
+    <string name="tune_radio_to_this">रेडियो को इसके अनुसार ट्यून करें</string>
     <string name="reset_to_default">डिफ़ॉल्ट पर रीसेट करें</string>
     <string name="rich_presence_footer">अपनी Discord प्रोफ़ाइल पर दिखाएं कि आप क्या चला रहे हैं।</string>
     <string name="save_name">नाम सेव करें</string>

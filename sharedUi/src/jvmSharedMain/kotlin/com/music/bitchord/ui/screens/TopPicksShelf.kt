@@ -283,6 +283,11 @@ private fun cardText(pick: TopPick, listenerName: String?): CardText {
             title = stringResource(Res.string.top_pick_discovery_station),
             subtitle = "",
         )
+        TopPickKind.REDISCOVER_LIKED -> CardText(
+            eyebrow = stringResource(Res.string.featured_rediscover),
+            title = pick.title,
+            subtitle = pick.subtitle,
+        )
     }
 }
 
@@ -332,7 +337,7 @@ private fun TopPickCard(
                 eyebrowColor = palette.eyebrow
                 branded = true
             }
-            TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX, TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG -> {
+            TopPickKind.LATEST_RELEASE, TopPickKind.NEW_RELEASE_MIX, TopPickKind.CONTINUE_LISTENING, TopPickKind.RELATED_SONG, TopPickKind.REDISCOVER_LIKED -> {
                 ReleaseArt(
                     pick.images.firstOrNull(),
                     Modifier.fillMaxSize(),
@@ -391,7 +396,7 @@ private fun TopPickCard(
             TopPickKind.CONTINUE_LISTENING -> stringResource(if (isPlaying) Res.string.home_open_player else Res.string.home_resume)
             TopPickKind.LATEST_RELEASE -> stringResource(Res.string.home_open_release)
             TopPickKind.ARTIST_AND_SIMILAR -> stringResource(Res.string.home_play_picks)
-            TopPickKind.RELATED_SONG -> stringResource(Res.string.play)
+            TopPickKind.RELATED_SONG, TopPickKind.REDISCOVER_LIKED -> stringResource(Res.string.play)
             else -> null
         }
         CardCaption(text, eyebrowColor, Modifier.align(Alignment.BottomStart), action, compact)

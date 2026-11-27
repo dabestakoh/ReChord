@@ -403,6 +403,7 @@
     <string name="save_order">Salvar</string>
     <string name="reset_order">Redefinir</string>
     <string name="not_interested">Não tenho interesse</string>
+    <string name="tune_radio_to_this">Sintonizar rádio nisto</string>
     <string name="reset_to_default">Redefinir para o padrão</string>
     <string name="rich_presence_footer">Mostre o que você está jogando em seu perfil do Discord.</string>
     <string name="save_name">Salvar nome</string>
