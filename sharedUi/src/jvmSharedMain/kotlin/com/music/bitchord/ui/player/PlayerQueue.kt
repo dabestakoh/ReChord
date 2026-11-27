@@ -15,9 +15,11 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
@@ -517,8 +519,26 @@ internal fun InlineQueue(
                 } else stringResource(Res.string.queue),
                 style = MaterialTheme.typography.titleLarge,
                 color = Color.White,
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (!selectionState.active && autoplayEnabled && onAutoplayModeChange != null && !controlsLocked) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AutoplayModeHeaderPill(
+                        autoplayMode = autoplayMode,
+                        onSelect = onAutoplayModeChange,
+                        reduceDynamicBlur = reduceDynamicBlur,
+                        compact = maxWidth < 156.dp,
+                    )
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             if (selectionState.active) {
                 TextButton(
                     onClick = { selectionState.selectAll(allTracks) },
@@ -534,6 +554,8 @@ internal fun InlineQueue(
                     text = stringResource(Res.string.queue_select),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = if (controlsLocked) 0.25f else 0.75f),
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(percent = 50))
                         .clickable(enabled = !controlsLocked, onClick = selectionState::start)
@@ -640,11 +662,7 @@ internal fun InlineQueue(
                     "autoplay-heading", autoplayEnabled || tracks.autoplay.isNotEmpty(), reduceAnimation,
                     hasPreviousSection = tracks.history.isNotEmpty() || tracks.user.isNotEmpty() || tracks.context.isNotEmpty(),
                 ) {
-                    AutoplayHeading(
-                        hasTracks = tracks.autoplay.isNotEmpty(),
-                        autoplayMode = autoplayMode,
-                        onAutoplayModeChange = if (!controlsLocked) onAutoplayModeChange else null,
-                    ) {
+                    AutoplayHeading(hasTracks = tracks.autoplay.isNotEmpty()) {
                         if (canAddAll && !selectionState.active && tracks.autoplay.isNotEmpty()) {
                             QueueAddAllButton(controlsLocked) { addAll(tracks.autoplay) }
                         }
@@ -878,69 +896,113 @@ private fun QueueClearButton(style: TextStyle, locked: Boolean, onClear: () -> U
 }
 
 @Composable
+private fun AutoplayModeHeaderPill(
+    autoplayMode: AutoplayMode,
+    onSelect: (AutoplayMode) -> Unit,
+    reduceDynamicBlur: Boolean,
+    compact: Boolean,
+) {
+    val familiarLabel = stringResource(Res.string.autoplay_mode_familiar)
+    val discoveryLabel = stringResource(Res.string.autoplay_mode_discovery)
+    val shape = RoundedCornerShape(percent = 50)
+    val trackColor = if (reduceDynamicBlur) Color(0xFF242426) else Color.White.copy(alpha = 0.10f)
+    val activeColor = if (reduceDynamicBlur) Color(0xFF3A3A3E) else Color.White.copy(alpha = 0.22f)
+    val borderMod = if (reduceDynamicBlur) {
+        Modifier
+    } else {
+        Modifier.border(0.5.dp, Color.White.copy(alpha = 0.16f), shape)
+    }
+
+    if (compact) {
+        val next = if (autoplayMode == AutoplayMode.FAMILIAR) AutoplayMode.DISCOVERY else AutoplayMode.FAMILIAR
+        val label = if (autoplayMode == AutoplayMode.FAMILIAR) familiarLabel else discoveryLabel
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .background(activeColor)
+                .then(borderMod)
+                .clickable { onSelect(next) }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+        return
+    }
+
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(trackColor)
+            .then(borderMod)
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            AutoplayMode.FAMILIAR to familiarLabel,
+            AutoplayMode.DISCOVERY to discoveryLabel,
+        ).forEach { (mode, label) ->
+            val selected = autoplayMode == mode
+            Box(
+                modifier = Modifier
+                    .clip(shape)
+                    .background(if (selected) activeColor else Color.Transparent)
+                    .clickable { onSelect(mode) }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = if (selected) 1f else 0.65f),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AutoplayHeading(
     hasTracks: Boolean,
-    autoplayMode: AutoplayMode = AutoplayMode.FAMILIAR,
-    onAutoplayModeChange: ((AutoplayMode) -> Unit)? = null,
     modifier: Modifier = Modifier,
     trailing: @Composable () -> Unit = {},
 ) {
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                BitChordIcons.Infinity,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.75f),
-                modifier = Modifier.size(18.dp),
+        Icon(
+            BitChordIcons.Infinity,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.75f),
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = stringResource(Res.string.autoplay),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
             )
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(Res.string.autoplay),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                )
-                Text(
-                    text = stringResource(
-                        if (hasTracks) Res.string.autoplay_queue_description else Res.string.autoplay_empty_description,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.55f),
-                )
-            }
-            QueueHeadingActions(content = trailing)
-        }
-        if (onAutoplayModeChange != null) {
-            Spacer(Modifier.height(10.dp))
-            val familiarLabel = stringResource(Res.string.autoplay_mode_familiar)
-            val discoveryLabel = stringResource(Res.string.autoplay_mode_discovery)
-            // InlineQueue is always dark-styled (white text); force dark surface/onSurface
-            // so PillSegmentedControl keeps crisp contrast even when the app uses Light theme.
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    surface = Color(0xFF1C1C1E),
-                    onSurface = Color.White,
-                    onSurfaceVariant = Color.White.copy(alpha = 0.65f),
+            Text(
+                text = stringResource(
+                    if (hasTracks) Res.string.autoplay_queue_description else Res.string.autoplay_empty_description,
                 ),
-            ) {
-                PillSegmentedControl(
-                    options = listOf(familiarLabel, discoveryLabel),
-                    selectedIndex = if (autoplayMode == AutoplayMode.DISCOVERY) 1 else 0,
-                    onSelect = { index ->
-                        onAutoplayModeChange(
-                            if (index == 1) AutoplayMode.DISCOVERY else AutoplayMode.FAMILIAR,
-                        )
-                    },
-                )
-            }
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.55f),
+            )
         }
+        QueueHeadingActions(content = trailing)
     }
 }
 

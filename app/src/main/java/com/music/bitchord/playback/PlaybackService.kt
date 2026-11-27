@@ -1000,6 +1000,8 @@ class PlaybackService : MediaLibraryService() {
     /** The upcoming ids read-ahead was last asked to warm, so an unchanged queue isn't asked again. */
     private var preferredPrefetchRequest: List<String>? = null
     private var autoplaySeed: String? = null
+    private val autoplayModeStash = mutableMapOf<com.music.bitchord.data.model.AutoplayMode, List<Song>>()
+    private var autoplayModeStashSeed: String? = null
 
     /** Index in the live queue represented by entry zero of the persisted window. */
     private var persistedQueueStart = 0
@@ -3669,6 +3671,8 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = null
         autoplaySeed = null
         autoplayRadio = AutoplayRadio()
+        autoplayModeStash.clear()
+        autoplayModeStashSeed = null
         SessionTasteFeedback.clearAnchor()
     }
 
@@ -3945,6 +3949,7 @@ class PlaybackService : MediaLibraryService() {
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
+            var partialBatches = 0
             val radio = autoplayRadio
             val contextAtStart = boundedContextToken
             val partyAtStart = party.code
@@ -3979,6 +3984,7 @@ class PlaybackService : MediaLibraryService() {
                     return@launch
                 }
                 if (resolved.isNotEmpty()) {
+                    var addedCount = 0
                     if (latestParty.inParty) {
                         // Do not mutate ExoPlayer directly here. The server's
                         // state broadcast reconciles every device atomically,
@@ -3996,6 +4002,7 @@ class PlaybackService : MediaLibraryService() {
                             autoplaySeed = null
                             return@launch
                         }
+                        addedCount = resolved.size
                     } else {
                         // The queue may have changed while the radio request
                         // was out — a station landing behind it is the usual
@@ -4016,10 +4023,17 @@ class PlaybackService : MediaLibraryService() {
                                 latestPlayer.seekToNextMediaItem()
                                 if (latestPlayer.playbackState == Player.STATE_IDLE) latestPlayer.prepare()
                             }
+                            addedCount = fresh.size
                         }
                     }
                     if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += resolved
-                    return@launch
+                    remaining = MAX_QUEUED_AUTOPLAY -
+                        (latestPlayer.currentMediaItemIndex + 1 until latestPlayer.mediaItemCount)
+                            .count { latestPlayer.getMediaItemAt(it).fromAutoplay }
+                    if (remaining <= 0 || addedCount == 0 || ++partialBatches >= 3) {
+                        return@launch
+                    }
+                    continue
                 }
 
                 // Empty and failed responses used to leave [autoplaySeed]
@@ -10069,23 +10083,57 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
                 ACTION_REFRESH_AUTOPLAY_MODE -> {
+                    val exoPlayer = player
+                    val current = exoPlayer?.currentMediaItem?.toSong()
+                    val targetMode = AppSettings.autoplayMode.value
+                    val previousMode = if (targetMode == com.music.bitchord.data.model.AutoplayMode.FAMILIAR) {
+                        com.music.bitchord.data.model.AutoplayMode.DISCOVERY
+                    } else {
+                        com.music.bitchord.data.model.AutoplayMode.FAMILIAR
+                    }
+                    if (exoPlayer != null && current != null) {
+                        if (autoplayModeStashSeed != current.videoId) {
+                            autoplayModeStash.clear()
+                            autoplayModeStashSeed = current.videoId
+                        }
+                        val currentIdx = exoPlayer.currentMediaItemIndex
+                        val upcomingAutoplay = (currentIdx + 1 until exoPlayer.mediaItemCount)
+                            .map { exoPlayer.getMediaItemAt(it) }
+                            .filter { it.fromAutoplay }
+                            .map { it.toSong() }
+                        if (upcomingAutoplay.isNotEmpty()) {
+                            autoplayModeStash[previousMode] = upcomingAutoplay
+                            val reclaimedIds = upcomingAutoplay.mapTo(HashSet()) { it.videoId }
+                            sessionSongHistory.removeAll { it.videoId in reclaimedIds }
+                        }
+                    }
                     autoplayLoadJob?.cancel()
                     autoplayLoadJob = null
                     autoplaySeed = null
                     autoplayRadio = AutoplayRadio()
                     dropAutoplayTracksFromQueue()
-                    loadAutoplayForCurrentTrack()
-                }
-                ACTION_TUNE_RADIO -> {
-                    val bundle = args.getBundle(EXTRA_SWAP_MEDIA_ITEM)
-                    if (bundle != null) {
-                        val targetSong = songFromBundle(bundle)
-                        SessionTasteFeedback.recordCompletedOrLiked(targetSong)
-                        autoplayLoadJob?.cancel()
-                        autoplayLoadJob = null
-                        autoplaySeed = null
-                        autoplayRadio.tuneTo(targetSong)
-                        dropAutoplayTracksFromQueue()
+                    val stashed = if (current != null && autoplayModeStashSeed == current.videoId) {
+                        autoplayModeStash.remove(targetMode)
+                    } else {
+                        null
+                    }
+                    if (exoPlayer != null && !stashed.isNullOrEmpty()) {
+                        val disliked = com.music.bitchord.data.LikeState.dislikedIds()
+                        val queuedNow = (0 until exoPlayer.mediaItemCount)
+                            .map { exoPlayer.getMediaItemAt(it).toSong() }
+                        val restored = stashed.filter { song ->
+                            song.videoId !in disliked &&
+                                !SessionTasteFeedback.isSongCooled(song) &&
+                                queuedNow.none { QueueBuilder.isSameRecording(it, song) }
+                        }.take(MAX_QUEUED_AUTOPLAY)
+                        if (restored.isNotEmpty()) {
+                            exoPlayer.addMediaItems(restored.map { it.toMediaItem() })
+                            if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += restored
+                        }
+                        if (restored.size < MAX_QUEUED_AUTOPLAY) {
+                            loadAutoplayForCurrentTrack()
+                        }
+                    } else {
                         loadAutoplayForCurrentTrack()
                     }
                 }

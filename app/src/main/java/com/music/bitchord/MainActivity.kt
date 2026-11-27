@@ -247,7 +247,6 @@ import com.music.bitchord.playback.toDirectYouTubeMediaItem
 import com.music.bitchord.playback.pruneArtistAutoplay
 import com.music.bitchord.playback.refreshAutoplayMode
 import com.music.bitchord.playback.toggleAutoplay
-import com.music.bitchord.playback.tuneRadioTo
 import com.music.bitchord.playback.toggleShuffle
 import com.music.bitchord.playback.upgradeQuality
 import com.music.bitchord.playback.revertToOriginal
@@ -3758,39 +3757,17 @@ private fun BitChordApp(
                                 } else null,
                                 reorder = if (reordering != null) {
                                     { palette ->
-                                        ReorderPlaylistPage(
-                                            playlist = reordering,
-                                            entries = reorderEntries,
-                                            saving = reorderSaving,
+                                        DetailReorderContent(
+                                            reordering = reordering,
+                                            reorderEntries = reorderEntries,
+                                            reorderSaving = reorderSaving,
                                             palette = palette,
-                                            contentPadding = PaddingValues(
-                                                bottom = listPadding.calculateBottomPadding(),
-                                            ),
+                                            bottomPadding = listPadding.calculateBottomPadding(),
+                                            viewModel = viewModel,
+                                            onSetSaving = { reorderSaving = it },
+                                            onClearIfSame = { if (reorderTarget == reordering) reorderTarget = null },
                                             onClose = { reorderTarget = null },
-                                            onResetOrder = if (
-                                                reordering.browseId == YtMusicRepository.LIKED_MUSIC &&
-                                                viewModel.hasCustomLikedOrder()
-                                            ) {
-                                                {
-                                                    reorderSaving = true
-                                                    viewModel.resetLikedOrder {
-                                                        reorderSaving = false
-                                                        if (reorderTarget == reordering) reorderTarget = null
-                                                    }
-                                                }
-                                            } else null,
-                                            onSave = { original, reordered ->
-                                                reorderSaving = true
-                                                viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
-                                                    reorderSaving = false
-                                                    showQueueNotice(
-                                                        context.getString(
-                                                            if (saved) R.string.playlist_reordered else R.string.reorder_failed,
-                                                        ),
-                                                    )
-                                                    if (saved && reorderTarget == reordering) reorderTarget = null
-                                                }
-                                            },
+                                            onNotice = showQueueNotice,
                                         )
                                     }
                                 } else {
@@ -3857,20 +3834,7 @@ private fun BitChordApp(
                                 artworkMotion = artworkMotion,
                                 replayYear = replayYearBadge,
                                 onTopPickLongPress = { pick ->
-                                    when (pick.kind) {
-                                        TopPickKind.CONTINUE_LISTENING -> player.song?.let(openSongMenu)
-                                        TopPickKind.LATEST_RELEASE -> pick.browseId?.let {
-                                            openBrowseMenu(featuredLatestReleaseTarget(pick))
-                                        }
-                                        TopPickKind.RELATED_SONG,
-                                        TopPickKind.ARTIST_AND_SIMILAR,
-                                        TopPickKind.REDISCOVER_LIKED -> {
-                                            if (pick.recommendations.isNotEmpty()) {
-                                                openBrowseMenu(featuredBrowseTarget(pick))
-                                            }
-                                        }
-                                        else -> Unit
-                                    }
+                                    handleTopPickLongPress(pick, player.song, openSongMenu, openBrowseMenu)
                                 },
                             )
                             TAB_EXPLORE -> selectedMoodGenre?.let { category ->
@@ -4942,12 +4906,6 @@ private fun BitChordApp(
                         val index = menuQueueIndex
                         songActions = null
                         queueSelectTarget = index to song
-                    }
-                } else null,
-                onTuneRadio = if (fromQueue && !controlsLocked) {
-                    {
-                        songActions = null
-                        controller?.tuneRadioTo(song)
                     }
                 } else null,
                 signedIn = signedIn,
@@ -7277,6 +7235,76 @@ private fun featuredLatestReleaseTarget(pick: TopPick): BrowseTarget = BrowseTar
     fromCard = true,
     featuredPick = pick,
 )
+
+private fun handleTopPickLongPress(
+    pick: TopPick,
+    currentSong: Song?,
+    openSongMenu: (Song) -> Unit,
+    openBrowseMenu: (BrowseTarget) -> Unit,
+) {
+    when (pick.kind) {
+        TopPickKind.CONTINUE_LISTENING -> currentSong?.let(openSongMenu)
+        TopPickKind.LATEST_RELEASE -> pick.browseId?.let {
+            openBrowseMenu(featuredLatestReleaseTarget(pick))
+        }
+        TopPickKind.RELATED_SONG,
+        TopPickKind.ARTIST_AND_SIMILAR,
+        TopPickKind.REDISCOVER_LIKED -> {
+            if (pick.recommendations.isNotEmpty()) {
+                openBrowseMenu(featuredBrowseTarget(pick))
+            }
+        }
+        else -> Unit
+    }
+}
+
+@Composable
+private fun DetailReorderContent(
+    reordering: UserPlaylist,
+    reorderEntries: UiState<List<Song>>,
+    reorderSaving: Boolean,
+    palette: com.music.bitchord.ui.theme.ArtworkPalette,
+    bottomPadding: Dp,
+    viewModel: MainViewModel,
+    onSetSaving: (Boolean) -> Unit,
+    onClearIfSame: () -> Unit,
+    onClose: () -> Unit,
+    onNotice: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    ReorderPlaylistPage(
+        playlist = reordering,
+        entries = reorderEntries,
+        saving = reorderSaving,
+        palette = palette,
+        contentPadding = PaddingValues(bottom = bottomPadding),
+        onClose = onClose,
+        onResetOrder = if (
+            reordering.browseId == YtMusicRepository.LIKED_MUSIC &&
+            viewModel.hasCustomLikedOrder()
+        ) {
+            {
+                onSetSaving(true)
+                viewModel.resetLikedOrder {
+                    onSetSaving(false)
+                    onClearIfSame()
+                }
+            }
+        } else null,
+        onSave = { original, reordered ->
+            onSetSaving(true)
+            viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
+                onSetSaving(false)
+                onNotice(
+                    context.getString(
+                        if (saved) R.string.playlist_reordered else R.string.reorder_failed,
+                    ),
+                )
+                if (saved) onClearIfSame()
+            }
+        },
+    )
+}
 
 
 
