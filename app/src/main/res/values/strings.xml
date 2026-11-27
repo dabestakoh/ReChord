@@ -684,6 +684,7 @@
     <string name="rich_presence_footer">Show what you are playing on your Discord profile.</string>
     <string name="save_name">Save name</string>
     <string name="save_order">Save</string>
+    <string name="reset_order">Reset</string>
     <string name="saved_to_downloads">Saved to Downloads</string>
     <string name="saved_to_youtube_music_account">Saved to your YouTube Music account</string>
     <string name="scrobble_delay">Scrobble delay</string>

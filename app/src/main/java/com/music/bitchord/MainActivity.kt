@@ -3757,8 +3757,19 @@ private fun BitChordApp(
                                                 bottom = listPadding.calculateBottomPadding(),
                                             ),
                                             onClose = { reorderTarget = null },
-                                            onSave = { reordered ->
-                                                val original = (reorderEntries as? UiState.Success)?.data.orEmpty()
+                                            onResetOrder = if (
+                                                reordering.browseId == YtMusicRepository.LIKED_MUSIC &&
+                                                viewModel.hasCustomLikedOrder()
+                                            ) {
+                                                {
+                                                    reorderSaving = true
+                                                    viewModel.resetLikedOrder {
+                                                        reorderSaving = false
+                                                        if (reorderTarget == reordering) reorderTarget = null
+                                                    }
+                                                }
+                                            } else null,
+                                            onSave = { original, reordered ->
                                                 reorderSaving = true
                                                 viewModel.reorderPlaylist(reordering, original, reordered) { saved ->
                                                     reorderSaving = false
@@ -4199,7 +4210,7 @@ private fun BitChordApp(
                     )
                 }
 
-                FrostedTopBar(
+                if (reorderTarget == null) FrostedTopBar(
                     title = when (route) {
                         AppRoute.Spotify -> stringResource(R.string.spotify)
                         AppRoute.Downloads -> stringResource(R.string.downloads)
@@ -5891,7 +5902,7 @@ private fun BitChordApp(
                         viewModel.retitleDetail(p.browseId, name.trim())
                     }
                 },
-                onReorder = playlist?.let { p ->
+                onReorder = (playlist ?: likedReorderPlaylist(target, signedIn, context))?.let { p ->
                     {
                         browseActions = null
                         // Rearranged on the playlist's own page: open it first
@@ -7172,4 +7183,20 @@ private fun bottomScrimMaxWidth(width: Dp, height: Dp): Dp =
 /** -1 signals landscape side-by-side mode so the A–Z rail aligns level with the bottom edge of the Now Playing pill. */
 private fun railBarsPx(width: Dp, height: Dp, measured: Int): Int =
     if (landscapeChrome(width, height)) -1 else measured
+
+/** Returns a synthetic reorder target for Liked Music (`VLLM`) when signed in. */
+private fun likedReorderPlaylist(
+    target: BrowseTarget,
+    signedIn: Boolean,
+    context: android.content.Context,
+): UserPlaylist? {
+    if (!signedIn || target.browseId != YtMusicRepository.LIKED_MUSIC) return null
+    return UserPlaylist(
+        playlistId = "LM",
+        title = target.title.ifBlank { context.getString(R.string.auto_liked) },
+        subtitle = target.subtitle,
+        thumbnailUrl = target.thumbnailUrl,
+    )
+}
+
 

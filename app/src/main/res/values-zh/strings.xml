@@ -421,6 +421,7 @@
     <string name="reorder_failed">无法保存新的顺序</string>
     <string name="playlist_reordered">已保存播放列表顺序</string>
     <string name="save_order">保存</string>
+    <string name="reset_order">重置</string>
     <string name="reset_to_default">恢复默认设置</string>
     <string name="rich_presence_footer">在你的 Discord 个人资料中显示正在播放的内容。</string>
     <string name="save_name">保存名称</string>

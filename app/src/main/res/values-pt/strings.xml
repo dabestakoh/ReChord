@@ -401,6 +401,7 @@
     <string name="reorder_failed">Não foi possível salvar a nova ordem</string>
     <string name="playlist_reordered">Ordem da playlist salva</string>
     <string name="save_order">Salvar</string>
+    <string name="reset_order">Redefinir</string>
     <string name="reset_to_default">Redefinir para o padrão</string>
     <string name="rich_presence_footer">Mostre o que você está jogando em seu perfil do Discord.</string>
     <string name="save_name">Salvar nome</string>

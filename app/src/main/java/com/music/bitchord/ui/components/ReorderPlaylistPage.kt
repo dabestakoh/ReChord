@@ -1,6 +1,9 @@
 package com.music.bitchord.ui.components
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -8,13 +11,14 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -31,8 +35,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -47,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,29 +61,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import com.music.bitchord.R
+import com.music.bitchord.data.LikedOrderStore
+import com.music.bitchord.data.PlaylistSnapshotCache
+import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.model.ROW_ART_PX
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.UiState
 import com.music.bitchord.data.model.UserPlaylist
 import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.data.playlist.dedupeSongsByVideoId
 import com.music.bitchord.ui.theme.ArtworkPalette
+import kotlinx.coroutines.delay
+
+private fun reorderEntryKey(song: Song): String =
+    song.setVideoId?.takeIf(String::isNotBlank) ?: song.videoId
 
 /**
- * Rearranges one of the account's playlists: every entry with a handle to drag
- * it by, and nothing sent until Save.
+ * Rearranges one of the account's playlists (or Liked Music): every entry has
+ * a handle to drag it by, and nothing is committed until Save.
  *
- * Drawn in place of the playlist page's own track list, on that page's
- * artwork colours ([palette]), rather than in a sheet over it — the page is
- * already the playlist, and a sheet's own drag-to-dismiss was one more
- * gesture competing with the rows'. Back closes it, as the X does.
- *
- * Held locally and saved as one edit, rather than sent a move at a time while
- * dragging, because a drag passes through a dozen positions on the way to the
- * one it was meant for, and each of those would otherwise be a request that
- * could land out of order with the next.
- *
- * [entries] is the playlist as YouTube has it now — loading, failed, or the
- * list to start from. [saving] holds the form while the edit is out.
+ * Opens immediately from [PlaylistSnapshotCache] when cached while running a
+ * lightweight background check for upstream YouTube Music changes. Incoming
+ * updates refresh the list in place until the user starts dragging, after which
+ * the working order is frozen so rows never jump out from under their finger.
  */
 @Composable
 fun ReorderPlaylistPage(
@@ -84,17 +91,67 @@ fun ReorderPlaylistPage(
     entries: UiState<List<Song>>,
     saving: Boolean,
     palette: ArtworkPalette,
-    onSave: (List<Song>) -> Unit,
+    onSave: (original: List<Song>, reordered: List<Song>) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
+    onResetOrder: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onClose)
-    val original = (entries as? UiState.Success)?.data.orEmpty()
-    val order = remember(original) { mutableStateListOf<Song>().apply { addAll(original) } }
-    val changed = order.map { it.setVideoId } != original.map { it.setVideoId }
+    val context = LocalContext.current
+    val initial = (entries as? UiState.Success)?.data.orEmpty()
+    var baseline by remember(playlist.browseId) { mutableStateOf(initial) }
+    val order = remember(playlist.browseId) { mutableStateListOf<Song>().apply { addAll(initial) } }
+    var isDragging by remember(playlist.browseId) { mutableStateOf(false) }
+    val changed = order.map(::reorderEntryKey) != baseline.map(::reorderEntryKey)
 
-    Column(modifier.fillMaxSize().padding(top = topBarContentPadding())) {
+    LaunchedEffect(initial) {
+        if (initial.isNotEmpty() && !isDragging && !changed) {
+            baseline = initial
+            order.clear()
+            order.addAll(initial)
+        }
+    }
+
+    LaunchedEffect(playlist.browseId) {
+        PlaylistSnapshotCache.updates.collect { update ->
+            if (update.browseId != playlist.browseId || !update.complete) return@collect
+            // Never disrupt an in-progress drag or discard the user's pending edits.
+            if (isDragging || order.map(::reorderEntryKey) != baseline.map(::reorderEntryKey)) {
+                return@collect
+            }
+            val fresh = if (playlist.browseId == YtMusicRepository.LIKED_MUSIC) {
+                dedupeSongsByVideoId(LikedOrderStore.apply(context, update.listener, update.songs))
+            } else {
+                if (update.songs.any { it.setVideoId.isNullOrBlank() }) return@collect
+                update.songs
+            }
+            if (fresh != baseline) {
+                baseline = fresh
+                order.clear()
+                order.addAll(fresh)
+            }
+        }
+    }
+
+    val syncingIds by PlaylistSnapshotCache.syncingBrowseIds.collectAsState()
+    val isSyncing = playlist.browseId in syncingIds
+    var showSyncing by remember(playlist.browseId) { mutableStateOf(false) }
+    LaunchedEffect(isSyncing) {
+        if (isSyncing) {
+            delay(250)
+            showSyncing = true
+        } else {
+            showSyncing = false
+        }
+    }
+
+    Column(
+        modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(top = 8.dp),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -113,18 +170,61 @@ fun ReorderPlaylistPage(
                     text = stringResource(R.string.reorder_songs),
                     style = MaterialTheme.typography.titleLarge,
                     color = palette.onBackground,
-                )
-                Text(
-                    text = playlist.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = palette.onBackgroundVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = playlist.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    AnimatedVisibility(
+                        visible = showSyncing,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                strokeWidth = 1.5.dp,
+                                color = palette.onBackgroundVariant,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.playlist_updating),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.onBackgroundVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                }
+            }
+            if (onResetOrder != null) {
+                TextButton(
+                    onClick = onResetOrder,
+                    enabled = !saving,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.reset_order),
+                        color = palette.onBackgroundVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
             // The page's filled pill — white with dark text, as its Play is.
             Button(
-                onClick = { onSave(order.toList()) },
+                onClick = { onSave(baseline, order.toList()) },
                 enabled = changed && !saving,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
@@ -140,7 +240,11 @@ fun ReorderPlaylistPage(
                         modifier = Modifier.size(16.dp),
                     )
                 } else {
-                    Text(stringResource(R.string.save_order))
+                    Text(
+                        text = stringResource(R.string.save_order),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
             }
         }
@@ -167,7 +271,13 @@ fun ReorderPlaylistPage(
                 modifier = Modifier.padding(horizontal = 22.dp, vertical = 24.dp),
             )
 
-            is UiState.Success -> ReorderableSongList(order, enabled = !saving, palette, contentPadding)
+            is UiState.Success -> ReorderableSongList(
+                order = order,
+                enabled = !saving,
+                palette = palette,
+                contentPadding = contentPadding,
+                onDraggingChange = { isDragging = it },
+            )
         }
     }
 }
@@ -176,7 +286,7 @@ fun ReorderPlaylistPage(
  * The drag itself, over a lazy list so a playlist of hundreds of tracks
  * doesn't compose all of them at once.
  *
- * The held row keeps two numbers: which entry it is ([held], by set-video-id)
+ * The held row keeps two numbers: which entry it is ([held], by [reorderEntryKey])
  * and how far it is drawn from its own slot ([offset]). Each time its centre
  * crosses into a neighbour the two trade places in [order], and the offset is
  * reduced by exactly the distance its slot just moved, so the row stays under
@@ -188,6 +298,7 @@ private fun ReorderableSongList(
     enabled: Boolean,
     palette: ArtworkPalette,
     contentPadding: PaddingValues,
+    onDraggingChange: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     var held by remember { mutableStateOf<String?>(null) }
@@ -236,6 +347,7 @@ private fun ReorderableSongList(
         held = null
         offset = 0f
         autoScroll = 0f
+        onDraggingChange(false)
     }
 
     LaunchedEffect(autoScroll != 0f) {
@@ -255,12 +367,13 @@ private fun ReorderableSongList(
     }
 
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = contentPadding) {
-        itemsIndexed(order, key = { _, song -> song.setVideoId ?: song.videoId }) { _, song ->
-            val key = song.setVideoId ?: song.videoId
+        itemsIndexed(order, key = { _, song -> reorderEntryKey(song) }) { _, song ->
+            val key = reorderEntryKey(song)
             val dragging = held == key
             val start: () -> Unit = {
                 held = key
                 offset = 0f
+                onDraggingChange(true)
             }
             val drag: (Float) -> Unit = { delta ->
                 offset += delta

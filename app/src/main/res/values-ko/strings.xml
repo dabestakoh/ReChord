@@ -652,6 +652,7 @@
     <string name="rich_presence_footer">Discord 프로필에 무엇을 재생하고 있는지 표시합니다.</string>
     <string name="save_name">이름 저장</string>
     <string name="save_order">저장</string>
+    <string name="reset_order">초기화</string>
     <string name="saved_to_downloads">다운로드에 저장함</string>
     <string name="saved_to_youtube_music_account">YouTube Music 계정에 저장함</string>
     <string name="scrobble_delay">스크로블 지연</string>

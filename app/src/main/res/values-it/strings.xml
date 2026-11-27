@@ -482,6 +482,7 @@
     <string name="reorder_failed">Impossibile salvare il nuovo ordine</string>
     <string name="playlist_reordered">Ordine della playlist salvato</string>
     <string name="save_order">Salva</string>
+    <string name="reset_order">Ripristina</string>
     <string name="reset_to_default">Ripristina predefiniti</string>
     <string name="rich_presence_footer">Mostra cosa stai ascoltando sul tuo profilo Discord.</string>
     <string name="save_name">Salva nome</string>

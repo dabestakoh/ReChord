@@ -435,6 +435,7 @@
     <string name="reorder_failed">Neue Reihenfolge konnte nicht gespeichert werden</string>
     <string name="playlist_reordered">Reihenfolge der Playlist gespeichert</string>
     <string name="save_order">Speichern</string>
+    <string name="reset_order">Zurücksetzen</string>
     <string name="reset_to_default">Auf Standard zurücksetzen</string>
     <string name="rich_presence_footer">Zeige, was du gerade hörst, auf deinem Discord-Profil.</string>
     <string name="save_name">Namen speichern</string>

@@ -449,6 +449,7 @@
     <string name="reorder_failed">ไม่สามารถบันทึกลำดับใหม่ได้</string>
     <string name="playlist_reordered">บันทึกลำดับเพลย์ลิสต์แล้ว</string>
     <string name="save_order">บันทึก</string>
+    <string name="reset_order">รีเซ็ต</string>
     <string name="reset_to_default">รีเซ็ตเป็นค่าเริ่มต้น</string>
     <string name="rich_presence_footer">แสดงสิ่งที่คุณกำลังเล่นบนโปรไฟล์ Discord ของคุณ</string>
     <string name="save_name">บันทึกชื่อ</string>
