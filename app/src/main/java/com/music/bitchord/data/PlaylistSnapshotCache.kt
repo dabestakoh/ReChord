@@ -48,7 +48,7 @@ import java.util.concurrent.atomic.AtomicLong
 object PlaylistSnapshotCache {
     private const val TAG = "PlaylistSnapshotCache"
     const val REVALIDATE_AFTER_MS = 6L * 60 * 60 * 1000
-    private const val METADATA_PROBE_AFTER_MS = 2L * 60 * 1000
+    private const val METADATA_PROBE_AFTER_MS = 10L * 1000
     private const val RETURN_FULL_CHECK_COOLDOWN_MS = 15L * 1000
     private const val RECENT_DAYS = 7L
     private const val MAX_IDLE_MS = 30L * 24 * 60 * 60 * 1000
@@ -78,6 +78,8 @@ object PlaylistSnapshotCache {
         val title: String? = null,
         val subtitle: String? = null,
         val thumbnailUrl: String? = null,
+        val addedVideoIds: Set<String> = emptySet(),
+        val removedVideoIds: Set<String> = emptySet(),
     )
     private data class Key(val listener: String, val browseId: String)
 
@@ -96,6 +98,11 @@ object PlaylistSnapshotCache {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
 
     fun isPlaylist(browseId: String): Boolean = browseId.startsWith("VL")
+
+    /** Clears probe cooldowns when returning from another app (e.g., YouTube Music). */
+    fun onAppForegroundReturn() {
+        lastMetadataProbe.clear()
+    }
 
     fun schedule(context: Context) {
         val constraints = Constraints.Builder()
@@ -179,32 +186,124 @@ object PlaylistSnapshotCache {
         if (!force && firstPage == null && cached != null &&
             System.currentTimeMillis() - cached.checkedAt < REVALIDATE_AFTER_MS
         ) {
-            val now = System.currentTimeMillis()
+            val probeNow = System.currentTimeMillis()
             val last = lastMetadataProbe[key] ?: 0L
-            if (!checkOnReturn && now - last < METADATA_PROBE_AFTER_MS) return
+            if (!checkOnReturn && probeNow - last < METADATA_PROBE_AFTER_MS) return
             // Record the attempt before calling the network. A failed request
             // must not cause another request on every rapid re-open.
-            lastMetadataProbe[key] = now
+            lastMetadataProbe[key] = probeNow
             val probe = YtMusicRepository.browseSongs(key.browseId).getOrNull()
             if (probe == null) {
                 Log.d(TAG, "Playlist metadata probe failed; keeping complete cached songs")
                 return
             }
             val metadataChanged = PlaylistMetadata.hasChanged(cached.songs, probe.header?.subtitle)
-            val firstPageChanged = checkOnReturn &&
-                PlaylistMetadata.firstPageChanged(cached.songs, probe.songs)
-            if (!checkOnReturn && !metadataChanged) {
-                Log.d(TAG, "Playlist metadata unchanged or unavailable; retaining cache")
+            val firstPageChanged = PlaylistMetadata.firstPageChanged(
+                cached.songs, probe.songs, hasContinuation = probe.continuation != null,
+            )
+            val headerArtChanged = probe.header?.thumbnailUrl?.takeIf(String::isNotBlank)
+                ?.let { it != cached.thumbnailUrl } == true
+            val headerTitleChanged = probe.header?.title?.takeIf(String::isNotBlank)
+                ?.let { it != cached.title } == true
+            val headerSubtitleChanged = probe.header?.subtitle?.takeIf(String::isNotBlank)
+                ?.let { it != cached.subtitle } == true
+
+            if (!checkOnReturn && !metadataChanged && !firstPageChanged) {
+                // Even if track list is unchanged, apply refreshed collage art / title / subtitle from Page 1.
+                if (headerArtChanged || headerTitleChanged || headerSubtitleChanged) {
+                    val refreshed = cached.copy(
+                        title = probe.header?.title?.takeIf(String::isNotBlank) ?: cached.title,
+                        subtitle = probe.header?.subtitle?.takeIf(String::isNotBlank) ?: cached.subtitle,
+                        thumbnailUrl = probe.header?.thumbnailUrl?.takeIf(String::isNotBlank) ?: cached.thumbnailUrl,
+                        owned = probe.owned ?: cached.owned,
+                    )
+                    val written = withContext(Dispatchers.IO) {
+                        synchronized(lock(key)) {
+                            if (startedRevision != revision(key).get() ||
+                                activeListener(context) != key.listener) false
+                            else {
+                                writeLocked(context, key, refreshed)
+                                true
+                            }
+                        }
+                    }
+                    if (written) {
+                        updatesFlow.emit(Update(
+                            key.listener, key.browseId, refreshed.songs, continuation = null,
+                            complete = true, owned = refreshed.owned,
+                            title = refreshed.title, subtitle = refreshed.subtitle,
+                            thumbnailUrl = refreshed.thumbnailUrl,
+                        ))
+                    }
+                }
+                Log.d(TAG, "Playlist unchanged on Page 1; retaining cache")
                 return
             }
-            // On a genuine app return, a removal can be anywhere in a large
-            // playlist, not just in its header or first page. Verify the entire
-            // list instead of assuming no change. The cache remains visible
-            // until all continuations succeed; incomplete scans are discarded.
+
+            // Fast path: merge Page 1 onto the existing cached tail immediately so newly
+            // liked/added/removed songs appear in < 0.5 s without waiting for all pages.
+            if (firstPageChanged || metadataChanged) {
+                val headMerge = PlaylistMetadata.mergeFirstPage(
+                    cached = cached.songs,
+                    fetchedFirstPage = probe.songs,
+                    hasContinuation = probe.continuation != null,
+                )
+                if (headMerge.anchored) {
+                    val headDated = preservePlaylistAddedOrder(cached.songs, headMerge.merged)
+                    val headSnapshot = Snapshot(
+                        songs = headDated,
+                        checkedAt = if (headMerge.complete) System.currentTimeMillis() else cached.checkedAt,
+                        title = probe.header?.title?.takeIf(String::isNotBlank) ?: cached.title,
+                        subtitle = probe.header?.subtitle?.takeIf(String::isNotBlank) ?: cached.subtitle,
+                        thumbnailUrl = probe.header?.thumbnailUrl?.takeIf(String::isNotBlank) ?: cached.thumbnailUrl,
+                        owned = probe.owned ?: cached.owned,
+                    )
+                    val headDelta = withContext(Dispatchers.IO) {
+                        synchronized(lock(key)) {
+                            if (startedRevision != revision(key).get() ||
+                                activeListener(context) != key.listener) null
+                            else {
+                                val previous = readLocked(context, key)
+                                val prevIds = previous?.songs?.mapTo(HashSet()) { it.videoId }.orEmpty()
+                                val nextIds = headDated.mapTo(HashSet()) { it.videoId }
+                                val visibleChange = previous == null ||
+                                    comparePlaylistSnapshots(previous.songs, headDated).changed ||
+                                    previous.owned != headSnapshot.owned ||
+                                    previous.title != headSnapshot.title ||
+                                    previous.subtitle != headSnapshot.subtitle ||
+                                    previous.thumbnailUrl != headSnapshot.thumbnailUrl
+                                writeLocked(context, key, headSnapshot)
+                                Triple(visibleChange, nextIds - prevIds, prevIds - nextIds)
+                            }
+                        }
+                    }
+                    if (headDelta != null && headDelta.first) {
+                        Log.d(TAG, "Fast Page-1 head-merge updated visible playlist")
+                        updatesFlow.emit(Update(
+                            key.listener, key.browseId, headSnapshot.songs, continuation = null,
+                            complete = true, owned = headSnapshot.owned,
+                            title = headSnapshot.title,
+                            subtitle = headSnapshot.subtitle,
+                            thumbnailUrl = headSnapshot.thumbnailUrl,
+                            addedVideoIds = headDelta.second,
+                            removedVideoIds = headDelta.third,
+                        ))
+                    }
+                    val summary = PlaylistMetadata.fromHeader(probe.header?.subtitle)
+                    val countMatches = summary.count == null || summary.count == headDated.size
+                    if (headMerge.complete || (!checkOnReturn && countMatches)) {
+                        if (headMerge.complete && checkOnReturn) {
+                            lastReturnFullCheck[key] = System.currentTimeMillis()
+                        }
+                        return
+                    }
+                }
+            }
+
             if (checkOnReturn && !metadataChanged && !firstPageChanged) {
                 Log.d(TAG, "External return: verifying complete playlist for deeper edits")
             } else {
-                Log.d(TAG, "Playlist change detected; requesting complete refresh")
+                Log.d(TAG, "Playlist change detected; continuing complete background refresh")
             }
             firstPageToScan = probe // Reuse the first page; never fetch it twice.
         }
@@ -243,7 +342,7 @@ object PlaylistSnapshotCache {
             thumbnailUrl = first.header?.thumbnailUrl ?: cached?.thumbnailUrl,
             owned = first.owned ?: cached?.owned,
         )
-        val changed = withContext(Dispatchers.IO) {
+        val changeResult = withContext(Dispatchers.IO) {
             synchronized(lock(key)) {
                 if (startedRevision != revision(key).get() ||
                     activeListener(context) != key.listener) null
@@ -251,6 +350,8 @@ object PlaylistSnapshotCache {
                     // Persist the successful check time, but don't ask the UI to
                     // rebuild the full playlist when nothing visible changed.
                     val previous = readLocked(context, key)
+                    val prevIds = previous?.songs?.mapTo(HashSet()) { it.videoId }.orEmpty()
+                    val nextIds = dated.mapTo(HashSet()) { it.videoId }
                     val visibleChange = previous == null ||
                         comparePlaylistSnapshots(previous.songs, dated).changed ||
                         previous.owned != newSnapshot.owned ||
@@ -258,14 +359,14 @@ object PlaylistSnapshotCache {
                         previous.subtitle != newSnapshot.subtitle ||
                         previous.thumbnailUrl != newSnapshot.thumbnailUrl
                     writeLocked(context, key, newSnapshot)
-                    visibleChange
+                    Triple(visibleChange, nextIds - prevIds, prevIds - nextIds)
                 }
             }
         }
         // Use the time of successful verification, not only its start:
         // long playlists should not trigger another full scan immediately.
-        if (changed != null && checkOnReturn) lastReturnFullCheck[key] = System.currentTimeMillis()
-        if (changed == true) {
+        if (changeResult != null && checkOnReturn) lastReturnFullCheck[key] = System.currentTimeMillis()
+        if (changeResult != null && changeResult.first) {
             Log.d(TAG, "Complete playlist refresh changed visible content")
             updatesFlow.emit(Update(
                 key.listener, key.browseId, newSnapshot.songs, continuation = null,
@@ -273,34 +374,148 @@ object PlaylistSnapshotCache {
                 title = newSnapshot.title,
                 subtitle = newSnapshot.subtitle,
                 thumbnailUrl = newSnapshot.thumbnailUrl,
+                addedVideoIds = changeResult.second,
+                removedVideoIds = changeResult.third,
             ))
-        } else if (changed == false) {
+        } else if (changeResult != null) {
             Log.d(TAG, "Complete playlist verified; no visible changes")
         }
     }
 
-    /** Apply a confirmed local edit immediately and force the next full recheck. */
+    /**
+     * Applies a confirmed local edit immediately to memory + disk without forcing a
+     * full 200-page reload on next open (clears only the short Page-1 probe cooldown).
+     */
     fun mutate(
         context: Context,
         listener: String,
         browseId: String,
+        forceFullRecheck: Boolean = false,
         transform: (List<Song>) -> List<Song>,
+    ): Job {
+        val key = Key(listener, browseId)
+        revision(key).incrementAndGet()
+        lastMetadataProbe.remove(key)
+        return scope.launch {
+            if (activeListener(context) != key.listener) return@launch
+            val current: Snapshot
+            val updated: Snapshot
+            val addedIds: Set<String>
+            val removedIds: Set<String>
+            synchronized(lock(key)) {
+                current = readLocked(context, key) ?: return@launch
+                val nextSongs = preservePlaylistAddedOrder(current.songs, transform(current.songs))
+                val prevIds = current.songs.mapTo(HashSet()) { it.videoId }
+                val nextIds = nextSongs.mapTo(HashSet()) { it.videoId }
+                addedIds = nextIds - prevIds
+                removedIds = prevIds - nextIds
+                updated = current.copy(
+                    songs = nextSongs,
+                    checkedAt = if (forceFullRecheck) 0L else current.checkedAt,
+                )
+                writeLocked(context, key, updated)
+            }
+            updatesFlow.emit(Update(
+                listener = listener,
+                browseId = browseId,
+                songs = updated.songs,
+                continuation = null,
+                complete = true,
+                owned = updated.owned,
+                title = updated.title,
+                subtitle = updated.subtitle,
+                thumbnailUrl = updated.thumbnailUrl,
+                addedVideoIds = addedIds,
+                removedVideoIds = removedIds,
+            ))
+        }
+    }
+
+    /** Convenience mutator for background services (e.g. PlaybackService) using the active account. */
+    fun mutateActive(
+        context: Context,
+        browseId: String,
+        transform: (List<Song>) -> List<Song>,
+    ): Job? {
+        val listener = activeListener(context) ?: return null
+        return mutate(context, listener, browseId, forceFullRecheck = false, transform = transform)
+    }
+
+    /** Updates cached playlist header metadata (e.g. rename) without reloading songs. */
+    fun updateMetadata(
+        context: Context,
+        listener: String,
+        browseId: String,
+        title: String? = null,
+        subtitle: String? = null,
+        thumbnailUrl: String? = null,
     ): Job {
         val key = Key(listener, browseId)
         revision(key).incrementAndGet()
         return scope.launch {
             if (activeListener(context) != key.listener) return@launch
-            val current: Snapshot
             val updated: Snapshot
             synchronized(lock(key)) {
-                current = readLocked(context, key) ?: return@launch
+                val current = readLocked(context, key) ?: return@launch
                 updated = current.copy(
-                    songs = preservePlaylistAddedOrder(current.songs, transform(current.songs)),
-                    checkedAt = 0L,
+                    title = title ?: current.title,
+                    subtitle = subtitle ?: current.subtitle,
+                    thumbnailUrl = thumbnailUrl ?: current.thumbnailUrl,
                 )
                 writeLocked(context, key, updated)
             }
-            updatesFlow.emit(Update(listener, browseId, updated.songs, null, true, updated.owned))
+            updatesFlow.emit(Update(
+                listener = listener,
+                browseId = browseId,
+                songs = updated.songs,
+                continuation = null,
+                complete = true,
+                owned = updated.owned,
+                title = updated.title,
+                subtitle = updated.subtitle,
+                thumbnailUrl = updated.thumbnailUrl,
+            ))
+        }
+    }
+
+    /** Seeds a newly created playlist directly into cache so its first open is instant. */
+    fun seed(
+        context: Context,
+        listener: String,
+        browseId: String,
+        songs: List<Song>,
+        title: String? = null,
+        subtitle: String? = null,
+        thumbnailUrl: String? = null,
+        owned: Boolean = true,
+    ): Job {
+        val key = Key(listener, browseId)
+        revision(key).incrementAndGet()
+        return scope.launch {
+            if (activeListener(context) != key.listener) return@launch
+            val dated = preservePlaylistAddedOrder(null, songs)
+            val snapshot = Snapshot(
+                songs = dated,
+                checkedAt = System.currentTimeMillis(),
+                title = title,
+                subtitle = subtitle,
+                thumbnailUrl = thumbnailUrl,
+                owned = owned,
+            )
+            synchronized(lock(key)) {
+                writeLocked(context, key, snapshot)
+            }
+            updatesFlow.emit(Update(
+                listener = listener,
+                browseId = browseId,
+                songs = snapshot.songs,
+                continuation = null,
+                complete = true,
+                owned = snapshot.owned,
+                title = snapshot.title,
+                subtitle = snapshot.subtitle,
+                thumbnailUrl = snapshot.thumbnailUrl,
+            ))
         }
     }
 

@@ -4210,8 +4210,22 @@ class PlaybackService : MediaLibraryService() {
         // the optimistic state with YouTube in the background.
         LikeState.set(videoId, target)
         refreshCustomLayouts()
+        val currentSong = player?.currentMediaItem?.toSong()?.takeIf { it.videoId == videoId }
         favoriteActionJob = scope.launch {
             YtMusicRepository.rate(videoId, target)
+                .onSuccess {
+                    com.music.bitchord.data.PlaylistSnapshotCache.mutateActive(
+                        this@PlaybackService,
+                        YtMusicRepository.LIKED_MUSIC,
+                    ) { rows ->
+                        if (target == LikeStatus.LIKE) {
+                            if (currentSong == null || rows.any { it.videoId == videoId }) rows
+                            else listOf(currentSong) + rows
+                        } else {
+                            rows.filterNot { it.videoId == videoId }
+                        }
+                    }
+                }
                 .onFailure {
                     LikeState.set(videoId, previous)
                     refreshCustomLayouts()

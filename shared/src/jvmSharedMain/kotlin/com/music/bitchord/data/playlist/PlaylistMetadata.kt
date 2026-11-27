@@ -37,8 +37,13 @@ object PlaylistMetadata {
      * omit the count. Not a substitute for the six-hour complete verification:
      * edits beyond the first page may remain invisible.
      */
-    fun firstPageChanged(cached: List<Song>, fetched: List<Song>): Boolean {
+    fun firstPageChanged(
+        cached: List<Song>,
+        fetched: List<Song>,
+        hasContinuation: Boolean = true,
+    ): Boolean {
         if (fetched.isEmpty()) return false // Empty/ambiguous page is not proof of deletion.
+        if (!hasContinuation && cached.size != fetched.size) return true
         if (cached.size < fetched.size) return true
         return fetched.indices.any { index ->
             playlistEntryKey(cached[index]) != playlistEntryKey(fetched[index])
@@ -64,5 +69,80 @@ object PlaylistMetadata {
         // Header duration may be rounded to the minute; avoid false positives
         // from a few seconds of formatting differences.
         return abs(total - duration) >= 120L
+    }
+
+    /** Result of merging a freshly fetched Page 1 into an existing cached playlist snapshot. */
+    data class HeadMergeResult(
+        val merged: List<Song>,
+        val anchored: Boolean,
+        val complete: Boolean,
+    )
+
+    private fun entriesMatch(a: Song, b: Song): Boolean {
+        if (playlistEntryKey(a) == playlistEntryKey(b)) return true
+        // A locally liked/added song starts without YouTube's setVideoId and later
+        // receives one from the server; treat them as the same entry.
+        return (a.setVideoId.isNullOrBlank() != b.setVideoId.isNullOrBlank()) && a.videoId == b.videoId
+    }
+
+    /**
+     * Merges a freshly fetched first page onto the front of [cached] so newly liked
+     * or prepended tracks appear in < 1 s without waiting for all continuation pages.
+     *
+     * - If [!hasContinuation], [fetchedFirstPage] is the entire playlist (`complete = true`).
+     * - Otherwise, searches for a contiguous overlap anchor of up to 3 tracks near the tail
+     *   of [fetchedFirstPage] inside the head window of [cached], preserving all remaining
+     *   cached tail tracks while deduplicating moved or locally-added entries.
+     * - Returns `anchored = false` if no safe overlap is found (caller falls back to full scan).
+     */
+    fun mergeFirstPage(
+        cached: List<Song>,
+        fetchedFirstPage: List<Song>,
+        hasContinuation: Boolean,
+    ): HeadMergeResult {
+        if (!hasContinuation) {
+            return HeadMergeResult(merged = fetchedFirstPage, anchored = true, complete = true)
+        }
+        if (fetchedFirstPage.isEmpty() || cached.isEmpty()) {
+            return HeadMergeResult(merged = cached, anchored = false, complete = false)
+        }
+        val anchorLen = minOf(3, fetchedFirstPage.size, cached.size)
+        val searchLimit = minOf(cached.size, fetchedFirstPage.size + 60)
+        var anchorEndInCached = -1
+        outer@ for (fetchedStart in (fetchedFirstPage.size - anchorLen) downTo 0) {
+            for (cachedStart in 0..(searchLimit - anchorLen)) {
+                var matched = true
+                for (offset in 0 until anchorLen) {
+                    if (!entriesMatch(fetchedFirstPage[fetchedStart + offset], cached[cachedStart + offset])) {
+                        matched = false
+                        break
+                    }
+                }
+                if (matched) {
+                    // Advance anchorEndInCached to cover the end of fetchedFirstPage.
+                    val remainingInFetched = fetchedFirstPage.size - (fetchedStart + anchorLen)
+                    anchorEndInCached = (cachedStart + anchorLen - 1 + remainingInFetched)
+                        .coerceAtMost(cached.lastIndex)
+                    break@outer
+                }
+            }
+        }
+        if (anchorEndInCached < 0) {
+            return HeadMergeResult(merged = cached, anchored = false, complete = false)
+        }
+        val headKeys = fetchedFirstPage.mapTo(HashSet(fetchedFirstPage.size)) { playlistEntryKey(it) }
+        val headVideoIds = fetchedFirstPage.mapTo(HashSet(fetchedFirstPage.size)) { it.videoId }
+        val tailStart = anchorEndInCached + 1
+        val tail = if (tailStart < cached.size) {
+            cached.subList(tailStart, cached.size).filterNot { entry ->
+                playlistEntryKey(entry) in headKeys ||
+                    (entry.setVideoId.isNullOrBlank() && entry.videoId in headVideoIds)
+            }
+        } else emptyList()
+        return HeadMergeResult(
+            merged = fetchedFirstPage + tail,
+            anchored = true,
+            complete = false,
+        )
     }
 }
