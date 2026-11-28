@@ -363,12 +363,17 @@ private class SilentKeepAlive {
             .setBufferSizeInBytes(bytes)
             .setTransferMode(AudioTrack.MODE_STATIC)
             .build()
-        if (t.state != AudioTrack.STATE_INITIALIZED) {
-            Log.w("UsbDirectTransport", "SilentKeepAlive track failed to initialize (bytes=$bytes)")
+        if (t.state == AudioTrack.STATE_UNINITIALIZED) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive track uninitialized (bytes=$bytes)")
             t.release()
             return null
         }
         t.write(ByteArray(bytes), 0, bytes)
+        if (t.state != AudioTrack.STATE_INITIALIZED) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive track failed after write (state=${t.state}, bytes=$bytes)")
+            t.release()
+            return null
+        }
         val loopStatus = t.setLoopPoints(0, frames, -1)
         if (loopStatus != AudioTrack.SUCCESS) {
             Log.w("UsbDirectTransport", "SilentKeepAlive setLoopPoints failed: $loopStatus")

@@ -53,6 +53,8 @@ internal object UsbDirectDevices {
     /** Told when a device goes away, so an open stream on it stops at once. */
     @Volatile var onDetached: ((Int) -> Unit)? = null
 
+    @Volatile private var attachPromptEnabled = false
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             @Suppress("DEPRECATION")
@@ -67,7 +69,14 @@ internal object UsbDirectDevices {
                     onDetached?.invoke(device.deviceId)
                     onChanged?.invoke()
                 }
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> onChanged?.invoke()
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    // When UsbAttachActivity is enabled and permission is not yet granted,
+                    // let Android's single system attach dialog handle it instead of firing
+                    // a duplicate requestPermission() from PlaybackService.
+                    if (!attachPromptEnabled || manager(context)?.hasPermission(device) == true) {
+                        onChanged?.invoke()
+                    }
+                }
                 permissionAction -> {
                     synchronized(this@UsbDirectDevices) { requested = null }
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -157,6 +166,7 @@ internal object UsbDirectDevices {
      * USB DAC access on external attach only while Direct USB mode is active.
      */
     fun setAttachPromptEnabled(context: Context, enabled: Boolean) {
+        attachPromptEnabled = enabled
         runCatching {
             val app = context.applicationContext
             val component = ComponentName(app, UsbAttachActivity::class.java)
