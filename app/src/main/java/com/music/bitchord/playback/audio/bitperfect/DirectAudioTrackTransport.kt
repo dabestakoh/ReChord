@@ -49,11 +49,12 @@ internal class DirectAudioTrackTransport private constructor(
     @Volatile private var failure: String? = null
     private var previousHead = 0L
     private var headWrap = 0L
+    private var zeroWriteCount = 0
     private val frameBytes = (outputBits / 8) * channelCount
 
     private val routing = AudioRouting.OnRoutingChangedListener {
         val routed = track.routedDevice
-        if (routed != null && routed.id != device.id) {
+        if (routed != null && !ExclusiveTransport.isWiredHiResDevice(routed)) {
             failure = "Wired Hi-Res route changed"
         }
     }
@@ -68,12 +69,22 @@ internal class DirectAudioTrackTransport private constructor(
         if (bytes == 0) return 0
         val written = track.write(buffer, bytes, AudioTrack.WRITE_NON_BLOCKING)
         if (written < 0) throw BitPerfectTransportException("Direct PCM write failed: $written")
+        if (written == 0 && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+            if (++zeroWriteCount >= MAX_STALLED_WRITES) {
+                throw BitPerfectTransportException("Direct PCM stalled (dead track)")
+            }
+        } else {
+            zeroWriteCount = 0
+        }
         return written
     }
 
     override fun play() {
         failure?.let { throw BitPerfectTransportException(it) }
         track.play()
+        if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+            throw BitPerfectTransportException("Direct PCM start failed")
+        }
     }
 
     override fun pause() {
@@ -106,6 +117,7 @@ internal class DirectAudioTrackTransport private constructor(
     companion object {
         private const val TAG = "DirectAudioTrack"
         private const val MAX_RATE_ATTEMPTS = 3
+        private const val MAX_STALLED_WRITES = 120
 
         val ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -167,11 +179,18 @@ internal class DirectAudioTrackTransport private constructor(
                         .setBufferSizeInBytes(bufferBytes)
                         .build()
                     if (track.state != AudioTrack.STATE_INITIALIZED ||
-                        !track.setPreferredDevice(wired) ||
                         track.sampleRate != candidateRate ||
                         track.audioFormat != encoding ||
                         track.channelCount != channels
                     ) {
+                        track.release()
+                        continue
+                    }
+                    // Calling setPreferredDevice() unconditionally on an already-routed
+                    // DIRECT AudioTrack can invalidate its IAudioTrack (status -32) on
+                    // Android 12 DAP HALs such as HiBy DTA; only reroute if needed.
+                    val routed = track.routedDevice
+                    if (routed != null && routed.id != wired.id && !track.setPreferredDevice(wired)) {
                         track.release()
                         continue
                     }
