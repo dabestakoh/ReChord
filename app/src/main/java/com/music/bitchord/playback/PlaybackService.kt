@@ -8475,29 +8475,15 @@ class PlaybackService : MediaLibraryService() {
         val activeDevice = resolveActiveOutputDevice()
         val routeKind = resolveActiveRouteKind(activeDevice)
         val encodings = activeDevice?.encodings ?: intArrayOf()
-        val mode = AppSettings.outputPcmMode.value
-        val isExternalWiredOrUsb = routeKind == AudioRouting.Kind.USB ||
-            routeKind == AudioRouting.Kind.WIRED ||
-            routeKind == AudioRouting.Kind.HDMI
-        val advertisesHiRes = AudioFormat.ENCODING_PCM_FLOAT in encodings ||
-            (isExternalWiredOrUsb &&
-                (AudioFormat.ENCODING_PCM_24BIT_PACKED in encodings || AudioFormat.ENCODING_PCM_32BIT in encodings)) ||
-            (mode == OutputPcmMode.FLOAT_32 && routeKind == AudioRouting.Kind.WIRED)
         val directSupport = audioManager?.let { mgr ->
             DirectAudioProbe.probeDirectSupport(mgr, 48000, 2, activeDevice)
         }
-        val directHiResSupported = directSupport != null &&
-            (directSupport.supportsFloat || (isExternalWiredOrUsb && directSupport.supportsPcm24))
-        // Worth knowing which way this cuts for a hi-res stream: with float
-        // off, Media3 downconverts *every* input encoding to 16-bit, because
-        // float and 16-bit are the only two linear-PCM tracks its sink can
-        // open. Float is what carries a 24-bit sample to the hardware intact,
-        // so "32-bit float" in Output precision is the setting that preserves
-        // a hi-res source, not the one that embellishes it.
-        return AudioOutputPolicy.shouldUseFloatOutput(
-            requestedMode = mode,
+        return com.music.bitchord.playback.audio.AudioPathPlanner.shouldEnableFloatOutput(
+            requestedMode = AppSettings.outputPcmMode.value,
             routeKind = routeKind,
-            advertisesPcmFloat = advertisesHiRes || directHiResSupported,
+            advertisedEncodings = encodings,
+            directFloatSupported = directSupport?.supportsFloat == true,
+            directPcm24Or32Supported = directSupport?.supportsPcm24 == true,
             bluetoothCodecBitDepth = bluetoothCodecBitDepth(routeKind),
         )
     }
@@ -8614,6 +8600,12 @@ class PlaybackService : MediaLibraryService() {
         }
         scope.launch {
             AppSettings.bitPerfectMode.drop(1).collect { requestOutputReconfiguration(rebuild = true) }
+        }
+        scope.launch {
+            AppSettings.wiredHiResDriver.drop(1).collect {
+                BitPerfectOutput.refreshReady(this@PlaybackService)
+                requestOutputReconfiguration(rebuild = true)
+            }
         }
         scope.launch {
             AppSettings.usbSoftwareVolume.drop(1).collect {

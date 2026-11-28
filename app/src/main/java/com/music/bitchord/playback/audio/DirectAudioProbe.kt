@@ -188,7 +188,14 @@ object DirectAudioProbe {
             .setChannelMask(channelMask)
             .build()
         val pcm24Support = AudioManager.getDirectPlaybackSupport(pcm24Format, attributes)
-        val supportsPcm24Direct = (pcm24Support != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED)
+        val pcm32Format = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_32BIT)
+            .setSampleRate(sampleRateHz)
+            .setChannelMask(channelMask)
+            .build()
+        val pcm32Support = AudioManager.getDirectPlaybackSupport(pcm32Format, attributes)
+        val supportsPcm24Direct = (pcm24Support != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED) ||
+            (pcm32Support != AudioManager.DIRECT_PLAYBACK_NOT_SUPPORTED)
 
         val pcm16Format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -201,6 +208,7 @@ object DirectAudioProbe {
         val anyDirect = supportsFloatDirect || supportsPcm24Direct || supportsPcm16Direct
         val anyOffload = (floatSupport and AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED) != 0 ||
             (pcm24Support and AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED) != 0 ||
+            (pcm32Support and AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED) != 0 ||
             (pcm16Support and AudioManager.DIRECT_PLAYBACK_OFFLOAD_SUPPORTED) != 0
 
         val description = buildString {

@@ -82,6 +82,15 @@ enum class OutputPcmMode(val label: String) {
  *
  * See [com.music.bitchord.playback.audio.bitperfect.BitPerfectOutput].
  */
+/** Preferred output driver for wired headphone / DAP built-in jacks. */
+enum class WiredHiResDriver {
+    /** Automatically uses AAudio Exclusive or Direct Hi-Res PCM when supported. */
+    AUTO,
+
+    /** Skips exclusive/direct and uses standard AudioTrack with full 32-bit float precision. */
+    STANDARD_AUDIO_TRACK,
+}
+
 enum class BitPerfectMode {
     OFF,
 
@@ -368,6 +377,12 @@ object AppSettings {
     /** Unprocessed output to a DAC; see [BitPerfectMode]. */
     val bitPerfectMode = MutableStateFlow(defaultBitPerfectMode())
 
+    /** Preferred driver for wired / DAP built-in headphone jacks. */
+    val wiredHiResDriver = MutableStateFlow(WiredHiResDriver.AUTO)
+
+    /** Remembers the user's chosen USB driver across Bit-Perfect Off/On toggles. */
+    private var lastUsbBitPerfectDriver: BitPerfectMode = defaultBitPerfectMode()
+
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
      * full scale, with the DAC's own knob (if any) the only volume. Off by
@@ -381,7 +396,7 @@ object AppSettings {
      * the DAC's highest format. Off, such a track goes to normal output and no
      * sample on the exclusive path is ever changed.
      */
-    val convertForLimitedDac = MutableStateFlow(false)
+    val convertForLimitedDac = MutableStateFlow(true)
 
     /**
      * YouTube's normalization gain, when available. Off by default to preserve
@@ -1139,9 +1154,16 @@ object AppSettings {
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
         }.getOrDefault(defaultBitPerfectMode()))
+        lastUsbBitPerfectDriver = bitPerfectMode.value.takeIf { it != BitPerfectMode.OFF }
+            ?: compatibleBitPerfectMode(runCatching {
+                BitPerfectMode.valueOf(prefs.getString(KEY_LAST_USB_DRIVER, null) ?: defaultBitPerfectMode().name)
+            }.getOrDefault(defaultBitPerfectMode()))
+        wiredHiResDriver.value = runCatching {
+            WiredHiResDriver.valueOf(prefs.getString(KEY_WIRED_HIRES_DRIVER, null) ?: WiredHiResDriver.AUTO.name)
+        }.getOrDefault(WiredHiResDriver.AUTO)
         usbSoftwareVolume.value = prefs.getBoolean("usb_software_volume", false)
         usbAllowFixedVolume.value = prefs.getBoolean(KEY_USB_ALLOW_FIXED_VOLUME, false)
-        convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, false)
+        convertForLimitedDac.value = prefs.getBoolean(KEY_CONVERT_FOR_LIMITED_DAC, true)
         loudnessNormalization.value = prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false)
         loudnessOffOnSpeaker.value = prefs.getBoolean(KEY_LOUDNESS_OFF_ON_SPEAKER, true)
         dolbyAtmos.value = prefs.getBoolean(KEY_DOLBY_ATMOS, true)
@@ -2217,8 +2239,21 @@ object AppSettings {
 
     fun setBitPerfectMode(value: BitPerfectMode) {
         val compatible = compatibleBitPerfectMode(value)
+        if (compatible != BitPerfectMode.OFF) {
+            lastUsbBitPerfectDriver = compatible
+            prefs.edit().putString(KEY_LAST_USB_DRIVER, compatible.name).apply()
+        }
         bitPerfectMode.value = compatible
         prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
+    }
+
+    fun setBitPerfectEnabled(enabled: Boolean) {
+        setBitPerfectMode(if (enabled) lastUsbBitPerfectDriver else BitPerfectMode.OFF)
+    }
+
+    fun setWiredHiResDriver(value: WiredHiResDriver) {
+        wiredHiResDriver.value = value
+        prefs.edit().putString(KEY_WIRED_HIRES_DRIVER, value.name).apply()
     }
 
     fun setUsbSoftwareVolume(value: Boolean) {
@@ -2877,6 +2912,8 @@ object AppSettings {
     private const val KEY_OUTPUT_PCM_MODE = "output_pcm_mode"
     private const val KEY_PREFER_USB_DAC = "prefer_usb_dac"
     private const val KEY_BIT_PERFECT_MODE = "bit_perfect_mode"
+    private const val KEY_LAST_USB_DRIVER = "last_usb_bit_perfect_driver"
+    private const val KEY_WIRED_HIRES_DRIVER = "wired_hires_driver"
     private const val KEY_USB_ALLOW_FIXED_VOLUME = "usb_allow_fixed_volume"
     private const val KEY_CONVERT_FOR_LIMITED_DAC = "convert_for_limited_dac"
     private const val KEY_LOUDNESS_NORMALIZATION = "loudness_normalization"
