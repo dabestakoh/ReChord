@@ -502,9 +502,12 @@ fun AudioPipelineDialog(
                 val hasAudioTrackEvidence = !bitPerfect.active && audioTrackMatchesSource &&
                     outputStatus.actualEncoding != null && outputStatus.actualSampleRateHz != null &&
                     outputStatus.outputExactDetail != null
-                if (bitPerfect.dacOutputVerified || hasAudioTrackEvidence) {
+                val verifiedDedicated = bitPerfect.dacOutputVerified ||
+                    bitPerfect.exclusiveOutputVerified ||
+                    bitPerfect.androidMixerOutputVerified
+                if (verifiedDedicated || hasAudioTrackEvidence) {
                     PipelineRow(
-                        if (bitPerfect.dacOutputVerified) "Bit-exact to DAC" else "Bit-exact to AudioTrack",
+                        if (verifiedDedicated) "Bit-exact to DAC" else "Bit-exact to AudioTrack",
                         bitExactVerdict(
                             dsd = dsdRateHz != null,
                             bitPerfect = bitPerfect,
@@ -554,10 +557,33 @@ fun AudioPipelineDialog(
                 stageActivationProvider = stageActivation,
                 onStageIconPositioned = onStageIconPositioned,
             ) {
+                val verifiedDedicated = bitPerfect.dacOutputVerified ||
+                    bitPerfect.exclusiveOutputVerified ||
+                    bitPerfect.androidMixerOutputVerified
+                val verifiedUsb = bitPerfect.dacOutputVerified || bitPerfect.androidMixerOutputVerified
+                val routeLabel = if (verifiedUsb) {
+                    "USB"
+                } else {
+                    when (outputStatus.routeKind) {
+                        com.music.bitchord.playback.AudioRouting.Kind.USB -> "USB"
+                        com.music.bitchord.playback.AudioRouting.Kind.WIRED -> "Wired"
+                        com.music.bitchord.playback.AudioRouting.Kind.BLUETOOTH -> "Bluetooth"
+                        com.music.bitchord.playback.AudioRouting.Kind.HDMI -> "HDMI"
+                        com.music.bitchord.playback.AudioRouting.Kind.PHONE -> "Phone Speaker"
+                        com.music.bitchord.playback.AudioRouting.Kind.OTHER -> "Audio Output"
+                    }
+                }
                 PipelineRow(stringResource(R.string.pipeline_device_name), bitPerfect.deviceName ?: deviceName)
-                PipelineRow("Route", if (bitPerfect.dacOutputVerified) "USB" else outputStatus.routeKind.name)
-                if (bitPerfect.dacOutputVerified || bitPerfect.exclusiveOutputVerified) {
-                    PipelineRow("Transport", bitPerfect.driver ?: if (bitPerfect.dacOutputVerified) "Direct USB" else "Direct Hi-Res PCM")
+                PipelineRow("Route", routeLabel)
+                if (verifiedDedicated) {
+                    PipelineRow(
+                        "Transport",
+                        bitPerfect.driver ?: when {
+                            bitPerfect.dacOutputVerified -> "Direct USB"
+                            bitPerfect.androidMixerOutputVerified -> "Android 14+ USB (Bit-Perfect)"
+                            else -> "Direct Hi-Res PCM"
+                        },
+                    )
                     val channelText = when (bitPerfect.channelCount) {
                         1 -> stringResource(R.string.mono)
                         2 -> stringResource(R.string.stereo)
@@ -581,7 +607,7 @@ fun AudioPipelineDialog(
                         }
                         if (isEmpty() && !bitPerfect.exact) {
                             add(
-                                if (bitPerfect.dacOutputVerified) "PCM samples changed in the USB output path"
+                                if (verifiedUsb) "PCM samples changed in the USB output path"
                                 else "PCM samples changed in the output path",
                             )
                         }
@@ -593,9 +619,9 @@ fun AudioPipelineDialog(
                 if (bitPerfect.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE) {
                     PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.usb_standard_android))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH) {
-                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_format_mismatch))
+                    PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.bit_perfect_usb_format_mismatch))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED) {
-                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_request_failed))
+                    PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.bit_perfect_usb_request_failed))
                 }
 
                 outputStatus.usbEndpointFormat?.let {
@@ -986,10 +1012,10 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         if (shown.isEmpty()) {
             Text(
                 text = when (assessment.verification) {
-                    AudioFidelity.Verification.VERIFIED -> "No PCM conversion detected"
+                    AudioFidelity.Verification.VERIFIED -> "Bit-exact output confirmed"
                     AudioFidelity.Verification.UNVERIFIED ->
-                        if (assessment.grade == "PCM Preserved") "No PCM conversion detected"
-                        else "Awaiting PCM output details"
+                        if (assessment.grade == "Full-Resolution") assessment.verificationDetail
+                        else "Checking audio output details"
                     AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
                 },
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),

@@ -399,6 +399,7 @@ public:
         bool hadInFlight = false;
         bool needsReset = false;
         bool priming = true;
+        auto primingSince = std::chrono::steady_clock::now();
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
             std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 10, 8192)
@@ -517,8 +518,14 @@ public:
                     lastFeedback = std::chrono::steady_clock::now();
                     started = true;
                 }
-                if (priming && state.bytes.size() >= primeTarget) {
-                    priming = false;
+                if (priming) {
+                    const size_t queued = state.bytes.size();
+                    if (queued == 0) {
+                        primingSince = std::chrono::steady_clock::now();
+                    } else if (queued >= primeTarget ||
+                               std::chrono::steady_clock::now() - primingSince >= std::chrono::milliseconds(150)) {
+                        priming = false;
+                    }
                 }
                 if (feedbackSlot) {
                     if (!feedbackSlot->pending) {
@@ -546,6 +553,7 @@ public:
                     const size_t available = priming ? 0 : state.bytes.read(slot->bytes.data(), total / frame * frame);
                     if (!priming && available < total) {
                         priming = true;
+                        primingSince = std::chrono::steady_clock::now();
                         __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "underrun: available=%zu total=%zu", available, total);
                     }
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);

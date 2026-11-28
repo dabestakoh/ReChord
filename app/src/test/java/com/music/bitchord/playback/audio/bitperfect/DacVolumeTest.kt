@@ -34,12 +34,12 @@ class DacVolumeTest {
     }
 
     @Test
-    fun stepsInSixteenthsAndReportsTheEnds() {
+    fun stepsInFivePercentIncrementsAndReportsTheEnds() {
         DacVolume.onSnapshot(snapshot(0.0))
         assertEquals(1f, DacVolume.level.value!!, 0f)
         assertFalse("already at the top", DacVolume.step(+1))
         assertTrue(DacVolume.step(-1))
-        assertEquals(15f / 16f, DacVolume.level.value!!, 1e-6f)
+        assertEquals(0.95f, DacVolume.level.value!!, 1e-6f)
     }
 
     @Test

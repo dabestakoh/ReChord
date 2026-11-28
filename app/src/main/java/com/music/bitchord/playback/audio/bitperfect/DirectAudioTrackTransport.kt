@@ -114,8 +114,10 @@ internal class DirectAudioTrackTransport private constructor(
     }
 
     override fun playedFrames(): Long {
-        if (track.playState == AudioTrack.PLAYSTATE_STOPPED) return 0L
         val head = track.playbackHeadPosition.toLong() and 0xffffffffL
+        if (track.playState == AudioTrack.PLAYSTATE_STOPPED && head == 0L) {
+            return headWrap + previousHead
+        }
         if (head < previousHead) headWrap += 1L shl 32
         previousHead = head
         return headWrap + head

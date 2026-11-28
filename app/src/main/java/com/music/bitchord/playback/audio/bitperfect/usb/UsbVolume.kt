@@ -36,6 +36,7 @@ internal object UsbVolume {
          * setting must respect a DAC volume knob that was turned down since.
          */
         val restoreLimitDb: Double = 0.0,
+        val stepDb: Double = 0.0,
     )
 
     /**
@@ -219,6 +220,7 @@ internal object UsbVolume {
                 if (min >= max) {
                     throw IllegalStateException("Invalid USB volume range")
                 }
+                val maxStep = ranges.maxOf { r -> r.maxOf { it.step } }.coerceAtLeast(1)
                 return Volume(
                     feature,
                     ranges,
@@ -229,6 +231,7 @@ internal object UsbVolume {
                         maxDb = max / 256.0,
                         currentDb = current / 256.0,
                         restoreLimitDb = restoreLimit / 256.0,
+                        stepDb = maxStep / 256.0,
                     ),
                 )
             }

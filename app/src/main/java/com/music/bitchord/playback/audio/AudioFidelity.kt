@@ -90,7 +90,7 @@ object AudioFidelity {
     fun assess(inputs: Inputs): Assessment {
         if (inputs.usbOpening) {
             return Assessment(
-                score = 100, grade = "PCM Status Pending", activeEffects = emptyList(),
+                score = 100, grade = "Checking Output", activeEffects = emptyList(),
                 effectsAvailable = inputs.dspAvailable, effectsBypassed = inputs.dspBypassed,
                 deductions = emptyList(), bitPerfectVerified = false,
                 verification = Verification.UNVERIFIED, verificationDetail = "Waiting for USB output",
@@ -129,12 +129,11 @@ object AudioFidelity {
         // DSD-to-PCM is a processing step and cannot be raw DSD bit-perfect.
         if (inputs.dsd) {
             deductions += Deduction("DSD converted to PCM", DSD_CONVERSION_POINTS)
-        } else {
-            val source = inputs.sourceRateHz?.takeIf { it > 0 }
-            val output = inputs.outputRateHz?.takeIf { it > 0 }
-            if (source != null && output != null && source != output) {
-                deductions += Deduction("Resampled ${rateText(source)} -> ${rateText(output)}", RESAMPLE_POINTS)
-            }
+        }
+        val source = inputs.sourceRateHz?.takeIf { it > 0 }
+        val output = inputs.outputRateHz?.takeIf { it > 0 }
+        if (source != null && output != null && source != output) {
+            deductions += Deduction("Resampled ${rateText(source)} -> ${rateText(output)}", RESAMPLE_POINTS)
         }
 
         // A bypassed chain runs nothing, whatever the switches still say.
@@ -195,13 +194,20 @@ object AudioFidelity {
             verified && inputs.routeKind == AudioRouting.Kind.USB -> "Bit-perfect output"
             verified -> "Bit-perfect"
             inputs.directPlaybackActual -> "Direct Output"
+            pcmPreserved && inputs.routeKind == AudioRouting.Kind.USB -> "High-Precision USB"
+            pcmPreserved && (inputs.routeKind == AudioRouting.Kind.WIRED || inputs.routeKind == AudioRouting.Kind.HDMI) ->
+                "High-Precision Output"
             else -> "Standard Output"
+        }
+        val grade = when {
+            verified -> "Bit-Perfect"
+            pcmPreserved -> "Full-Resolution"
+            score == 100 -> "Checking Output"
+            else -> gradeOf(score)
         }
         return Assessment(
             score = score,
-            grade = if (pcmPreserved) "PCM Preserved"
-                else if (score == 100) "PCM Status Pending"
-                else gradeOf(score),
+            grade = grade,
             activeEffects = running.map { it.first },
             effectsAvailable = inputs.dspAvailable,
             effectsBypassed = inputs.dspBypassed,

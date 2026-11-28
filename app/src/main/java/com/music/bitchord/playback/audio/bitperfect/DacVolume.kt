@@ -35,9 +35,10 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 internal object DacVolume {
 
-    /** Key presses from silent to full, as on iOS. */
-    const val STEPS = 16
+    /** Key presses from silent to full (5% per step). */
+    const val STEPS = 20
 
+    private const val STEP = 0.05f
     private const val FLOOR_DB = -80.0
 
     private val _level = MutableStateFlow<Float?>(null)
@@ -46,6 +47,7 @@ internal object DacVolume {
     private val _softwareLevel = MutableStateFlow<Float?>(null)
     val softwareLevel = _softwareLevel.asStateFlow()
 
+    @Synchronized
     internal fun onSoftwareLevel(value: Float?) {
         _softwareLevel.value = value
         if (value != null || snapshot == null) _level.value = value
@@ -81,7 +83,18 @@ internal object DacVolume {
     @Synchronized
     fun step(direction: Int): Boolean {
         val current = _level.value ?: return false
-        val next = ((Math.round(current * STEPS) + direction).coerceIn(0, STEPS)).toFloat() / STEPS
+        val rawNext = (current + direction * STEP).coerceIn(0f, 1f)
+        var next = (Math.round(rawNext * 100f) / 100f).coerceIn(0f, 1f)
+        if (_softwareLevel.value == null) {
+            val volume = snapshot?.takeIf { it.available } ?: return false
+            if (direction > 0 && volume.stepDb > 0.0) {
+                val targetDb = dbOf(volume, next)
+                val minStepDb = minOf(volume.maxDb, volume.currentDb + volume.stepDb)
+                if (targetDb < minStepDb) {
+                    next = fractionOf(volume.copy(currentDb = minStepDb))
+                }
+            }
+        }
         if (next == current) return false
         set(next)
         return true

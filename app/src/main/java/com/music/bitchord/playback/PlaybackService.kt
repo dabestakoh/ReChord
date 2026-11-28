@@ -672,7 +672,11 @@ class PlaybackService : MediaLibraryService() {
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
             queueUndoRouteRevision++
             invalidateQueueUndo()
-            if (foldUsbHandoffCallback(removedDevices)) return
+            // Only fold USB removal if the physical USB device is still attached (kernel driver handoff),
+            // never when the user physically unplugged the USB DAC.
+            val usbStillAttached = com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectDevices.manager(this@PlaybackService)
+                ?.let(com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectDevices::audioDevice) != null
+            if (usbStillAttached && foldUsbHandoffCallback(removedDevices)) return
             // A chosen output that has been unplugged is no longer a choice.
             // Left set, its id matches nothing — and ids are reused, so it
             // would eventually match whatever device the framework hands that
@@ -8130,7 +8134,7 @@ class PlaybackService : MediaLibraryService() {
                         ).mediaItem.mediaId
                     }
                     val source = rendererSourceFormat ?: measuredOutputSource?.takeIf { it.first == mediaId }?.second
-                    resolvePreferredOutputEncoding(config.format, source)
+                    resolvePreferredOutputEncoding(config.format, source, publishTelemetry = transition === activeFilter)
                 },
                 // Which of the two sinks the listener can hear, told by the
                 // role its transition filter currently holds — [activeFilter]
@@ -8243,6 +8247,7 @@ class PlaybackService : MediaLibraryService() {
     private fun resolvePreferredOutputEncoding(
         format: Format,
         sourceFormat: Format? = currentAudioInputFormat,
+        publishTelemetry: Boolean = true,
     ): PcmEncoding? {
         val manager = audioManager ?: return null
         val activeDevice = resolveActiveOutputDevice()
@@ -8338,7 +8343,7 @@ class PlaybackService : MediaLibraryService() {
                 AppSettings.spatialAudio.value,
         )
 
-        AudioOutputStatus.publishNegotiation(negotiation)
+        if (publishTelemetry) AudioOutputStatus.publishNegotiation(negotiation)
 
         return negotiation.output.encoding
     }
@@ -8366,7 +8371,7 @@ class PlaybackService : MediaLibraryService() {
      * to the replacement player; the old AudioTrack is released only after the
      * MediaSession points at the new one.
      */
-    private fun rebuildPlayersForOutput(enableFloat: Boolean) {
+    private suspend fun rebuildPlayersForOutput(enableFloat: Boolean) {
         val oldActive = player ?: return
         val oldSpare = spare ?: return
         recordPlaybackMemory("rebuild")
@@ -8382,9 +8387,21 @@ class PlaybackService : MediaLibraryService() {
         oldActive.removeAnalyticsListener(formatListener)
 
         val nextMode = AppSettings.bitPerfectMode.value
-        val fromDirect = configuredBitPerfectMode == BitPerfectMode.USB_DIRECT && nextMode != BitPerfectMode.USB_DIRECT
+        val fromDirect = (configuredBitPerfectMode == BitPerfectMode.USB_DIRECT ||
+            BitPerfectOutput.status.value.dacOutputVerified) && nextMode != BitPerfectMode.USB_DIRECT
+        var oldReleased = false
+        var resolvedFloat = enableFloat
+        if (fromDirect) {
+            releaseBufferedPlayer(oldActive)
+            releaseBufferedPlayer(oldSpare)
+            qualityCheckPlayer?.let(::releaseBufferedPlayer)
+            oldReleased = true
+            while (BitPerfectOutput.normalOutputPending(this)) delay(50)
+            BitPerfectOutput.refreshReady(this)
+            resolvedFloat = shouldEnableFloatOutput()
+        }
         configuredBitPerfectMode = nextMode
-        configuredFloatOutput = enableFloat
+        configuredFloatOutput = resolvedFloat
         activeFilter = transitionFilterA
         spareFilter = transitionFilterB
         val newActive = buildPlayer(
@@ -8425,27 +8442,19 @@ class PlaybackService : MediaLibraryService() {
         crossfade = newCrossfade
         newCrossfade.start()
         mediaSession?.player = newSessionPlayer(newActive, newCrossfade)
-        releaseBufferedPlayer(oldActive)
-        releaseBufferedPlayer(oldSpare)
-        qualityCheckPlayer?.let(::releaseBufferedPlayer)
+        if (!oldReleased) {
+            releaseBufferedPlayer(oldActive)
+            releaseBufferedPlayer(oldSpare)
+            qualityCheckPlayer?.let(::releaseBufferedPlayer)
+        }
         applyOutputRoute()
         newActive.playWhenReady = playWhenReady
         if (items.isNotEmpty()) {
-            if (fromDirect && BitPerfectOutput.normalOutputPending(this)) {
-                scope.launch {
-                    while (player === newActive && BitPerfectOutput.normalOutputPending(this@PlaybackService)) delay(50)
-                    if (player === newActive && newActive.playbackState == Player.STATE_IDLE) {
-                        applyOutputRoute()
-                        newActive.prepare()
-                    }
-                }
-            } else {
-                newActive.prepare()
-            }
+            newActive.prepare()
         }
         TrackLog.i(
             "AUDIO_OUT",
-            "live output switch: ${if (enableFloat) "PCM_FLOAT" else "PCM_16BIT"}",
+            "live output switch: ${if (resolvedFloat) "PCM_FLOAT" else "PCM_16BIT"}",
             about = newActive.currentMediaItem?.mediaId,
         )
     }
@@ -8599,7 +8608,12 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.launch {
-            AppSettings.bitPerfectMode.drop(1).collect { requestOutputReconfiguration(rebuild = true) }
+            AppSettings.bitPerfectMode.drop(1).collect { mode ->
+                if (mode == BitPerfectMode.USB_DIRECT) {
+                    UsbDirectDevices.requestPermission(this@PlaybackService, force = true)
+                }
+                requestOutputReconfiguration(rebuild = true)
+            }
         }
         scope.launch {
             AppSettings.wiredHiResDriver.drop(1).collect {

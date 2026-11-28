@@ -42,14 +42,14 @@ class AudioFidelityTest {
         val a = AudioFidelity.assess(input(verified = true, bypass = true))
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
-        assertEquals("PCM Preserved", a.grade)
+        assertEquals("Bit-Perfect", a.grade)
         assertEquals("Bit-perfect output", a.outputLabel)
         assertTrue(a.bitPerfectVerified)
     }
 
     @Test fun androidBitPerfectMixerAlsoGets100WithoutPenalty() {
         val a = AudioFidelity.assess(
-            input(verified = true, bypass = true).copy(transportDescription = "Android bit-perfect mixer")
+            input(verified = true, bypass = true).copy(transportDescription = "Android 14+ USB (Bit-Perfect)")
         )
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
@@ -65,8 +65,8 @@ class AudioFidelityTest {
     @Test fun ordinaryMixerCanBe100ButUnverified() {
         val a = AudioFidelity.assess(input(route = AudioRouting.Kind.USB))
         assertEquals(100, a.score)
-        assertEquals("PCM Preserved", a.grade)
-        assertEquals("Standard Output", a.outputLabel)
+        assertEquals("Full-Resolution", a.grade)
+        assertEquals("High-Precision USB", a.outputLabel)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
         assertFalse(a.bitPerfectVerified)
         assertTrue(a.deductions.isEmpty())
@@ -75,7 +75,7 @@ class AudioFidelityTest {
     @Test fun directAudioTrackShowsPreservedPcmAndDirectOutput() {
         val a = AudioFidelity.assess(input(direct = true))
         assertEquals(100, a.score)
-        assertEquals("PCM Preserved", a.grade)
+        assertEquals("Full-Resolution", a.grade)
         assertEquals("Direct Output", a.outputLabel)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
     }
@@ -87,7 +87,7 @@ class AudioFidelityTest {
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.UNVERIFIED, a.verification)
         assertTrue(a.deductions.isEmpty())
-        assertEquals("PCM Status Pending", a.grade)
+        assertEquals("Checking Output", a.grade)
         assertEquals("Direct Output", a.outputLabel)
     }
 

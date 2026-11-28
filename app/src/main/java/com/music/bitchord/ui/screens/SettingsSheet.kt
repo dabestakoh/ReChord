@@ -712,6 +712,8 @@ fun SettingsScreen(
                             bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ||
                                 bitPerfectStatus.androidMixerOutputVerified ->
                                 bitPerfectSubtitle(bitPerfectMode, bitPerfectStatus)
+                            bitPerfectStatus.fallbackReason != null ->
+                                bitPerfectSubtitle(bitPerfectMode, bitPerfectStatus)
                             outputStatus.deviceName.isNotBlank() ->
                                 "${stringResource(R.string.bit_perfect_standard_output)} · ${outputStatus.deviceName}"
                             else -> bitPerfectSubtitle(bitPerfectMode, bitPerfectStatus)
@@ -834,7 +836,8 @@ fun SettingsScreen(
                             icon = SfIcons.GraphicEq,
                             title = outputPrecisionTitle,
                             subtitle = when {
-                                bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ->
+                                bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ||
+                                    bitPerfectStatus.androidMixerOutputVerified ->
                                     "${bitPerfectStatus.outputBits}-bit PCM · " +
                                         "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
                                 !bitPerfectStatus.active && outputStatus.actualEncoding != null ->

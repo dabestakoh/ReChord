@@ -376,6 +376,7 @@ internal class BitPerfectAudioSink(
         transportStarted = false
         if (transport != null) pausedAtMs = NOT_PAUSED
         resetCounters()
+        if (BitPerfectOutput.status.value.fallbackReason != null) return
         if (transport is MixerTransport) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
         else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
     }
@@ -703,8 +704,7 @@ internal class BitPerfectAudioSink(
                 openingUsb = active.driver == BitPerfectDriver.USB_DIRECT && !advancingReported,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,
-                exact = exact && converter == null &&
-                    (active as? com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectTransport)?.softwareVolume != true,
+                exact = exact && converter == null,
                 dacLimited = converter != null,
             ),
         )
