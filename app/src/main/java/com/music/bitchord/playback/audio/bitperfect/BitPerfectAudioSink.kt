@@ -204,6 +204,11 @@ internal class BitPerfectAudioSink(
         // Opening waits for the first buffer: whatever is being replaced may
         // still be playing out into this same device.
         configured = Input(format)
+        pausedAtMs = NOT_PAUSED
+        if (suspended && resumeTail == null && !output.hasRemaining()) {
+            suspended = false
+            suspendedWire = null
+        }
     }
 
     override fun handleBuffer(
@@ -212,8 +217,10 @@ internal class BitPerfectAudioSink(
         encodedAccessUnitCount: Int,
     ): Boolean {
         pendingFailure?.let { pendingFailure = null; throw writeException(it) }
-        releaseIfIdle()
         val input = configured ?: return true
+        if (transport != null && input.sameStream(current)) {
+            releaseIfIdle()
+        }
         if (suspended) {
             // Media3 keeps offering buffers while paused; the device stays released until play.
             if (!playing) return false
@@ -362,6 +369,7 @@ internal class BitPerfectAudioSink(
     override fun flush() {
         runCatching { transport?.flush() }
         transportStarted = false
+        if (transport != null) pausedAtMs = NOT_PAUSED
         resetCounters()
         if (transport is MixerTransport) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
         else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
@@ -420,6 +428,7 @@ internal class BitPerfectAudioSink(
         }
         transport = opened
         current = input
+        pausedAtMs = NOT_PAUSED
         converter = if (opened.sampleRate != input.sampleRate || opened.validBits < input.sourceBits) {
             DacFormatConverter(
                 encoding = input.encoding,

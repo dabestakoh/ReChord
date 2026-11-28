@@ -219,6 +219,7 @@ public:
         }
         slots.clear();
         feedbackSlot.reset();
+        controlTransfer.reset();
         closeDevice();
     }
 
