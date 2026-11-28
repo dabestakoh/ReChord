@@ -734,6 +734,107 @@ class BitPerfectAudioSinkTest {
         assertFalse(second.released)
         assertEquals(480L, second.written)
     }
+
+    @Test
+    fun automaticBuiltInHiResAndUsbDacRoutingRespectsPreferUsbAndOutputPicker() {
+        // Android 13 DAP with wired headphones/4.4 mm only -> automatically uses built-in Hi-Res (DAP_EXCLUSIVE)
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.DAP_EXCLUSIVE,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+                selectedOutputKind = null,
+                preferUsbDac = true,
+                hasUsbDirectDevice = false,
+                hasAndroidUsbDevice = false,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = false,
+                sdkInt = 33,
+            ),
+        )
+        // Same DAP with USB DAC plugged in -> hot-switches automatically to Direct USB
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+                selectedOutputKind = null,
+                preferUsbDac = true,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = false,
+                sdkInt = 33,
+            ),
+        )
+        // Android 14+ phone with USB DAC -> uses Android USB bit-perfect
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.USB_ANDROID,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_ANDROID,
+                selectedOutputKind = null,
+                preferUsbDac = true,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = false,
+                hasBluetoothOutput = false,
+                sdkInt = 34,
+            ),
+        )
+        // Prefer USB DAC OFF with Bluetooth active -> does NOT hijack USB DAC or wired jack
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.OFF,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+                selectedOutputKind = null,
+                preferUsbDac = false,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = true,
+                sdkInt = 34,
+            ),
+        )
+        // Explicit Output Picker choice: Wired wins over USB; Bluetooth/Phone stays standard audio
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.DAP_EXCLUSIVE,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+                selectedOutputKind = com.music.bitchord.playback.AudioRouting.Kind.WIRED,
+                preferUsbDac = true,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = false,
+                sdkInt = 34,
+            ),
+        )
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.OFF,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.USB_DIRECT,
+                selectedOutputKind = com.music.bitchord.playback.AudioRouting.Kind.BLUETOOTH,
+                preferUsbDac = true,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = true,
+                sdkInt = 34,
+            ),
+        )
+        // Mode OFF -> always OFF
+        assertEquals(
+            com.music.bitchord.data.settings.BitPerfectMode.OFF,
+            BitPerfectOutput.resolveEffectiveMode(
+                configuredMode = com.music.bitchord.data.settings.BitPerfectMode.OFF,
+                selectedOutputKind = null,
+                preferUsbDac = true,
+                hasUsbDirectDevice = true,
+                hasAndroidUsbDevice = true,
+                hasWiredHiResDevice = true,
+                hasBluetoothOutput = false,
+                sdkInt = 34,
+            ),
+        )
+    }
 }
 
 /** Every AudioSink method as a harmless default, for fakes to override selectively. */

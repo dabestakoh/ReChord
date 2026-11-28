@@ -666,7 +666,8 @@ class PlaybackService : MediaLibraryService() {
             // picker for "go back to following the system", so a stuck choice
             // would be a picker that had quietly broken the obvious behaviour.
             AudioRouting.forget()
-            requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(addedDevices))
+            BitPerfectOutput.refreshReady(this@PlaybackService)
+            requestOutputReconfiguration(rebuild = shouldRebuildBitPerfectOutput(addedDevices))
         }
         override fun onAudioDevicesRemoved(removedDevices: Array<AudioDeviceInfo>) {
             queueUndoRouteRevision++
@@ -679,7 +680,8 @@ class PlaybackService : MediaLibraryService() {
             if (removedDevices.any { it.id == AudioRouting.selectedId.value }) {
                 AudioRouting.forget()
             }
-            requestOutputReconfiguration(rebuild = shouldRebuildAndroidUsb(removedDevices))
+            BitPerfectOutput.refreshReady(this@PlaybackService)
+            requestOutputReconfiguration(rebuild = shouldRebuildBitPerfectOutput(removedDevices))
         }
 
         private fun foldUsbHandoffCallback(devices: Array<AudioDeviceInfo>): Boolean {
@@ -694,9 +696,12 @@ class PlaybackService : MediaLibraryService() {
             return true
         }
 
-        private fun shouldRebuildAndroidUsb(devices: Array<AudioDeviceInfo>): Boolean =
-            AppSettings.bitPerfectMode.value == BitPerfectMode.USB_ANDROID && devices.any {
-                it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        private fun shouldRebuildBitPerfectOutput(devices: Array<AudioDeviceInfo>): Boolean =
+            AppSettings.bitPerfectMode.value != BitPerfectMode.OFF && devices.any {
+                it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                    it.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                    com.music.bitchord.playback.audio.bitperfect.ExclusiveTransport.isWiredHiResDevice(it) ||
+                    AudioRouting.kindOf(it.type) == AudioRouting.Kind.BLUETOOTH
             }
     }
 
@@ -8556,10 +8561,16 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         scope.launch {
-            AppSettings.preferUsbDac.drop(1).collect { requestOutputReconfiguration() }
+            AppSettings.preferUsbDac.drop(1).collect {
+                BitPerfectOutput.refreshReady(this@PlaybackService)
+                requestOutputReconfiguration(rebuild = AppSettings.bitPerfectMode.value != BitPerfectMode.OFF)
+            }
         }
         scope.launch {
-            AudioRouting.selectedId.drop(1).collect { requestOutputReconfiguration() }
+            AudioRouting.selectedId.drop(1).collect {
+                BitPerfectOutput.refreshReady(this@PlaybackService)
+                requestOutputReconfiguration(rebuild = AppSettings.bitPerfectMode.value != BitPerfectMode.OFF)
+            }
         }
         scope.launch {
             AppSettings.outputPcmMode.drop(1).collect { requestOutputReconfiguration() }

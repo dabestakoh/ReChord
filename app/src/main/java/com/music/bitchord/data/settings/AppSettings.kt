@@ -349,15 +349,21 @@ object AppSettings {
     /** Prefer an attached USB audio output over the system's normal route. */
     val preferUsbDac = MutableStateFlow(true)
 
-    /** Android 14+ mixer support is required for USB_ANDROID, not for USB_DIRECT. */
+    /**
+     * Android 14+ defaults to Android USB bit-perfect; Android 13 and below
+     * (most DAPs) default to Direct USB. Both active modes also automatically
+     * engage the built-in Hi-Res DAC on wired/DAP outputs when no USB DAC is routed.
+     */
     private fun defaultBitPerfectMode(): BitPerfectMode =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) BitPerfectMode.USB_ANDROID
-        else BitPerfectMode.OFF
+        else BitPerfectMode.USB_DIRECT
 
-    private fun compatibleBitPerfectMode(mode: BitPerfectMode): BitPerfectMode =
-        if (mode == BitPerfectMode.USB_ANDROID &&
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-        ) BitPerfectMode.OFF else mode
+    private fun compatibleBitPerfectMode(mode: BitPerfectMode): BitPerfectMode = when {
+        mode == BitPerfectMode.DAP_EXCLUSIVE -> defaultBitPerfectMode()
+        mode == BitPerfectMode.USB_ANDROID &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> BitPerfectMode.USB_DIRECT
+        else -> mode
+    }
 
     /** Unprocessed output to a DAC; see [BitPerfectMode]. */
     val bitPerfectMode = MutableStateFlow(defaultBitPerfectMode())
