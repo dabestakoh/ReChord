@@ -30,7 +30,7 @@ static Format format(Encoding encoding, int subslot) {
 
 static void fractionalRatesDoNotDrift() {
     const struct { uint32_t rate, interval; int packets; } cases[] = {
-        {44100, 125, 8000}, {88200, 1000, 1000}, {176400, 125, 8000}};
+        {44100, 125, 8000}, {88200, 1000, 1000}, {176400, 125, 8000}, {352800, 125, 8000}, {384000, 125, 8000}};
     for (auto c : cases) {
         PacketClock clock(c.rate, c.interval);
         size_t sum = 0;
@@ -101,16 +101,20 @@ static void ringBufferWrapAroundAndClear() {
 }
 
 static void primeTargetCoversInFlightWindow() {
-    const uint32_t rates[] = {44100, 96000, 192000};
+    const uint32_t rates[] = {44100, 96000, 192000, 352800, 384000};
+    const size_t frames[] = {4, 6, 8};
     for (uint32_t rate : rates) {
-        const size_t frame = 8;
-        const size_t capacity = std::max<size_t>((static_cast<size_t>(rate) * frame * 3) / 5, 512 * 1024);
-        const size_t primeTarget = std::min(
-            capacity / 2,
-            std::max<size_t>(static_cast<size_t>(rate) * frame / 20, 8192)
-        ) / frame * frame;
-        const size_t inFlight6Slots = (static_cast<size_t>(rate) * 24 / 1000) * frame;
-        EXPECT(primeTarget >= inFlight6Slots);
+        for (size_t frame : frames) {
+            const size_t rawCap = std::max<size_t>((static_cast<size_t>(rate) * frame * 3) / 5, 512 * 1024);
+            const size_t capacity = (rawCap / frame) * frame;
+            EXPECT(capacity % frame == 0);
+            const size_t primeTarget = std::min(
+                capacity / 2,
+                std::max<size_t>(static_cast<size_t>(rate) * frame / 20, 8192)
+            ) / frame * frame;
+            const size_t inFlight6Slots = (static_cast<size_t>(rate) * 24 / 1000) * frame;
+            EXPECT(primeTarget >= inFlight6Slots);
+        }
     }
 }
 

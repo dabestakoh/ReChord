@@ -127,13 +127,14 @@ internal class UsbDirectTransport private constructor(
     private val scaled by lazy { ByteBuffer.allocateDirect(MAX_WRITE) }
 
     override fun write(buffer: ByteBuffer): Int {
-        val bytes = minOf(buffer.remaining(), MAX_WRITE)
+        val sampleBytes = outputBits / 8
+        val frameBytes = sampleBytes * channelCount
+        val bytes = (minOf(buffer.remaining(), MAX_WRITE) / frameBytes) * frameBytes
+        if (bytes == 0) return 0
         val input = if (softwareVolume) {
-            val sampleBytes = outputBits / 8
-            val frameBytes = sampleBytes * channelCount
             scaled.clear()
             val gain = softwareGain
-            val end = buffer.position() + bytes - bytes % frameBytes
+            val end = buffer.position() + bytes
             for (offset in buffer.position() until end step sampleBytes) {
                 var sample = buffer.get(offset + sampleBytes - 1).toInt()
                 for (byte in sampleBytes - 2 downTo 0) {

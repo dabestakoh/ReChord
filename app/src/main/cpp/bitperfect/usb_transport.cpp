@@ -391,6 +391,23 @@ public:
             std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 20, 8192)
         ) / frame * frame;
         bool pollFdsDirty = true;
+        int transientRecoveries = 0;
+        auto recoveryWindowStart = std::chrono::steady_clock::now();
+        auto recover = [&](std::unique_lock<std::mutex> &lock) {
+            lock.unlock();
+            recoverInterface();
+            lock.lock();
+            for (auto &s : slots) {
+                s->musicFrames = 0;
+                s->submitted = false;
+            }
+            if (feedbackSlot) feedbackSlot->submitted = false;
+            clock = PacketClock(chosen.format.sampleRate, interval);
+            marker = 0x05;
+            hadInFlight = false;
+            priming = true;
+            lastFeedback = std::chrono::steady_clock::now();
+        };
         libusb_set_pollfd_notifiers(context, onPollFdChanged, onPollFdRemoved, &pollFdsDirty);
         struct PollFdGuard {
             libusb_context *ctx;
@@ -422,16 +439,37 @@ public:
             }
             // Account for transfers that completed, playing or not, so a pause
             // does not hold back the frame count by what was in flight.
+            bool needsRecovery = false;
             for (auto &slot : slots) {
                 if (slot->pending || !slot->submitted) continue;
                 if (!slot->success()) {
+                    const int status = static_cast<int>(slot->transfer->status);
                     __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "transfer failed status=%d queuedFrames=%zu",
-                                        static_cast<int>(slot->transfer->status), state.bytes.size() / frame);
+                                        status, state.bytes.size() / frame);
+                    if (state.playing && status != LIBUSB_TRANSFER_NO_DEVICE) {
+                        const auto now = std::chrono::steady_clock::now();
+                        if (now - recoveryWindowStart > std::chrono::seconds(5)) {
+                            recoveryWindowStart = now;
+                            transientRecoveries = 0;
+                        }
+                        if (transientRecoveries < 3) {
+                            ++transientRecoveries;
+                            needsRecovery = true;
+                            break;
+                        }
+                    }
                     require(false, "USB audio transfer failed");
                 }
                 state.frames += slot->musicFrames;
                 slot->musicFrames = 0;
                 slot->submitted = false;
+            }
+            if (needsRecovery) {
+                __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
+                                    "transient USB transfer error (%d/3) — recovering USB interface",
+                                    transientRecoveries);
+                recover(lock);
+                continue;
             }
             if (!state.playing) {
                 started = false;
@@ -444,15 +482,8 @@ public:
                 if (hadInFlight && inFlight == 0) {
                     __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
                                         "hardware xHCI underrun (0 slots in flight) — recovering USB interface");
-                    lock.unlock();
-                    recoverInterface();
-                    lock.lock();
-                    if (feedbackSlot) feedbackSlot->submitted = false;
-                    clock = PacketClock(chosen.format.sampleRate, interval);
-                    marker = 0x05;
-                    hadInFlight = false;
-                    priming = true;
-                    lastFeedback = std::chrono::steady_clock::now();
+                    recover(lock);
+                    continue;
                 }
                 if (!started) {
                     lastFeedback = std::chrono::steady_clock::now();
@@ -563,7 +594,8 @@ public:
                 session = std::make_unique<Session>(fd, candidates);
                 const auto &fmt = session->chosen.format;
                 const size_t fBytes = static_cast<size_t>(fmt.subslot) * fmt.channels;
-                const size_t cap = std::max<size_t>((static_cast<size_t>(fmt.sampleRate) * fBytes * 3) / 5, 512 * 1024);
+                const size_t rawCap = std::max<size_t>((static_cast<size_t>(fmt.sampleRate) * fBytes * 3) / 5, 512 * 1024);
+                const size_t cap = (rawCap / fBytes) * fBytes;
                 {
                     std::lock_guard<std::mutex> lock(state.mutex);
                     state.bytes.reset(cap);

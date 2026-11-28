@@ -564,7 +564,9 @@ internal class BitPerfectAudioSink(
     private fun writeResumeTail(): Boolean {
         val tail = resumeTail ?: return true
         val active = transport ?: return false
-        handOver(active, tail)
+        while (tail.hasRemaining()) {
+            if (handOver(active, tail) == 0) break
+        }
         startIfReady()
         if (tail.hasRemaining()) return false
         resumeTail = null
