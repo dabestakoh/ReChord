@@ -153,21 +153,21 @@ internal class UsbDirectTransport private constructor(
         return count
     }
 
-    private val keepAlive = SilentKeepAlive(keepAliveSpeaker)
+    private val keepAliveSpeaker = keepAliveSpeaker
 
     override fun play() {
-        keepAlive.start()
+        SilentKeepAlive.start(keepAliveSpeaker)
         call { UsbDirectNative.setPlaying(handle, true) }
         quiesced = false
     }
 
     override fun pause() {
-        keepAlive.pause()
+        SilentKeepAlive.pause()
         call { UsbDirectNative.setPlaying(handle, false) }
     }
 
     override fun flush() {
-        keepAlive.pause()
+        SilentKeepAlive.pause()
         if (!quiesced) call { UsbDirectNative.flush(handle) }
         quiesced = true
         lastFrames = 0
@@ -183,7 +183,7 @@ internal class UsbDirectTransport private constructor(
     }
 
     override fun release() {
-        keepAlive.release()
+        SilentKeepAlive.pause()
         val closing = handle
         if (closing == 0L) return
         try {
@@ -305,18 +305,18 @@ internal class UsbDirectTransport private constructor(
 }
 
 /**
- * Tiny muted looping static AudioTrack active only while Direct USB is playing.
- * Keeps Android/OEM AudioFlinger aware that media playback is active so OEM
- * schedulers (e.g., Vivo OriginOS) do not throttle the process during app
- * switches or screen-off transitions.
+ * Shared muted looping static AudioTrack active only while Direct USB is playing.
+ * Created once and pinned to the built-in speaker so AudioFlinger is never churned
+ * across sample-rate switches, while keeping OEM schedulers (e.g., Vivo OriginOS)
+ * aware that media playback is active during app switches or screen-off transitions.
  */
-private class SilentKeepAlive(private val speaker: AudioDeviceInfo?) {
+private object SilentKeepAlive {
     private var track: AudioTrack? = null
 
     @Synchronized
-    fun start() {
+    fun start(speaker: AudioDeviceInfo?) {
         runCatching {
-            val active = track ?: createTrack().also { track = it } ?: return
+            val active = track ?: createTrack(speaker).also { track = it } ?: return
             if (active.playState != AudioTrack.PLAYSTATE_PLAYING) active.play()
         }.onFailure {
             Log.w("UsbDirectTransport", "SilentKeepAlive start failed", it)
@@ -330,18 +330,7 @@ private class SilentKeepAlive(private val speaker: AudioDeviceInfo?) {
         }
     }
 
-    @Synchronized
-    fun release() {
-        runCatching {
-            track?.let {
-                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
-                it.release()
-            }
-        }
-        track = null
-    }
-
-    private fun createTrack(): AudioTrack? {
+    private fun createTrack(speaker: AudioDeviceInfo?): AudioTrack? {
         val targetSpeaker = speaker ?: return null
         val sampleRate = 48_000
         val minBytes = AudioTrack.getMinBufferSize(

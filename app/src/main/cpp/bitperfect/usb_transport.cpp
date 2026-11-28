@@ -263,7 +263,10 @@ public:
             // A read-only clock already at the exact rate needs no SET_CUR.
             uint8_t current[4] = {};
             control(true, 1, 0x100, index, current, 4, false);
-            if (std::memcmp(current, rate, 4) != 0) control(false, 1, 0x100, index, rate, 4, false);
+            if (std::memcmp(current, rate, 4) != 0) {
+                control(false, 1, 0x100, index, rate, 4, false);
+                std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            }
             control(true, 1, 0x100, index, current, 4, false);
             require(std::memcmp(current, rate, 4) == 0, "USB clock rate could not be verified");
         }
@@ -273,9 +276,11 @@ public:
                                static_cast<uint8_t>(c.format.sampleRate >> 16)};
             uint8_t current[3] = {};
             control(false, 1, 0x100, ep.address, rate, 3, true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
             control(true, 0x81, 0x100, ep.address, current, 3, true);
             require(std::memcmp(current, rate, 3) == 0, "USB clock rate could not be verified");
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
         interval = period;
     }
 
@@ -307,7 +312,7 @@ public:
     }
 
     void recoverInterface() {
-        drain();
+        require(drain(), "USB transfer cancellation timed out");
         check(libusb_set_interface_alt_setting(handle, chosen.interface, 0));
         if (chosen.uac2) {
             const uint16_t index = static_cast<uint16_t>((chosen.clock << 8) | chosen.control);
@@ -315,7 +320,10 @@ public:
             std::memcpy(rate, &chosen.format.sampleRate, 4);
             uint8_t current[4] = {};
             control(true, 1, 0x100, index, current, 4, false);
-            if (std::memcmp(current, rate, 4) != 0) control(false, 1, 0x100, index, rate, 4, false);
+            if (std::memcmp(current, rate, 4) != 0) {
+                control(false, 1, 0x100, index, rate, 4, false);
+                std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            }
         }
         check(libusb_set_interface_alt_setting(handle, chosen.interface, chosen.alternate));
         if (!chosen.uac2 && chosen.data.rateControl) {
@@ -323,7 +331,9 @@ public:
                                static_cast<uint8_t>(chosen.format.sampleRate >> 8),
                                static_cast<uint8_t>(chosen.format.sampleRate >> 16)};
             control(false, 1, 0x100, chosen.data.address, rate, 3, true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
     }
 
     void release() {
@@ -386,6 +396,7 @@ public:
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
         bool hadInFlight = false;
+        bool needsReset = false;
         bool priming = true;
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
@@ -421,7 +432,7 @@ public:
             if (state.closed) break;
             if (state.flush != state.flushed) {
                 lock.unlock();
-                require(drain(), "USB transfer cancellation timed out");
+                recoverInterface();
                 lock.lock();
                 state.bytes.clear();
                 state.frames = 0;
@@ -435,6 +446,7 @@ public:
                 marker = 0x05;
                 started = false;
                 hadInFlight = false;
+                needsReset = false;
                 priming = true;
                 state.changed.notify_all();
             }
@@ -473,11 +485,17 @@ public:
                 continue;
             }
             if (!state.playing) {
+                if (hadInFlight) needsReset = true;
                 started = false;
                 hadInFlight = false;
                 priming = true;
             }
             if (state.playing) {
+                if (needsReset) {
+                    needsReset = false;
+                    recover(lock);
+                    continue;
+                }
                 size_t inFlight = 0;
                 for (auto &slot : slots) if (slot->pending) ++inFlight;
                 if (hadInFlight && inFlight == 0) {
