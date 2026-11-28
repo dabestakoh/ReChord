@@ -176,7 +176,7 @@ internal class UsbDirectTransport private constructor(
             } else synchronized(volume) {
                 // Stop sending audio before restoring the pre-Direct hardware level.
                 val restored = !detached && runCatching {
-                    flush()
+                    if (!quiesced) flush()
                     volume.restore(control)
                 }.isSuccess
                 handle = 0

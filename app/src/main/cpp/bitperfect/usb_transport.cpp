@@ -105,7 +105,7 @@ struct State {
 
     std::mutex mutex;
     std::condition_variable changed;
-    std::deque<uint8_t> bytes;
+    RingBuffer bytes;
     bool playing = false;
     bool closed = false;
     uint64_t frames = 0;
@@ -127,8 +127,9 @@ struct Slot {
         require(transfer != nullptr, "USB transfer allocation failed");
     }
     ~Slot() {
-        // Freed only after the worker has seen the completion or cancellation.
-        if (transfer) libusb_free_transfer(transfer);
+        // Freed only if no longer pending in the kernel; if drain() timed out
+        // on a wedged transfer, keep the struct alive rather than use-after-free.
+        if (transfer && !pending) libusb_free_transfer(transfer);
     }
 
     static void LIBUSB_CALL completed(libusb_transfer *transfer) {
@@ -281,7 +282,8 @@ public:
         for (auto &slot : slots) if (slot->pending) libusb_cancel_transfer(slot->transfer);
         if (feedbackSlot && feedbackSlot->pending) libusb_cancel_transfer(feedbackSlot->transfer);
         if (activeControl) libusb_cancel_transfer(controlTransfer.get());
-        while (any()) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        while (any() && std::chrono::steady_clock::now() < deadline) {
             timeval timeout{0, 1000};
             libusb_handle_events_timeout(context, &timeout);
         }
@@ -339,6 +341,11 @@ public:
         uint8_t marker = 0x05;
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
+        bool priming = true;
+        const size_t primeTarget = std::min(
+            state.bytes.capacity() / 4,
+            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 25, 8192)
+        ) / frame * frame;
         const auto descriptors = libusb_get_pollfds(context);
         require(descriptors != nullptr, "USB poll descriptors unavailable");
         std::unique_ptr<const libusb_pollfd *, decltype(&libusb_free_pollfds)> descriptorList(descriptors, libusb_free_pollfds);
@@ -364,6 +371,7 @@ public:
                 clock = PacketClock(chosen.format.sampleRate, interval);
                 marker = 0x05;
                 started = false;
+                priming = true;
                 state.changed.notify_all();
             }
             // Account for transfers that completed, playing or not, so a pause
@@ -379,11 +387,17 @@ public:
                 slot->musicFrames = 0;
                 slot->submitted = false;
             }
-            if (!state.playing) started = false;
+            if (!state.playing) {
+                started = false;
+                priming = true;
+            }
             if (state.playing) {
                 if (!started) {
                     lastFeedback = std::chrono::steady_clock::now();
                     started = true;
+                }
+                if (priming && state.bytes.size() >= primeTarget) {
+                    priming = false;
                 }
                 if (feedbackSlot) {
                     if (!feedbackSlot->pending) {
@@ -395,7 +409,7 @@ public:
                         const size_t length = chosen.feedback.maxPacket;
                         feedbackSlot->submit(handle, chosen.feedback.address, &length, 1);
                     }
-                    require(std::chrono::steady_clock::now() - lastFeedback < std::chrono::seconds(2),
+                    require(std::chrono::steady_clock::now() - lastFeedback < std::chrono::seconds(5),
                             "USB feedback stopped or invalid");
                 }
                 for (auto &slot : slots) {
@@ -407,9 +421,8 @@ public:
                         require(lengths[i] <= chosen.data.maxPacket, "USB feedback exceeded endpoint capacity");
                         total += lengths[i];
                     }
-                    const size_t available = std::min(total, state.bytes.size()) / frame * frame;
-                    std::copy(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available), slot->bytes.begin());
-                    state.bytes.erase(state.bytes.begin(), state.bytes.begin() + static_cast<long>(available));
+                    const size_t available = priming ? 0 : state.bytes.read(slot->bytes.data(), total / frame * frame);
+                    if (!priming && available < total) priming = true;
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                     slot->musicFrames = available / frame;
                     slot->submit(handle, chosen.data.address, lengths, packets);
@@ -501,18 +514,19 @@ public:
             throw;
         }
         frameBytes = static_cast<size_t>(format.subslot) * format.channels;
-        capacity = std::max<size_t>(static_cast<size_t>(format.sampleRate) * frameBytes / 5, 256 * 1024);
+        capacity = std::max<size_t>((static_cast<size_t>(format.sampleRate) * frameBytes * 3) / 5, 512 * 1024);
+        state.bytes.reset(capacity);
     }
 
     ~Output() { close(); }
 
-    // Nonblocking: takes what fits in the bounded queue (about 200 ms).
+    // Nonblocking: takes what fits in the bounded queue (about 600 ms).
     int write(const uint8_t *data, size_t size) {
         require(size <= 256 * 1024 && size % frameBytes == 0, "Invalid USB frame buffer");
         std::lock_guard<std::mutex> lock(state.mutex);
         throwIfFailed();
-        const size_t n = std::min(size, capacity - std::min(capacity, state.bytes.size())) / frameBytes * frameBytes;
-        state.bytes.insert(state.bytes.end(), data, data + n);
+        const size_t aligned = std::min(size, state.bytes.freeSpace()) / frameBytes * frameBytes;
+        const size_t n = state.bytes.write(data, aligned);
         state.changed.notify_all();
         return static_cast<int>(n);
     }
@@ -555,7 +569,7 @@ public:
         pending->value = static_cast<uint16_t>(value);
         pending->index = static_cast<uint16_t>(index);
         pending->data = std::move(data);
-        pending->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        pending->deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         auto reply = pending->reply.get_future();
         {
             std::lock_guard<std::mutex> lock(state.mutex);
@@ -565,7 +579,7 @@ public:
             state.wake();
             state.changed.notify_all();
         }
-        require(reply.wait_for(std::chrono::seconds(4)) == std::future_status::ready, "USB control request timed out");
+        require(reply.wait_for(std::chrono::milliseconds(1500)) == std::future_status::ready, "USB control request timed out");
         return reply.get();
     }
 

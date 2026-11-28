@@ -80,12 +80,33 @@ static void nativeDsdAndPcmKeepOriginalDataAndUseDifferentSilence() {
     }
 }
 
+static void ringBufferWrapAroundAndClear() {
+    RingBuffer rb(16);
+    const uint8_t a[12] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    EXPECT(rb.write(a, 12) == 12);
+    EXPECT(rb.size() == 12);
+    EXPECT(rb.freeSpace() == 4);
+    uint8_t out[8] = {};
+    EXPECT(rb.read(out, 8) == 8);
+    for (int i = 0; i < 8; ++i) EXPECT(out[i] == i + 1);
+    const uint8_t b[12] = {13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24};
+    EXPECT(rb.write(b, 12) == 12);
+    EXPECT(rb.size() == 16);
+    uint8_t full[16] = {};
+    EXPECT(rb.read(full, 16) == 16);
+    for (int i = 0; i < 16; ++i) EXPECT(full[i] == i + 9);
+    rb.clear();
+    EXPECT(rb.size() == 0);
+    EXPECT(rb.freeSpace() == 16);
+}
+
 int main() {
     fractionalRatesDoNotDrift();
     invalidFeedbackCannotOverrunEndpoint();
     dopMarkersAlternateAcrossTransfersAndUnderruns();
     dop32PaddingAndChannelMarkersMatch();
     nativeDsdAndPcmKeepOriginalDataAndUseDifferentSilence();
+    ringBufferWrapAroundAndClear();
     std::printf(failures ? "%d failure(s)\n" : "all passed\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

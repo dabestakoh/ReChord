@@ -10,6 +10,7 @@
 package com.music.bitchord.playback.audio.bitperfect
 
 import android.media.AudioTrack
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
@@ -149,6 +150,13 @@ internal class BitPerfectAudioSink(
     private var exact = true
     private var advancingReported = false
     private var androidStatusPublished = false
+    private var audioPriorityRaised = false
+
+    private fun ensureAudioThreadPriority() {
+        if (audioPriorityRaised) return
+        audioPriorityRaised = true
+        runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO) }
+    }
 
     /** A transport failure raised where Media3 allows no exception, rethrown at the next buffer. */
     private var pendingFailure: BitPerfectTransportException? = null
@@ -392,6 +400,7 @@ internal class BitPerfectAudioSink(
     override fun disableTunneling() = Unit
 
     private fun open(input: Input) {
+        ensureAudioThreadPriority()
         val opened = try {
             outputs.open(input.sampleRate, input.channelCount, input.sourceBits, this)
         } catch (error: BitPerfectTransportException) {
@@ -523,6 +532,7 @@ internal class BitPerfectAudioSink(
      * or a seek since dropped it), the next buffer opens as any new stream does.
      */
     private fun resume() {
+        ensureAudioThreadPriority()
         val wire = suspendedWire
         suspended = false
         suspendedWire = null
