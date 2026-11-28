@@ -93,7 +93,7 @@ object AudioFidelity {
                 score = 100, grade = "Checking Output", activeEffects = emptyList(),
                 effectsAvailable = inputs.dspAvailable, effectsBypassed = inputs.dspBypassed,
                 deductions = emptyList(), bitPerfectVerified = false,
-                verification = Verification.UNVERIFIED, verificationDetail = "Waiting for USB output",
+                verification = Verification.UNVERIFIED, verificationDetail = "Checking output…",
                 outputLabel = "USB output pending",
             )
         }
@@ -176,27 +176,35 @@ object AudioFidelity {
             else -> Verification.UNVERIFIED
         }
         val detail = when (verification) {
-            Verification.MODIFIED -> "Known PCM alteration in playback path"
-            Verification.VERIFIED -> "Active dedicated output reports exact PCM to DAC"
+            Verification.MODIFIED -> "Audio adjusted in playback path"
+            Verification.VERIFIED -> "Exact audio sent to DAC"
             Verification.UNVERIFIED -> when {
-                !inputs.verifiedTransportActive ->
-                    "Android output may modify PCM downstream; no known change detected"
-                !knownPcmFormat -> "DAC format telemetry incomplete"
-                else -> "End-to-end PCM exactness cannot be confirmed"
+                !inputs.verifiedTransportActive -> "Full resolution · Handled by Android"
+                !knownPcmFormat -> "Waiting for DAC details"
+                else -> "Full resolution · Handled by Android"
             }
         }
         val pcmPreserved = deductions.isEmpty() &&
             (verified || (inputs.outputExactKnown && inputs.outputExact)) &&
             (inputs.sourceRateHz == null || inputs.outputRateHz == null ||
                 inputs.sourceRateHz == inputs.outputRateHz)
+        val btOnlyModification = deductions.size == 1 && inputs.routeKind == AudioRouting.Kind.BLUETOOTH
+        val verifiedPathLabel = when (inputs.transportDescription) {
+            "Android 14+ USB (Bit-Perfect)" -> "Android 14+ USB"
+            null -> when (inputs.routeKind) {
+                AudioRouting.Kind.USB -> "Direct USB"
+                else -> "Direct Hi-Res PCM"
+            }
+            else -> inputs.transportDescription
+        }
         val outputLabel = when {
+            btOnlyModification -> "Bluetooth Wireless"
             deductions.isNotEmpty() -> "Modified"
-            verified && inputs.routeKind == AudioRouting.Kind.USB -> "Bit-perfect output"
-            verified -> "Bit-perfect"
+            verified -> verifiedPathLabel
             inputs.directPlaybackActual -> "Direct Output"
             pcmPreserved && inputs.routeKind == AudioRouting.Kind.USB -> "High-Precision USB"
-            pcmPreserved && (inputs.routeKind == AudioRouting.Kind.WIRED || inputs.routeKind == AudioRouting.Kind.HDMI) ->
-                "High-Precision Output"
+            pcmPreserved && inputs.routeKind == AudioRouting.Kind.WIRED -> "High-Precision Wired"
+            pcmPreserved && inputs.routeKind == AudioRouting.Kind.HDMI -> "High-Precision HDMI"
             else -> "Standard Output"
         }
         val grade = when {

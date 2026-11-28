@@ -11,8 +11,16 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -551,6 +559,7 @@ fun SettingsScreen(
                     // track is about to play would leave this phone behind the
                     // others at each sync — see [DirectSourceGate.isActive].
                     SettingsSubRow(
+                        icon = SfIcons.Cloud,
                         title = directSourceTitle,
                         checked = directSourceStream && !party.inParty,
                         onCheckedChange = AppSettings::setDirectSourceStream,
@@ -560,6 +569,7 @@ fun SettingsScreen(
                 }
                 row("Seamless Quality Upgrade", "quality", "upgrade", "crossfade", "gapless", divided = false) {
                     SettingsSubRow(
+                        icon = SfIcons.Upgrade,
                         title = "Seamless Quality Upgrade",
                         checked = seamlessQualityUpgrade,
                         onCheckedChange = AppSettings::setSeamlessQualityUpgrade,
@@ -657,6 +667,7 @@ fun SettingsScreen(
             val downloadWifiOnlyTitle = stringResource(R.string.download_wifi_only)
             row(downloadWifiOnlyTitle, "wi-fi", "cellular", divided = false) {
                 SettingsSubRow(
+                    icon = SfIcons.Wifi,
                     title = downloadWifiOnlyTitle,
                     checked = wifiOnlyDownloads,
                     onCheckedChange = AppSettings::setWifiOnlyDownloads,
@@ -666,6 +677,7 @@ fun SettingsScreen(
             val exportDownloadsTitle = stringResource(R.string.export_compatible_downloads)
             row(exportDownloadsTitle, "music folder") {
                 SettingsSubRow(
+                    icon = SfIcons.FileUpload,
                     title = exportDownloadsTitle,
                     checked = exportDownloads,
                     onCheckedChange = AppSettings::setExportDownloads,
@@ -675,6 +687,7 @@ fun SettingsScreen(
             val syncPlaylistsTitle = stringResource(R.string.sync_downloaded_playlists)
             row(syncPlaylistsTitle, "playlist", "new songs", "background", "automatic") {
                 SettingsSubRow(
+                    icon = SfIcons.PlaylistPlay,
                     title = syncPlaylistsTitle,
                     checked = syncDownloadedPlaylists,
                     onCheckedChange = AppSettings::setSyncDownloadedPlaylists,
@@ -684,6 +697,7 @@ fun SettingsScreen(
             val downloadLikedTitle = stringResource(R.string.download_liked_songs)
             row(downloadLikedTitle, "liked", "favorites", "offline", "automatic") {
                 SettingsSubRow(
+                    icon = SfIcons.Heart,
                     title = downloadLikedTitle,
                     checked = downloadLikedSongs,
                     onCheckedChange = AppSettings::setDownloadLikedSongs,
@@ -762,6 +776,7 @@ fun SettingsScreen(
                     val title = stringResource(R.string.usb_software_volume)
                     row(title, "volume", "usb", "dac", divided = false) {
                         SettingsSubRow(
+                            icon = SfIcons.VolumeUp,
                             title = title,
                             subtitle = stringResource(R.string.usb_software_volume_subtitle),
                             checked = softwareVolumeEnabled,
@@ -770,7 +785,32 @@ fun SettingsScreen(
                     }
                 }
                 val advancedAudioTitle = stringResource(R.string.advanced_audio)
-                row(advancedAudioTitle, "usb", "driver", "precision", "pcm", "hi-res", "dac", "convert") {
+                val advancedChevronRotation by animateFloatAsState(
+                    targetValue = if (showAdvancedAudio) 90f else 0f,
+                    animationSpec = tween(durationMillis = if (reduceAnimation) 0 else 220),
+                    label = "advancedAudioChevron",
+                )
+                row(
+                    advancedAudioTitle,
+                    "usb",
+                    "driver",
+                    "android 14",
+                    "direct",
+                    "headphone",
+                    "jack",
+                    "dap",
+                    "hi-res",
+                    "audiotrack",
+                    "precision",
+                    "pcm",
+                    "bit depth",
+                    "sample rate",
+                    "dac",
+                    "convert",
+                    "resample",
+                    "prefer",
+                    "bitperfect",
+                ) {
                     SettingsRow(
                         icon = SfIcons.Tune,
                         title = advancedAudioTitle,
@@ -780,101 +820,99 @@ fun SettingsScreen(
                                 imageVector = Icons.Rounded.ChevronRight,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.rotate(if (showAdvancedAudio) 90f else 0f),
+                                modifier = Modifier.rotate(advancedChevronRotation),
                             )
                         },
                         onClick = { advancedAudioExpanded = !advancedAudioExpanded },
                     )
-                }
-                if (showAdvancedAudio) {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        val usbDriverTitle = stringResource(R.string.usb_dac_driver)
-                        row(usbDriverTitle, "usb", "driver", "android 14", "direct", divided = false) {
+                    AnimatedVisibility(
+                        visible = showAdvancedAudio,
+                        enter = if (reduceAnimation) EnterTransition.None else expandVertically(tween(220)) + fadeIn(tween(180)),
+                        exit = if (reduceAnimation) ExitTransition.None else shrinkVertically(tween(200)) + fadeOut(tween(140)),
+                    ) {
+                        Column {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                val usbDriverTitle = stringResource(R.string.usb_dac_driver)
+                                SettingsRow(
+                                    icon = SfIcons.Usb,
+                                    title = usbDriverTitle,
+                                    subtitle = stringResource(R.string.usb_dac_driver_subtitle),
+                                )
+                                val usbDrivers = listOf(BitPerfectMode.USB_ANDROID, BitPerfectMode.USB_DIRECT)
+                                val usbDriverLabels = listOf(
+                                    stringResource(R.string.usb_dac_driver_android_14),
+                                    stringResource(R.string.usb_dac_driver_direct),
+                                )
+                                SegmentedControl(
+                                    options = usbDriverLabels,
+                                    selectedIndex = usbDrivers.indexOf(usbBitPerfectDriver).coerceAtLeast(0),
+                                    onSelect = { AppSettings.setUsbBitPerfectDriver(usbDrivers[it]) },
+                                    modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
+                                )
+                            }
+                            val wiredHiResTitle = stringResource(R.string.wired_hires_output)
                             SettingsRow(
-                                icon = SfIcons.Usb,
-                                title = usbDriverTitle,
-                                subtitle = stringResource(R.string.usb_dac_driver_subtitle),
+                                icon = SfIcons.VolumeUp,
+                                title = wiredHiResTitle,
+                                subtitle = stringResource(R.string.wired_hires_output_subtitle),
                             )
-                            val usbDrivers = listOf(BitPerfectMode.USB_ANDROID, BitPerfectMode.USB_DIRECT)
-                            val usbDriverLabels = listOf(
-                                stringResource(R.string.usb_dac_driver_android_14),
-                                stringResource(R.string.usb_dac_driver_direct),
+                            val wiredModes = listOf(
+                                com.music.bitchord.data.settings.WiredHiResDriver.AUTO,
+                                com.music.bitchord.data.settings.WiredHiResDriver.STANDARD_AUDIO_TRACK,
+                            )
+                            val wiredLabels = listOf(
+                                stringResource(R.string.wired_hires_auto),
+                                stringResource(R.string.wired_hires_standard),
                             )
                             SegmentedControl(
-                                options = usbDriverLabels,
-                                selectedIndex = usbDrivers.indexOf(usbBitPerfectDriver).coerceAtLeast(0),
-                                onSelect = { AppSettings.setUsbBitPerfectDriver(usbDrivers[it]) },
+                                options = wiredLabels,
+                                selectedIndex = wiredModes.indexOf(wiredHiResDriver).coerceAtLeast(0),
+                                onSelect = { AppSettings.setWiredHiResDriver(wiredModes[it]) },
                                 modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
                             )
-                        }
-                    }
-                    val wiredHiResTitle = stringResource(R.string.wired_hires_output)
-                    row(wiredHiResTitle, "headphone", "jack", "dap", "hi-res", "audiotrack", divided = false) {
-                        SettingsRow(
-                            icon = SfIcons.VolumeUp,
-                            title = wiredHiResTitle,
-                            subtitle = stringResource(R.string.wired_hires_output_subtitle),
-                        )
-                        val wiredModes = listOf(
-                            com.music.bitchord.data.settings.WiredHiResDriver.AUTO,
-                            com.music.bitchord.data.settings.WiredHiResDriver.STANDARD_AUDIO_TRACK,
-                        )
-                        val wiredLabels = listOf(
-                            stringResource(R.string.wired_hires_auto),
-                            stringResource(R.string.wired_hires_standard),
-                        )
-                        SegmentedControl(
-                            options = wiredLabels,
-                            selectedIndex = wiredModes.indexOf(wiredHiResDriver).coerceAtLeast(0),
-                            onSelect = { AppSettings.setWiredHiResDriver(wiredModes[it]) },
-                            modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
-                        )
-                    }
-                    val outputPrecisionTitle = stringResource(R.string.output_precision)
-                    row(outputPrecisionTitle, "pcm", "bit depth", "sample rate", "dac", divided = false) {
-                        SettingsRow(
-                            icon = SfIcons.GraphicEq,
-                            title = outputPrecisionTitle,
-                            subtitle = when {
-                                bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ||
-                                    bitPerfectStatus.androidMixerOutputVerified ->
-                                    "${bitPerfectStatus.outputBits}-bit PCM · " +
-                                        "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
-                                !bitPerfectStatus.active && outputStatus.actualEncoding != null ->
-                                    listOfNotNull(
-                                        AudioOutputStatus.encodingLabel(outputStatus),
-                                        outputStatus.actualSampleRateHz?.let { "${it / 1000.0} kHz" },
-                                        outputStatus.deviceName,
-                                    ).joinToString(" · ")
-                                else -> stringResource(R.string.output_precision_subtitle)
-                            },
-                        )
-                        SegmentedControl(
-                            options = OutputPcmMode.entries.map(OutputPcmMode::label),
-                            selectedIndex = OutputPcmMode.entries.indexOf(outputPcmMode),
-                            onSelect = { AppSettings.setOutputPcmMode(OutputPcmMode.entries[it]) },
-                            modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
-                        )
-                    }
-                    val preferUsbDacTitle = stringResource(R.string.prefer_usb_dac)
-                    row(preferUsbDacTitle, "headphone", "output", "usb", divided = false) {
-                        SettingsSubRow(
-                            title = preferUsbDacTitle,
-                            subtitle = stringResource(R.string.prefer_usb_dac_subtitle),
-                            checked = preferUsbDac,
-                            onCheckedChange = AppSettings::setPreferUsbDac,
-                            badge = stringResource(R.string.connected).takeIf { outputStatus.isUsb },
-                        )
-                    }
-                    if (bitPerfectEnabled && bitPerfectMode.isSupported) {
-                        val convertTitle = stringResource(R.string.convert_for_limited_dac)
-                        row(convertTitle, "convert", "resample", "usb", "dac", "bitperfect", divided = false) {
-                            SettingsSubRow(
-                                title = convertTitle,
-                                subtitle = stringResource(R.string.convert_for_limited_dac_subtitle),
-                                checked = convertForLimitedDac,
-                                onCheckedChange = AppSettings::setConvertForLimitedDac,
+                            val outputPrecisionTitle = stringResource(R.string.output_precision)
+                            SettingsRow(
+                                icon = SfIcons.GraphicEq,
+                                title = outputPrecisionTitle,
+                                subtitle = when {
+                                    bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ||
+                                        bitPerfectStatus.androidMixerOutputVerified ->
+                                        "${bitPerfectStatus.outputBits}-bit PCM · " +
+                                            "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
+                                    !bitPerfectStatus.active && outputStatus.actualEncoding != null ->
+                                        listOfNotNull(
+                                            AudioOutputStatus.encodingLabel(outputStatus),
+                                            outputStatus.actualSampleRateHz?.let { "${it / 1000.0} kHz" },
+                                            outputStatus.deviceName,
+                                        ).joinToString(" · ")
+                                    else -> stringResource(R.string.output_precision_subtitle)
+                                },
                             )
+                            SegmentedControl(
+                                options = OutputPcmMode.entries.map(OutputPcmMode::label),
+                                selectedIndex = OutputPcmMode.entries.indexOf(outputPcmMode),
+                                onSelect = { AppSettings.setOutputPcmMode(OutputPcmMode.entries[it]) },
+                                modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
+                            )
+                            val preferUsbDacTitle = stringResource(R.string.prefer_usb_dac)
+                            SettingsSubRow(
+                                icon = SfIcons.Usb,
+                                title = preferUsbDacTitle,
+                                subtitle = stringResource(R.string.prefer_usb_dac_subtitle),
+                                checked = preferUsbDac,
+                                onCheckedChange = AppSettings::setPreferUsbDac,
+                                badge = stringResource(R.string.connected).takeIf { outputStatus.isUsb },
+                            )
+                            if (bitPerfectEnabled && bitPerfectMode.isSupported) {
+                                val convertTitle = stringResource(R.string.convert_for_limited_dac)
+                                SettingsSubRow(
+                                    icon = SfIcons.Tune,
+                                    title = convertTitle,
+                                    subtitle = stringResource(R.string.convert_for_limited_dac_subtitle),
+                                    checked = convertForLimitedDac,
+                                    onCheckedChange = AppSettings::setConvertForLimitedDac,
+                                )
+                            }
                         }
                     }
                 }
@@ -899,6 +937,7 @@ fun SettingsScreen(
             row(loudnessSpeakerTitle, "loudness", "speaker", "normalize") {
                 BypassedByBitPerfect(bitPerfectReady) {
                     SettingsSubRow(
+                        icon = SfIcons.VolumeOff,
                         title = loudnessSpeakerTitle,
                         checked = loudnessOffOnSpeaker,
                         onCheckedChange = AppSettings::setLoudnessOffOnSpeaker,
@@ -950,6 +989,7 @@ fun SettingsScreen(
                     if (smartFade) {
                         val artwork by AppSettings.autoMixArtwork.collectAsStateWithLifecycle()
                         SettingsSubRow(
+                            icon = SfIcons.Animation,
                             title = artTransitionTitle,
                             subtitle = stringResource(R.string.automix_art_transition_subtitle),
                             checked = artwork.artTransition,
@@ -958,6 +998,7 @@ fun SettingsScreen(
                             subtitleEndPadding = 12.dp,
                         )
                         SettingsSubRow(
+                            icon = SfIcons.Animation,
                             title = miniArtTransitionTitle,
                             subtitle = stringResource(R.string.automix_mini_art_transition_subtitle),
                             checked = artwork.miniPlayerTransition,
@@ -1121,14 +1162,6 @@ fun SettingsScreen(
 
         if (shows(SettingsCategory.APPEARANCE)) {
             SearchableSettingsGroup(search, header = stringResource(R.string.appearance)) {
-                val homeTitle = stringResource(R.string.home)
-                row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
-                    SettingsRow(
-                        icon = SfIcons.AutoAwesome,
-                        title = homeTitle,
-                        onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
-                    )
-                }
                 val themeTitle = stringResource(R.string.theme)
                 row(themeTitle, "dark mode", "light mode") {
                     SettingsRow(icon = Icons.Rounded.Brightness4, title = themeTitle)
@@ -1225,6 +1258,7 @@ fun SettingsScreen(
                     val glassPerformanceTitle = stringResource(R.string.glass_performance)
                     row(glassPerformanceTitle, "glass", "performance", "refraction", "frosted", "lag", divided = false) {
                         SettingsSubRow(
+                            icon = SfIcons.Performance,
                             title = glassPerformanceTitle,
                             checked = glassPerformance,
                             onCheckedChange = AppSettings::setGlassPerformance,
@@ -1233,6 +1267,7 @@ fun SettingsScreen(
                     val progressiveBlurTitle = stringResource(R.string.progressive_blur)
                     row(progressiveBlurTitle, "blur", "status bar", "top", divided = false) {
                         SettingsSubRow(
+                            icon = SfIcons.BlurOn,
                             title = progressiveBlurTitle,
                             checked = progressiveBlur,
                             onCheckedChange = AppSettings::setProgressiveBlur,
@@ -1296,6 +1331,14 @@ fun SettingsScreen(
                             Chevron()
                         }
                     }
+                }
+                val homeTitle = stringResource(R.string.home)
+                row(homeTitle, "carousel", "recommendations", "shelves", "home", "trending", "quick picks") {
+                    SettingsRow(
+                        icon = SfIcons.AutoAwesome,
+                        title = homeTitle,
+                        onClick = { onOpenChoice(SettingsChoiceKind.HOME) },
+                    )
                 }
                 val layoutTitle = stringResource(R.string.now_playing_layout)
                 row(layoutTitle, "player", "skin", "vinyl", "poster", "default") {
@@ -2999,6 +3042,7 @@ internal fun SettingsSubRow(
     indent: Dp = 0.dp,
     titleMaxLines: Int = 1,
     subtitleEndPadding: Dp = 0.dp,
+    icon: ImageVector? = null,
 ) {
     Row(
         modifier = Modifier
@@ -3007,13 +3051,22 @@ internal fun SettingsSubRow(
             .alpha(if (enabled) 1f else 0.45f)
             .heightIn(min = 48.dp)
             .padding(
-                start = startInset + indent,
+                start = (if (icon != null) ROW_INSET else startInset) + indent,
                 end = ROW_INSET,
                 top = if (LocalSubRowStandalone.current) 10.dp else 6.dp,
                 bottom = 10.dp,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(ICON_SIZE),
+            )
+            Spacer(Modifier.width(ICON_GAP))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -3263,9 +3316,23 @@ private fun HomeSectionSettings() {
 private fun HomeSectionSwitches(title: String, sections: Map<String, String>, overrides: Map<String, Boolean>) {
     SettingsGroup(header = title) {
         sections.entries.forEachIndexed { index, (key, label) ->
-            if (index > 0) RowDivider(startInset = ROW_INSET)
+            if (index > 0) RowDivider()
             val checked = HomeSections.visible(key, overrides)
+            val sectionIcon = when (key) {
+                HomeSections.CAROUSEL -> SfIcons.Appearance
+                HomeSections.CONTINUE -> SfIcons.PlayCircle
+                HomeSections.RELEASE -> SfIcons.AutoAwesome
+                HomeSections.SONG -> SfIcons.MusicNote
+                HomeSections.ARTIST -> SfIcons.Artist
+                HomeSections.RECENTS -> SfIcons.History
+                HomeSections.QUICK_PICKS -> SfIcons.PlaylistPlay
+                HomeSections.MOODS -> SfIcons.Label
+                HomeSections.TOP_SONGS -> SfIcons.BarChart
+                HomeSections.TRENDING -> SfIcons.ShowChart
+                else -> SfIcons.LibraryMusic
+            }
             SettingsRow(
+                icon = sectionIcon,
                 title = label,
                 titleMaxLines = Int.MAX_VALUE,
                 trailing = { IosSwitch(checked = checked, onCheckedChange = { AppSettings.setHomeSectionVisible(key, it) }) },
@@ -3533,12 +3600,14 @@ fun SettingsChoicePage(
                                         stringResource(R.string.animated_cover_cellular),
                                         checked = cellular,
                                         onCheckedChange = { cellular = it },
+                                        icon = SfIcons.SignalCellularAlt,
                                     )
                                     SettingsSubRow(
                                         stringResource(R.string.spotify_canvas_auto_hide),
                                         checked = autoHide,
                                         onCheckedChange = { autoHide = it },
                                         subtitle = stringResource(R.string.spotify_canvas_auto_hide_subtitle),
+                                        icon = SfIcons.VisibilityOff,
                                     )
                                 }
                             }

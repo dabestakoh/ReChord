@@ -43,7 +43,7 @@ class AudioFidelityTest {
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
         assertEquals("Bit-Perfect", a.grade)
-        assertEquals("Bit-perfect output", a.outputLabel)
+        assertEquals("Direct USB", a.outputLabel)
         assertTrue(a.bitPerfectVerified)
     }
 
@@ -53,6 +53,8 @@ class AudioFidelityTest {
         )
         assertEquals(100, a.score)
         assertEquals(AudioFidelity.Verification.VERIFIED, a.verification)
+        assertEquals("Bit-Perfect", a.grade)
+        assertEquals("Android 14+ USB", a.outputLabel)
     }
 
     @Test fun openingUsbDoesNotUseStaleNormalOutputFormat() {

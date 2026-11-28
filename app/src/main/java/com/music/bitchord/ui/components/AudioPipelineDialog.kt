@@ -17,6 +17,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -892,12 +893,29 @@ private fun calculateStageActivation(
 /** The one number, and the arithmetic behind it. */
 @Composable
 private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
-    val accent = if (assessment.score >= 72) Color.White else Color(0xFFFFB86B)
-    val animatedScore by animateFloatAsState(
+    val reduceAnimation by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val badgeColor = when {
+        assessment.verification == AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
+        assessment.outputLabel == "Bluetooth Wireless" -> Color(0xFF9DB4FF)
+        assessment.verification == AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
+        assessment.outputLabel.startsWith("High-Precision") || assessment.outputLabel == "Direct Output" ->
+            Color(0xFF74C7FF)
+        else -> Color.White.copy(alpha = 0.78f)
+    }
+    val accent = when {
+        assessment.verification == AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
+        assessment.outputLabel == "Bluetooth Wireless" -> Color(0xFF9DB4FF)
+        assessment.verification == AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
+        assessment.outputLabel.startsWith("High-Precision") || assessment.outputLabel == "Direct Output" ->
+            Color(0xFF74C7FF)
+        else -> Color.White
+    }
+    val animatedTarget by animateFloatAsState(
         targetValue = assessment.score.toFloat(),
         animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "fidelityScore",
     )
+    val animatedScore = if (reduceAnimation) assessment.score.toFloat() else animatedTarget
 
     Column(
         modifier = Modifier
@@ -985,16 +1003,19 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     color = Color.White,
                     modifier = Modifier.padding(top = 1.dp),
                 )
-                Text(
-                    text = assessment.outputLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = when (assessment.verification) {
-                        AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
-                        AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
-                        AudioFidelity.Verification.UNVERIFIED -> Color.White.copy(alpha = 0.65f)
-                    },
-                    modifier = Modifier.padding(top = 3.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 5.dp)
+                        .background(badgeColor.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
+                        .border(0.5.dp, badgeColor.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = assessment.outputLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        color = badgeColor,
+                    )
+                }
 
             }
         }
@@ -1012,11 +1033,11 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         if (shown.isEmpty()) {
             Text(
                 text = when (assessment.verification) {
-                    AudioFidelity.Verification.VERIFIED -> "Bit-exact output confirmed"
+                    AudioFidelity.Verification.VERIFIED -> "Exact audio sent to DAC"
                     AudioFidelity.Verification.UNVERIFIED ->
                         if (assessment.grade == "Full-Resolution") assessment.verificationDetail
-                        else "Checking audio output details"
-                    AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
+                        else "Checking output…"
+                    AudioFidelity.Verification.MODIFIED -> "Audio adjusted"
                 },
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                 color = Color.White.copy(alpha = 0.68f),
