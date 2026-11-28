@@ -381,7 +381,7 @@ object AppSettings {
     val wiredHiResDriver = MutableStateFlow(WiredHiResDriver.AUTO)
 
     /** Remembers the user's chosen USB driver across Bit-Perfect Off/On toggles. */
-    private var lastUsbBitPerfectDriver: BitPerfectMode = defaultBitPerfectMode()
+    val usbBitPerfectDriver = MutableStateFlow(defaultBitPerfectMode())
 
     /**
      * Lets direct USB play to a DAC with no volume control BitChord can set:
@@ -1154,7 +1154,7 @@ object AppSettings {
         bitPerfectMode.value = compatibleBitPerfectMode(runCatching {
             BitPerfectMode.valueOf(prefs.getString(KEY_BIT_PERFECT_MODE, null) ?: defaultBitPerfectMode().name)
         }.getOrDefault(defaultBitPerfectMode()))
-        lastUsbBitPerfectDriver = bitPerfectMode.value.takeIf { it != BitPerfectMode.OFF }
+        usbBitPerfectDriver.value = bitPerfectMode.value.takeIf { it != BitPerfectMode.OFF }
             ?: compatibleBitPerfectMode(runCatching {
                 BitPerfectMode.valueOf(prefs.getString(KEY_LAST_USB_DRIVER, null) ?: defaultBitPerfectMode().name)
             }.getOrDefault(defaultBitPerfectMode()))
@@ -2240,7 +2240,7 @@ object AppSettings {
     fun setBitPerfectMode(value: BitPerfectMode) {
         val compatible = compatibleBitPerfectMode(value)
         if (compatible != BitPerfectMode.OFF) {
-            lastUsbBitPerfectDriver = compatible
+            usbBitPerfectDriver.value = compatible
             prefs.edit().putString(KEY_LAST_USB_DRIVER, compatible.name).apply()
         }
         bitPerfectMode.value = compatible
@@ -2248,7 +2248,18 @@ object AppSettings {
     }
 
     fun setBitPerfectEnabled(enabled: Boolean) {
-        setBitPerfectMode(if (enabled) lastUsbBitPerfectDriver else BitPerfectMode.OFF)
+        setBitPerfectMode(if (enabled) usbBitPerfectDriver.value else BitPerfectMode.OFF)
+    }
+
+    fun setUsbBitPerfectDriver(driver: BitPerfectMode) {
+        val compatible = compatibleBitPerfectMode(driver).takeIf { it != BitPerfectMode.OFF }
+            ?: defaultBitPerfectMode()
+        usbBitPerfectDriver.value = compatible
+        prefs.edit().putString(KEY_LAST_USB_DRIVER, compatible.name).apply()
+        if (bitPerfectMode.value != BitPerfectMode.OFF) {
+            bitPerfectMode.value = compatible
+            prefs.edit().putString(KEY_BIT_PERFECT_MODE, compatible.name).apply()
+        }
     }
 
     fun setWiredHiResDriver(value: WiredHiResDriver) {

@@ -283,6 +283,7 @@ fun SettingsScreen(
     val outputPcmMode by AppSettings.outputPcmMode.collectAsStateWithLifecycle()
     val preferUsbDac by AppSettings.preferUsbDac.collectAsStateWithLifecycle()
     val bitPerfectMode by AppSettings.bitPerfectMode.collectAsStateWithLifecycle()
+    val usbBitPerfectDriver by AppSettings.usbBitPerfectDriver.collectAsStateWithLifecycle()
     val wiredHiResDriver by AppSettings.wiredHiResDriver.collectAsStateWithLifecycle()
     val bitPerfectStatus by BitPerfectOutput.status.collectAsStateWithLifecycle()
     val bitPerfectReady by BitPerfectOutput.ready.collectAsStateWithLifecycle()
@@ -799,11 +800,8 @@ fun SettingsScreen(
                             )
                             SegmentedControl(
                                 options = usbDriverLabels,
-                                selectedIndex = usbDrivers.indexOf(
-                                    if (bitPerfectMode == BitPerfectMode.USB_DIRECT) BitPerfectMode.USB_DIRECT
-                                    else BitPerfectMode.USB_ANDROID,
-                                ).coerceAtLeast(0),
-                                onSelect = { AppSettings.setBitPerfectMode(usbDrivers[it]) },
+                                selectedIndex = usbDrivers.indexOf(usbBitPerfectDriver).coerceAtLeast(0),
+                                onSelect = { AppSettings.setUsbBitPerfectDriver(usbDrivers[it]) },
                                 modifier = Modifier.padding(start = TEXT_INSET, end = ROW_INSET, bottom = 14.dp),
                             )
                         }
