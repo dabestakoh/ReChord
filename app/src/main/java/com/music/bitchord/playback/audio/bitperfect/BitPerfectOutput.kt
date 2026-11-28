@@ -129,6 +129,105 @@ internal object BitPerfectOutput {
     private var lastAndroidUsbId: Int? = null
     @Volatile private var effectiveMode: BitPerfectMode = BitPerfectMode.OFF
 
+    private const val CAPABILITY_PREFS = "rechord_dac_capabilities"
+    private val probeExecutor = Executors.newSingleThreadExecutor { Thread(it, "ReChord-DAC-probe") }
+
+    internal data class WiredCapabilities(
+        val key: String,
+        val aaudioExclusiveSupported: Boolean,
+        val directRatesByDepth: Map<Int, Set<Int>>,
+    ) {
+        val supportsAnyBitPerfect: Boolean
+            get() = aaudioExclusiveSupported || directRatesByDepth.isNotEmpty()
+    }
+
+    @Volatile private var wiredCapabilities: WiredCapabilities? = null
+    @Volatile private var probingWiredKey: String? = null
+
+    private val _usbHasHardwareVolume = MutableStateFlow(false)
+    val usbHasHardwareVolume: StateFlow<Boolean> = _usbHasHardwareVolume.asStateFlow()
+
+    private fun wiredKey(device: android.media.AudioDeviceInfo): String {
+        val addr = if (Build.VERSION.SDK_INT >= 28) device.address.orEmpty() else ""
+        return "${Build.FINGERPRINT}|${device.type}|$addr|${device.productName}"
+    }
+
+    private fun loadWiredCapabilities(context: Context, key: String): WiredCapabilities? {
+        val encoded = context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)
+            .getString("wired_$key", null) ?: return null
+        var aaudio = false
+        val rates = LinkedHashMap<Int, Set<Int>>()
+        for (part in encoded.split(';')) {
+            if (part.startsWith("ex=")) {
+                aaudio = part.substringAfter("ex=") == "1"
+            } else if (':' in part) {
+                val rate = part.substringBefore(':').toIntOrNull() ?: continue
+                val depths = part.substringAfter(':').split(',').mapNotNullTo(LinkedHashSet()) { it.toIntOrNull() }
+                if (depths.isNotEmpty()) rates[rate] = depths
+            }
+        }
+        return WiredCapabilities(key, aaudio, rates)
+    }
+
+    private fun saveWiredCapabilities(context: Context, caps: WiredCapabilities) {
+        val encoded = buildString {
+            append("ex=").append(if (caps.aaudioExclusiveSupported) '1' else '0')
+            for ((rate, depths) in caps.directRatesByDepth) {
+                append(';').append(rate).append(':').append(depths.joinToString(","))
+            }
+        }
+        context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE).edit()
+            .putString("wired_${caps.key}", encoded)
+            .apply()
+    }
+
+    private fun ensureWiredCapabilities(context: Context, audio: AudioManager?) {
+        val wired = audio?.let(ExclusiveTransport::wiredHiResDevice)
+        if (wired == null) {
+            wiredCapabilities = null
+            probingWiredKey = null
+            return
+        }
+        val key = wiredKey(wired)
+        if (wiredCapabilities?.key == key) return
+        val cached = loadWiredCapabilities(context, key)
+        if (cached != null) {
+            wiredCapabilities = cached
+            return
+        }
+        if (probingWiredKey == key) return
+        probingWiredKey = key
+        val app = context.applicationContext
+        probeExecutor.execute {
+            val directMap = if (Build.VERSION.SDK_INT >= 29) {
+                DirectAudioTrackTransport.probeCapabilities()
+            } else {
+                emptyMap()
+            }
+            val aaudioOk = if (Build.VERSION.SDK_INT >= 27) {
+                runCatching {
+                    ExclusiveTransport.open(audio, 48_000, 2, 16, convert = true).release()
+                    true
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+            val probed = WiredCapabilities(key, aaudioOk, directMap)
+            saveWiredCapabilities(app, probed)
+            Log.i(
+                TAG,
+                "Probed & persisted wired DAC (${wired.productName}): aaudioExclusive=$aaudioOk, directRates=${directMap.keys}",
+            )
+            synchronized(this@BitPerfectOutput) {
+                if (probingWiredKey == key) {
+                    wiredCapabilities = probed
+                    probingWiredKey = null
+                    recomputeReady()
+                }
+            }
+        }
+    }
+
     private fun selectedOutputKind(audio: AudioManager?): AudioRouting.Kind? {
         val selectedId = AudioRouting.selectedId.value ?: return null
         val device = audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull { it.id == selectedId }
@@ -208,6 +307,7 @@ internal object BitPerfectOutput {
         val audio = context.getSystemService(AudioManager::class.java)
         val mode = resolveEffectiveMode(context, audio)
         effectiveMode = mode
+        ensureWiredCapabilities(context, audio)
         val androidUsb = if (mode == BitPerfectMode.USB_ANDROID && Build.VERSION.SDK_INT >= 34) {
             audio?.let(MixerTransport::usbDevice)
         } else null
@@ -248,9 +348,12 @@ internal object BitPerfectOutput {
      */
     private fun recomputeReady() {
         val currentStatus = _status.value
+        val wiredCaps = wiredCapabilities
+        val wiredUnsupported = effectiveMode == BitPerfectMode.DAP_EXCLUSIVE &&
+            wiredCaps != null && !wiredCaps.supportsAnyBitPerfect
         val wiredFallback = effectiveMode == BitPerfectMode.DAP_EXCLUSIVE &&
             !currentStatus.active && currentStatus.fallbackReason != null
-        _ready.value = effectiveMode != BitPerfectMode.OFF && !wiredFallback &&
+        _ready.value = effectiveMode != BitPerfectMode.OFF && !wiredUnsupported && !wiredFallback &&
             (attached || currentStatus.active)
     }
 
@@ -304,6 +407,7 @@ internal object BitPerfectOutput {
         if (device == null) {
             _fixedVolumeDevice.value = null
             _fixedVolumeApprovalRequest.value = null
+            _usbHasHardwareVolume.value = false
             declinedDuringAttachment = null
             return
         }
@@ -313,6 +417,24 @@ internal object BitPerfectOutput {
         _fixedVolumeDevice.value = info
         if (approved || _fixedVolumeApprovalRequest.value?.key != key) {
             _fixedVolumeApprovalRequest.value = null
+        }
+        val prefs = context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)
+        val prefKey = "usb_hw_vol_$key"
+        if (prefs.contains(prefKey)) {
+            _usbHasHardwareVolume.value = prefs.getBoolean(prefKey, false)
+        } else {
+            val usb = UsbDirectDevices.manager(context)
+            val raw = if (usb != null && usb.hasPermission(device)) UsbDirectDevices.rawDescriptors(usb, device) else null
+            if (raw != null) {
+                val plans = UsbDirectTransport.plans(raw, 48_000, 2, 16, convert = true)
+                val hasHwVol = plans.firstOrNull()?.let { plan ->
+                    UsbVolume.feature(raw, plan.alternate.control, plan.alternate.terminal, 2) != null
+                } ?: false
+                prefs.edit().putBoolean(prefKey, hasHwVol).apply()
+                _usbHasHardwareVolume.value = hasHwVol
+            } else {
+                _usbHasHardwareVolume.value = false
+            }
         }
     }
 
@@ -427,9 +549,14 @@ internal object BitPerfectOutput {
             }
             // Nothing short of opening a stream says whether Android will grant
             // exclusive mode, so the first track of each format finds out.
-            BitPerfectMode.DAP_EXCLUSIVE -> Build.VERSION.SDK_INT >= 27 &&
-                ExclusiveTransport.wiredHiResDevice(manager) != null &&
+            BitPerfectMode.DAP_EXCLUSIVE -> {
+                if (Build.VERSION.SDK_INT < 27) return false
+                val wired = ExclusiveTransport.wiredHiResDevice(manager) ?: return false
+                val caps = wiredCapabilities?.takeIf { it.key == wiredKey(wired) }
+                    ?: loadWiredCapabilities(context, wiredKey(wired))?.also { wiredCapabilities = it }
+                if (caps != null && !caps.supportsAnyBitPerfect) return false
                 key(mode, NO_DEVICE, sampleRate, channels, sourceBits) !in currentFailures(mode, NO_DEVICE)
+            }
             // Permission is asked for by the service when the mode is chosen or a
             // DAC is attached; until it is granted, tracks use normal output.
             BitPerfectMode.USB_DIRECT -> {
@@ -470,13 +597,29 @@ internal object BitPerfectOutput {
             }
             BitPerfectMode.DAP_EXCLUSIVE -> {
                 if (Build.VERSION.SDK_INT < 27) throw BitPerfectTransportException("android_version")
-                try {
-                    ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
-                } catch (error: BitPerfectTransportException) {
-                    if (error.message == "exclusive_unavailable" && Build.VERSION.SDK_INT >= 29) {
-                        DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert)
-                    } else {
-                        throw error
+                val wired = ExclusiveTransport.wiredHiResDevice(manager)
+                    ?: throw BitPerfectTransportException("exclusive_unavailable")
+                val key = wiredKey(wired)
+                val caps = wiredCapabilities?.takeIf { it.key == key }
+                    ?: loadWiredCapabilities(context, key)?.also { wiredCapabilities = it }
+                if (caps != null && !caps.aaudioExclusiveSupported && caps.directRatesByDepth.isNotEmpty() && Build.VERSION.SDK_INT >= 29) {
+                    DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert, caps.directRatesByDepth)
+                } else if (caps != null && !caps.supportsAnyBitPerfect) {
+                    throw BitPerfectTransportException("exclusive_unavailable")
+                } else {
+                    try {
+                        ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                    } catch (error: BitPerfectTransportException) {
+                        if (error.message == "exclusive_unavailable" && Build.VERSION.SDK_INT >= 29) {
+                            val directMap = caps?.directRatesByDepth ?: DirectAudioTrackTransport.probeCapabilities(channels)
+                            DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert, directMap).also {
+                                val updated = WiredCapabilities(key, aaudioExclusiveSupported = false, directRatesByDepth = directMap)
+                                wiredCapabilities = updated
+                                saveWiredCapabilities(context, updated)
+                            }
+                        } else {
+                            throw error
+                        }
                     }
                 }
             }

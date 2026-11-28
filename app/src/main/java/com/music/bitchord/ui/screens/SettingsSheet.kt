@@ -287,6 +287,7 @@ fun SettingsScreen(
     val softwareVolumeEnabled by AppSettings.usbSoftwareVolume.collectAsStateWithLifecycle()
     val softwareVolume by com.music.bitchord.playback.audio.bitperfect.DacVolume.softwareLevel.collectAsStateWithLifecycle()
     val dacVolume by BitPerfectOutput.hardwareVolume.collectAsStateWithLifecycle()
+    val usbHasHardwareVolume by BitPerfectOutput.usbHasHardwareVolume.collectAsStateWithLifecycle()
     val fixedVolumeDevice by BitPerfectOutput.fixedVolumeDevice.collectAsStateWithLifecycle()
     val convertForLimitedDac by AppSettings.convertForLimitedDac.collectAsStateWithLifecycle()
     val loudnessNormalization by AppSettings.loudnessNormalization.collectAsStateWithLifecycle()
@@ -755,23 +756,13 @@ fun SettingsScreen(
                     onClick = { onOpenChoice(SettingsChoiceKind.BIT_PERFECT) },
                 )
             }
-            if (fixedVolumeDevice != null || outputStatus.isUsb || dacVolume != null) {
-                val volume = dacVolume
+            val hasVerifiedUsbHardwareVolume = dacVolume != null || usbHasHardwareVolume
+            if ((fixedVolumeDevice != null || outputStatus.isUsb) && !hasVerifiedUsbHardwareVolume) {
                 val level = softwareVolume
                 val title = stringResource(R.string.dac_volume)
                 row(title, "volume", "usb", "dac", divided = false) {
-                    when {
-                        volume != null -> SliderRow(
-                            icon = SfIcons.VolumeUp,
-                            title = title,
-                            subtitle = stringResource(R.string.dac_volume_subtitle),
-                            value = "%.1f dB".format(volume.currentDb),
-                            sliderValue = volume.currentDb.toFloat(),
-                            onSliderValue = { BitPerfectOutput.setHardwareVolume(it.toDouble()) },
-                            valueRange = volume.minDb.toFloat()..volume.maxDb.toFloat(),
-                            steps = 0,
-                        )
-                        level != null -> SliderRow(
+                    if (level != null) {
+                        SliderRow(
                             icon = SfIcons.VolumeUp,
                             title = title,
                             subtitle = stringResource(R.string.usb_volume_software_active),
@@ -781,7 +772,8 @@ fun SettingsScreen(
                             valueRange = 0f..1f,
                             steps = 0,
                         )
-                        else -> SettingsRow(
+                    } else {
+                        SettingsRow(
                             icon = SfIcons.VolumeUp,
                             title = title,
                             subtitle = stringResource(when {
@@ -795,7 +787,7 @@ fun SettingsScreen(
                     }
                 }
             }
-            if (bitPerfectMode == BitPerfectMode.USB_DIRECT && fixedVolumeDevice != null) {
+            if (bitPerfectMode == BitPerfectMode.USB_DIRECT && fixedVolumeDevice != null && !hasVerifiedUsbHardwareVolume) {
                 val title = stringResource(R.string.usb_software_volume)
                 row(title, "volume", "usb", "dac", divided = false) {
                     SettingsSubRow(

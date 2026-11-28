@@ -738,6 +738,10 @@ internal class BitPerfectAudioSink(
             current?.let {
                 outputs.markFailed(it.sampleRate, it.channelCount, it.sourceBits, BitPerfectOutput.ANDROID_MIXER_REJECTED)
             }
+        } else if (transport is DirectAudioTrackTransport) {
+            current?.let {
+                outputs.markFailed(it.sampleRate, it.channelCount, it.sourceBits, error.message ?: "direct_pcm_failed")
+            }
         }
         return AudioSink.WriteException(
             AudioTrack.ERROR_DEAD_OBJECT,

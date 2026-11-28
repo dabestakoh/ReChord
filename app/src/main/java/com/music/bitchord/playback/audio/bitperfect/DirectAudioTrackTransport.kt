@@ -18,6 +18,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresApi
 import java.nio.ByteBuffer
@@ -49,7 +50,8 @@ internal class DirectAudioTrackTransport private constructor(
     @Volatile private var failure: String? = null
     private var previousHead = 0L
     private var headWrap = 0L
-    private var zeroWriteCount = 0
+    private var lastProgressFrames = 0L
+    private var lastProgressMs = 0L
     private val frameBytes = (outputBits / 8) * channelCount
 
     private val routing = AudioRouting.OnRoutingChangedListener {
@@ -69,12 +71,17 @@ internal class DirectAudioTrackTransport private constructor(
         if (bytes == 0) return 0
         val written = track.write(buffer, bytes, AudioTrack.WRITE_NON_BLOCKING)
         if (written < 0) throw BitPerfectTransportException("Direct PCM write failed: $written")
-        if (written == 0 && track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-            if (++zeroWriteCount >= MAX_STALLED_WRITES) {
+        val now = SystemClock.elapsedRealtime()
+        if (written > 0) {
+            lastProgressMs = now
+        } else if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+            val played = playedFrames()
+            if (played > lastProgressFrames || lastProgressMs == 0L) {
+                lastProgressFrames = played
+                lastProgressMs = now
+            } else if (now - lastProgressMs >= STALL_TIMEOUT_MS) {
                 throw BitPerfectTransportException("Direct PCM stalled (dead track)")
             }
-        } else {
-            zeroWriteCount = 0
         }
         return written
     }
@@ -85,6 +92,8 @@ internal class DirectAudioTrackTransport private constructor(
         if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
             throw BitPerfectTransportException("Direct PCM start failed")
         }
+        lastProgressFrames = playedFrames()
+        lastProgressMs = SystemClock.elapsedRealtime()
     }
 
     override fun pause() {
@@ -96,6 +105,8 @@ internal class DirectAudioTrackTransport private constructor(
         track.flush()
         previousHead = 0L
         headWrap = 0L
+        lastProgressFrames = 0L
+        lastProgressMs = 0L
     }
 
     override fun stop() {
@@ -103,6 +114,7 @@ internal class DirectAudioTrackTransport private constructor(
     }
 
     override fun playedFrames(): Long {
+        if (track.playState == AudioTrack.PLAYSTATE_STOPPED) return 0L
         val head = track.playbackHeadPosition.toLong() and 0xffffffffL
         if (head < previousHead) headWrap += 1L shl 32
         previousHead = head
@@ -117,12 +129,36 @@ internal class DirectAudioTrackTransport private constructor(
     companion object {
         private const val TAG = "DirectAudioTrack"
         private const val MAX_RATE_ATTEMPTS = 3
-        private const val MAX_STALLED_WRITES = 120
+        private const val STALL_TIMEOUT_MS = 1500L
 
         val ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build()
+
+        /**
+         * Probes every standard PCM rate up to 384 kHz for Direct AudioTrack support
+         * without opening any hardware stream. Called once per wired device and persisted.
+         */
+        fun probeCapabilities(channels: Int = 2): Map<Int, Set<Int>> {
+            val mask = if (channels == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
+            val candidateDepths = buildList {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    add(24)
+                    add(32)
+                }
+                add(16)
+            }
+            val result = LinkedHashMap<Int, Set<Int>>()
+            for (rate in BitPerfectPcm.STANDARD_RATES.filter { it <= 384_000 }) {
+                val supported = candidateDepths.filterTo(LinkedHashSet()) { bits ->
+                    val format = buildAudioFormat(rate, mask, bits) ?: return@filterTo false
+                    isDirectSupported(format)
+                }
+                if (supported.isNotEmpty()) result[rate] = supported
+            }
+            return result
+        }
 
         fun open(
             manager: AudioManager,
@@ -130,11 +166,13 @@ internal class DirectAudioTrackTransport private constructor(
             channels: Int,
             sourceBits: Int,
             convert: Boolean,
+            cachedCapabilities: Map<Int, Set<Int>>? = null,
         ): DirectAudioTrackTransport {
             val wired = ExclusiveTransport.wiredHiResDevice(manager)
                 ?: throw BitPerfectTransportException("exclusive_unavailable")
             val mask = if (channels == 1) AudioFormat.CHANNEL_OUT_MONO else AudioFormat.CHANNEL_OUT_STEREO
-            val offered = wired.sampleRates.takeIf { it.isNotEmpty() }?.toList()
+            val offered = cachedCapabilities?.keys?.takeIf { it.isNotEmpty() }?.toList()
+                ?: wired.sampleRates.takeIf { it.isNotEmpty() }?.toList()
                 ?: BitPerfectPcm.STANDARD_RATES
             val rates = if (convert) {
                 BitPerfectPcm.rankRates(rate, offered + rate).take(MAX_RATE_ATTEMPTS)
@@ -151,10 +189,11 @@ internal class DirectAudioTrackTransport private constructor(
 
             var lastError: Throwable? = null
             for (candidateRate in rates) {
-                val supportedDepths = candidateDepths.filter { bits ->
-                    val format = buildAudioFormat(candidateRate, mask, bits) ?: return@filter false
-                    isDirectSupported(format)
-                }
+                val supportedDepths = cachedCapabilities?.get(candidateRate)?.toList()
+                    ?: candidateDepths.filter { bits ->
+                        val format = buildAudioFormat(candidateRate, mask, bits) ?: return@filter false
+                        isDirectSupported(format)
+                    }
                 if (supportedDepths.isEmpty()) continue
                 val chosenBits = (if (convert) {
                     BitPerfectPcm.dacBits(sourceBits, supportedDepths)
@@ -169,7 +208,7 @@ internal class DirectAudioTrackTransport private constructor(
                     val minimum = AudioTrack.getMinBufferSize(candidateRate, mask, encoding)
                     if (minimum <= 0) continue
                     val frameBytes = channels * (chosenBits / 8)
-                    val bufferBytes = maxOf(minimum * 2, (candidateRate / 5) * frameBytes)
+                    val bufferBytes = maxOf(minimum * 2, (candidateRate / 2) * frameBytes)
                         .let { (it / frameBytes) * frameBytes }
                         .coerceAtLeast(frameBytes)
                     track = AudioTrack.Builder()
@@ -183,14 +222,6 @@ internal class DirectAudioTrackTransport private constructor(
                         track.audioFormat != encoding ||
                         track.channelCount != channels
                     ) {
-                        track.release()
-                        continue
-                    }
-                    // Calling setPreferredDevice() unconditionally on an already-routed
-                    // DIRECT AudioTrack can invalidate its IAudioTrack (status -32) on
-                    // Android 12 DAP HALs such as HiBy DTA; only reroute if needed.
-                    val routed = track.routedDevice
-                    if (routed != null && routed.id != wired.id && !track.setPreferredDevice(wired)) {
                         track.release()
                         continue
                     }
