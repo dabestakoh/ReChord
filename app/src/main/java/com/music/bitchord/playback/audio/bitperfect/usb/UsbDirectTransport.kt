@@ -13,6 +13,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
@@ -77,6 +78,7 @@ internal class UsbDirectTransport private constructor(
     private val volumeControl: UsbVolume.Volume?,
     val softwareVolume: Boolean,
     initialLevel: Float,
+    keepAliveSpeaker: AudioDeviceInfo?,
 ) : BitPerfectTransport {
 
     override val driver = BitPerfectDriver.USB_DIRECT
@@ -150,7 +152,7 @@ internal class UsbDirectTransport private constructor(
         return count
     }
 
-    private val keepAlive = SilentKeepAlive()
+    private val keepAlive = SilentKeepAlive(keepAliveSpeaker)
 
     override fun play() {
         keepAlive.start()
@@ -247,6 +249,7 @@ internal class UsbDirectTransport private constructor(
             rememberedDb: Double?,
             softwareVolume: Boolean,
             softwareLevel: Float,
+            keepAliveSpeaker: AudioDeviceInfo? = null,
         ): UsbDirectTransport {
             val connection = manager.openDevice(device) ?: throw BitPerfectTransportException("cannot_open_usb")
             var handle = 0L
@@ -277,6 +280,7 @@ internal class UsbDirectTransport private constructor(
                     volumeControl = volume,
                     softwareVolume = volume == null && softwareVolume,
                     initialLevel = softwareLevel,
+                    keepAliveSpeaker = keepAliveSpeaker,
                 )
             } catch (error: Exception) {
                 if (handle != 0L) UsbDirectNative.close(handle)
@@ -305,7 +309,7 @@ internal class UsbDirectTransport private constructor(
  * schedulers (e.g., Vivo OriginOS) do not throttle the process during app
  * switches or screen-off transitions.
  */
-private class SilentKeepAlive {
+private class SilentKeepAlive(private val speaker: AudioDeviceInfo?) {
     private var track: AudioTrack? = null
 
     @Synchronized
@@ -337,6 +341,7 @@ private class SilentKeepAlive {
     }
 
     private fun createTrack(): AudioTrack? {
+        val targetSpeaker = speaker ?: return null
         val sampleRate = 48_000
         val minBytes = AudioTrack.getMinBufferSize(
             sampleRate,
@@ -374,12 +379,17 @@ private class SilentKeepAlive {
             t.release()
             return null
         }
+        if (!t.setPreferredDevice(targetSpeaker)) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive failed to pin built-in speaker; skipping")
+            t.release()
+            return null
+        }
         val loopStatus = t.setLoopPoints(0, frames, -1)
         if (loopStatus != AudioTrack.SUCCESS) {
             Log.w("UsbDirectTransport", "SilentKeepAlive setLoopPoints failed: $loopStatus")
         }
         t.setVolume(0f)
-        Log.i("UsbDirectTransport", "SilentKeepAlive initialized (frames=$frames, bytes=$bytes)")
+        Log.i("UsbDirectTransport", "SilentKeepAlive pinned to built-in speaker (frames=$frames, bytes=$bytes)")
         return t
     }
 }

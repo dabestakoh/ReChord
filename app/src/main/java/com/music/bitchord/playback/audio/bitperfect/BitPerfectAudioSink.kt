@@ -734,7 +734,7 @@ internal class BitPerfectAudioSink(
         private const val MAX_TIMESTAMP_DRIFT_US = 200_000L
 
         /** A pause this long releases a direct USB or AAudio exclusive device. */
-        const val IDLE_RELEASE_MS = 30_000L
+        const val IDLE_RELEASE_MS = 500L
         private const val NOT_PAUSED = -1L
     }
 }
