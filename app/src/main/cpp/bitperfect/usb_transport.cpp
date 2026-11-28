@@ -193,7 +193,7 @@ public:
                 }
                 chosenIndex = static_cast<int>(i);
                 const int packets = packetsPerTransfer();
-                constexpr int kTargetSlots = 12;
+                constexpr int kTargetSlots = 16;
                 for (int s = 0; s < kTargetSlots; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
                 if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
                 controlBuffer.reserve(LIBUSB_CONTROL_SETUP_SIZE + 1024);
@@ -401,7 +401,7 @@ public:
         bool priming = true;
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
-            std::max<size_t>((static_cast<size_t>(chosen.format.sampleRate) * frame * 2) / 25, 8192)
+            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 10, 8192)
         ) / frame * frame;
         constexpr size_t kMinSlots = 6;
         size_t activeSlots = slots.size();
@@ -464,7 +464,7 @@ public:
                                         status, state.bytes.size() / frame);
                     if (state.playing && status != LIBUSB_TRANSFER_NO_DEVICE) {
                         if (status == LIBUSB_TRANSFER_TIMED_OUT && activeSlots > kMinSlots) {
-                            activeSlots = (activeSlots > 8) ? 8 : kMinSlots;
+                            activeSlots = (activeSlots > 12) ? 12 : (activeSlots > 8) ? 8 : kMinSlots;
                             __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
                                                 "xHCI transfer timed out — stepping cushion down to %zu slots",
                                                 activeSlots);
