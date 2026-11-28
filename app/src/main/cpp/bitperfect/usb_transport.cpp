@@ -193,7 +193,7 @@ public:
                 }
                 chosenIndex = static_cast<int>(i);
                 const int packets = packetsPerTransfer();
-                for (int s = 0; s < 6; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
+                for (int s = 0; s < 24; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
                 if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
                 return;
             }
