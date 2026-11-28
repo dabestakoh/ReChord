@@ -193,7 +193,8 @@ public:
                 }
                 chosenIndex = static_cast<int>(i);
                 const int packets = packetsPerTransfer();
-                for (int s = 0; s < 6; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
+                constexpr int kTargetSlots = 12;
+                for (int s = 0; s < kTargetSlots; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
                 if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
                 controlBuffer.reserve(LIBUSB_CONTROL_SETUP_SIZE + 1024);
                 return;
@@ -400,8 +401,10 @@ public:
         bool priming = true;
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
-            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 20, 8192)
+            std::max<size_t>((static_cast<size_t>(chosen.format.sampleRate) * frame * 2) / 25, 8192)
         ) / frame * frame;
+        constexpr size_t kMinSlots = 6;
+        size_t activeSlots = slots.size();
         bool pollFdsDirty = true;
         int transientRecoveries = 0;
         auto recoveryWindowStart = std::chrono::steady_clock::now();
@@ -460,6 +463,12 @@ public:
                     __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "transfer failed status=%d queuedFrames=%zu",
                                         status, state.bytes.size() / frame);
                     if (state.playing && status != LIBUSB_TRANSFER_NO_DEVICE) {
+                        if (status == LIBUSB_TRANSFER_TIMED_OUT && activeSlots > kMinSlots) {
+                            activeSlots = (activeSlots > 8) ? 8 : kMinSlots;
+                            __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
+                                                "xHCI transfer timed out — stepping cushion down to %zu slots",
+                                                activeSlots);
+                        }
                         const auto now = std::chrono::steady_clock::now();
                         if (now - recoveryWindowStart > std::chrono::seconds(5)) {
                             recoveryWindowStart = now;
@@ -524,7 +533,8 @@ public:
                     require(std::chrono::steady_clock::now() - lastFeedback < std::chrono::seconds(5),
                             "USB feedback stopped or invalid");
                 }
-                for (auto &slot : slots) {
+                for (size_t s = 0; s < activeSlots; ++s) {
+                    auto &slot = slots[s];
                     if (slot->pending || slot->submitted) continue;
                     size_t lengths[32];
                     size_t total = 0;
@@ -540,7 +550,18 @@ public:
                     }
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                     slot->musicFrames = available / frame;
-                    slot->submit(handle, chosen.data.address, lengths, packets);
+                    try {
+                        slot->submit(handle, chosen.data.address, lengths, packets);
+                    } catch (const std::exception &) {
+                        if (inFlight >= kMinSlots) {
+                            activeSlots = inFlight;
+                            __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
+                                                "xHCI ring capped at %zu slots (~%zums)", activeSlots, activeSlots * 4);
+                            break;
+                        }
+                        throw;
+                    }
+                    ++inFlight;
                     hadInFlight = true;
                 }
             }
