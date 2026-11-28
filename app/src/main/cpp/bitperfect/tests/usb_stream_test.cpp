@@ -30,7 +30,7 @@ static Format format(Encoding encoding, int subslot) {
 
 static void fractionalRatesDoNotDrift() {
     const struct { uint32_t rate, interval; int packets; } cases[] = {
-        {44100, 125, 8000}, {88200, 1000, 1000}, {176400, 125, 8000}};
+        {44100, 125, 8000}, {88200, 1000, 1000}, {176400, 125, 8000}, {352800, 125, 8000}, {384000, 125, 8000}};
     for (auto c : cases) {
         PacketClock clock(c.rate, c.interval);
         size_t sum = 0;
@@ -80,12 +80,52 @@ static void nativeDsdAndPcmKeepOriginalDataAndUseDifferentSilence() {
     }
 }
 
+static void ringBufferWrapAroundAndClear() {
+    RingBuffer rb(16);
+    const uint8_t a[12] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+    EXPECT(rb.write(a, 12) == 12);
+    EXPECT(rb.size() == 12);
+    EXPECT(rb.freeSpace() == 4);
+    uint8_t out[8] = {};
+    EXPECT(rb.read(out, 8) == 8);
+    for (int i = 0; i < 8; ++i) EXPECT(out[i] == i + 1);
+    const uint8_t b[12] = {13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24};
+    EXPECT(rb.write(b, 12) == 12);
+    EXPECT(rb.size() == 16);
+    uint8_t full[16] = {};
+    EXPECT(rb.read(full, 16) == 16);
+    for (int i = 0; i < 16; ++i) EXPECT(full[i] == i + 9);
+    rb.clear();
+    EXPECT(rb.size() == 0);
+    EXPECT(rb.freeSpace() == 16);
+}
+
+static void primeTargetCoversInFlightWindow() {
+    const uint32_t rates[] = {44100, 96000, 192000, 352800, 384000};
+    const size_t frames[] = {4, 6, 8};
+    for (uint32_t rate : rates) {
+        for (size_t frame : frames) {
+            const size_t rawCap = std::max<size_t>((static_cast<size_t>(rate) * frame * 3) / 5, 512 * 1024);
+            const size_t capacity = (rawCap / frame) * frame;
+            EXPECT(capacity % frame == 0);
+            const size_t primeTarget = std::min(
+                capacity / 2,
+                std::max<size_t>(static_cast<size_t>(rate) * frame / 10, 8192)
+            ) / frame * frame;
+            const size_t inFlight16Slots = (static_cast<size_t>(rate) * 64 / 1000) * frame;
+            EXPECT(primeTarget >= inFlight16Slots);
+        }
+    }
+}
+
 int main() {
     fractionalRatesDoNotDrift();
     invalidFeedbackCannotOverrunEndpoint();
     dopMarkersAlternateAcrossTransfersAndUnderruns();
     dop32PaddingAndChannelMarkersMatch();
     nativeDsdAndPcmKeepOriginalDataAndUseDifferentSilence();
+    ringBufferWrapAroundAndClear();
+    primeTargetCoversInFlightWindow();
     std::printf(failures ? "%d failure(s)\n" : "all passed\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

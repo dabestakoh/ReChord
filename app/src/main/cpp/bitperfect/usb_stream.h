@@ -13,10 +13,12 @@
 // compiler can test it: how many frames go into each isochronous packet, and
 // how a transfer is completed when the queue runs short.
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace usbaudio {
 
@@ -88,5 +90,60 @@ inline void finishTransfer(uint8_t *bytes, size_t total, size_t realBytes, const
         marker ^= 0xff;
     }
 }
+
+// Pre-allocated contiguous ring buffer so the realtime USB worker never
+// allocates or frees blocks under the queue mutex.
+class RingBuffer {
+    std::vector<uint8_t> buf_;
+    size_t head_ = 0;
+    size_t tail_ = 0;
+    size_t count_ = 0;
+
+public:
+    explicit RingBuffer(size_t capacityBytes = 0) : buf_(capacityBytes) {}
+
+    void reset(size_t capacityBytes) {
+        buf_.assign(capacityBytes, 0);
+        head_ = 0;
+        tail_ = 0;
+        count_ = 0;
+    }
+
+    void clear() {
+        head_ = 0;
+        tail_ = 0;
+        count_ = 0;
+    }
+
+    size_t size() const { return count_; }
+    size_t capacity() const { return buf_.size(); }
+    size_t freeSpace() const { return buf_.size() - count_; }
+
+    size_t write(const uint8_t *data, size_t len) {
+        const size_t n = std::min(len, freeSpace());
+        if (n == 0) return 0;
+        const size_t first = std::min(n, buf_.size() - tail_);
+        std::memcpy(buf_.data() + tail_, data, first);
+        if (n > first) {
+            std::memcpy(buf_.data(), data + first, n - first);
+        }
+        tail_ = (tail_ + n) % buf_.size();
+        count_ += n;
+        return n;
+    }
+
+    size_t read(uint8_t *dest, size_t maxBytes) {
+        const size_t n = std::min(maxBytes, count_);
+        if (n == 0) return 0;
+        const size_t first = std::min(n, buf_.size() - head_);
+        std::memcpy(dest, buf_.data() + head_, first);
+        if (n > first) {
+            std::memcpy(dest + first, buf_.data(), n - first);
+        }
+        head_ = (head_ + n) % buf_.size();
+        count_ -= n;
+        return n;
+    }
+};
 
 } // namespace usbaudio

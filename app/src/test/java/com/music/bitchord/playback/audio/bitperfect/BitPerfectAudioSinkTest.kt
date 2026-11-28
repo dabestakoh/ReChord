@@ -19,7 +19,7 @@ import java.nio.ByteOrder
 class BitPerfectAudioSinkTest {
 
     /** A DAC that plays only when the test says so, holding [capacityFrames]. */
-    internal class FakeTransport(
+    internal open class FakeTransport(
         override val sampleRate: Int,
         override val channelCount: Int,
         override val outputBits: Int,
@@ -628,6 +628,111 @@ class BitPerfectAudioSinkTest {
         outputs.pendingNormal = false
         assertTrue(router.handleBuffer(pcm16(10), 0, 1))
         assertEquals(1, normal.buffers)
+    }
+
+    @Test
+    fun resumeDrainsMultiChunkHighRateTailAndKeepsFrameAlignment() {
+        listOf(
+            Triple(96000, C.ENCODING_PCM_24BIT, 24),
+            Triple(384000, C.ENCODING_PCM_32BIT, 32),
+        ).forEach { (rate, encoding, bits) ->
+            var now = 0L
+            val capacityFrames = (rate * 3) / 5 // ~600 ms ring buffer
+            val outputs = object : BitPerfectOutputs by FakeOutputs().apply({
+                driver = BitPerfectDriver.USB_DIRECT
+                dacBits = bits
+            }) {
+                val opened = mutableListOf<FakeTransport>()
+                var releases = 0
+                override fun open(sampleRate: Int, channels: Int, sourceBits: Int, requester: Any): BitPerfectTransport =
+                    object : FakeTransport(sampleRate, channels, bits, capacityFrames, BitPerfectDriver.USB_DIRECT) {
+                        override fun write(buffer: ByteBuffer): Int {
+                            val maxWrite = 256 * 1024
+                            val capped = (minOf(buffer.remaining(), maxWrite) / frameBytes) * frameBytes
+                            val slice = buffer.duplicate()
+                            slice.limit(buffer.position() + capped)
+                            val taken = super.write(slice)
+                            buffer.position(buffer.position() + taken)
+                            return taken
+                        }
+                    }.also(opened::add)
+
+                override fun release(requester: Any) { releases++ }
+            }
+            val sink = BitPerfectAudioSink(outputs) { now }
+            sink.configure(config(format(rate = rate, encoding = encoding)))
+            sink.play()
+
+            val frameBytes = 2 * (bits / 8)
+            val prePauseFrames = 50_000
+            val initial = ByteBuffer.allocateDirect(prePauseFrames * frameBytes).order(ByteOrder.LITTLE_ENDIAN)
+            initial.position(prePauseFrames * frameBytes).flip()
+            assertTrue(sink.handleBuffer(initial, 0, 1))
+            val first = outputs.opened.single()
+            assertTrue(first.written * frameBytes > 256 * 1024)
+
+            sink.pause()
+            now = BitPerfectAudioSink.IDLE_RELEASE_MS
+            val resumeInput = ByteBuffer.allocateDirect(4096 * frameBytes).order(ByteOrder.LITTLE_ENDIAN)
+            resumeInput.position(4096 * frameBytes).flip()
+            assertFalse(sink.handleBuffer(resumeInput, 1_000_000, 1))
+            assertTrue(first.released)
+
+            sink.play()
+            assertTrue(sink.handleBuffer(resumeInput, 1_000_000, 1))
+            val second = outputs.opened.last()
+            assertEquals(2, outputs.opened.size)
+            assertEquals(prePauseFrames.toLong() + 4096L, second.written)
+            assertTrue(second.playing)
+        }
+    }
+
+    @Test
+    fun slowTrackSwitchBufferingDoesNotDeadlockDirectUsb() {
+        var now = 0L
+        val outputs = FakeOutputs().apply { driver = BitPerfectDriver.USB_DIRECT }
+        val sink = BitPerfectAudioSink(outputs) { now }
+
+        // Track 1: 44.1 kHz 16-bit playing
+        sink.configure(config(format(rate = 44100, encoding = C.ENCODING_PCM_16BIT)))
+        sink.play()
+        assertTrue(sink.handleBuffer(pcm16(441), 0, 1))
+        val first = outputs.opened.single()
+
+        // Skip to Track 2 (96 kHz 24-bit): ExoPlayer pauses, flushes, downloads for 4s (> 500 ms),
+        // then configures and offers the first buffer while still in BUFFERING (playing == false).
+        sink.pause()
+        sink.flush()
+        now += 4_000L
+        sink.configure(config(format(rate = 96000, encoding = C.ENCODING_PCM_24BIT)))
+        val track2Buf = ByteBuffer.allocateDirect(480 * 6).order(ByteOrder.LITTLE_ENDIAN)
+        track2Buf.position(480 * 6).flip()
+        assertTrue(sink.handleBuffer(track2Buf, 0, 1))
+        assertTrue(first.released)
+        assertEquals(2, outputs.opened.size)
+        val second = outputs.opened.last()
+        assertEquals(96000, second.sampleRate)
+        assertEquals(480L, second.written)
+
+        // Second buffer 3 ms later while still pre-rolling must NOT immediately re-suspend.
+        now += 3L
+        val track2Buf2 = ByteBuffer.allocateDirect(480 * 6).order(ByteOrder.LITTLE_ENDIAN)
+        track2Buf2.position(480 * 6).flip()
+        assertTrue(sink.handleBuffer(track2Buf2, 5_000, 1))
+        assertFalse(second.released)
+
+        sink.play()
+        assertTrue(second.playing)
+
+        // Skip to Track 3 (same 96 kHz 24-bit format, decoder reused without configure()):
+        sink.pause()
+        sink.flush()
+        now += 4_000L
+        val track3Buf = ByteBuffer.allocateDirect(480 * 6).order(ByteOrder.LITTLE_ENDIAN)
+        track3Buf.position(480 * 6).flip()
+        assertTrue(sink.handleBuffer(track3Buf, 0, 1))
+        assertFalse(second.released)
+        assertEquals(480L, second.written)
     }
 }
 

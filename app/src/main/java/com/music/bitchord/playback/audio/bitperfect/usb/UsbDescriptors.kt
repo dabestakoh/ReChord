@@ -92,15 +92,11 @@ internal object UsbDescriptors {
         var control = 0
         var isControl = false
         val clocks = HashMap<Pair<Int, Int>, Int>()
-        var offset = 0
         var configurations = 0
-        while (offset < bytes.size) {
-            val length = bytes[offset].toInt() and 255
-            if (length < 2 || offset + length > bytes.size) throw MalformedDescriptorException("malformed USB descriptor")
+        forEachDescriptor(bytes) { offset, length, type ->
             val d = bytes.copyOfRange(offset, offset + length)
-            offset += length
             fun u(i: Int) = d[i].toInt() and 255
-            when (u(1)) {
+            when (type) {
                 2 -> {
                     configurations++
                     if (configurations > 1) {
@@ -285,5 +281,28 @@ internal object UsbDescriptors {
             return null
         }
         return Plan(alternate, format, data, feedback)
+    }
+
+    /** Walks raw USB descriptors sequentially, invoking [block] for each valid descriptor. */
+    inline fun forEachDescriptor(
+        raw: ByteArray,
+        onMalformed: () -> Unit = { throw MalformedDescriptorException("malformed USB descriptor") },
+        block: (offset: Int, length: Int, type: Int) -> Unit,
+    ) {
+        var offset = 0
+        while (offset < raw.size) {
+            if (offset + 2 > raw.size) {
+                onMalformed()
+                return
+            }
+            val length = raw[offset].toInt() and 255
+            if (length < 2 || offset + length > raw.size) {
+                onMalformed()
+                return
+            }
+            val type = raw[offset + 1].toInt() and 255
+            block(offset, length, type)
+            offset += length
+        }
     }
 }

@@ -115,27 +115,41 @@ internal object BitPerfectPcm {
             input.remaining() / (inBytes * channelCount),
             output.remaining() / (outBytes * channelCount),
         )
-        input.order(byteOrder(encoding))
+        if (frames == 0) return true
+        val savedOrder = input.order()
         output.order(ByteOrder.LITTLE_ENDIAN)
-        var exact = true
-        repeat(frames * channelCount) {
-            // Left-aligned in 32 bits, so every source depth shares one writer.
-            val sample = when (inBytes) {
-                2 -> input.short.toInt() shl 16
-                3 -> read24(input, isBigEndian(encoding)) shl 8
-                4 -> if (encoding == C.ENCODING_PCM_FLOAT) {
-                    val value = input.float
-                    val recovered = recover24(value)
-                    if (exact && !isExact24(value, recovered)) exact = false
-                    recovered shl 8
-                } else {
-                    input.int
-                }
-                else -> error("Unsupported PCM encoding $encoding")
+        try {
+            if (!isBigEndian(encoding) && inBytes == outBytes && encoding != C.ENCODING_PCM_FLOAT) {
+                val byteCount = frames * inBytes * channelCount
+                val slice = input.duplicate()
+                slice.limit(input.position() + byteCount)
+                output.put(slice)
+                input.position(input.position() + byteCount)
+                return true
             }
-            putSample(output, sample, outputBits)
+            input.order(byteOrder(encoding))
+            var exact = true
+            repeat(frames * channelCount) {
+                // Left-aligned in 32 bits, so every source depth shares one writer.
+                val sample = when (inBytes) {
+                    2 -> input.short.toInt() shl 16
+                    3 -> read24(input, isBigEndian(encoding)) shl 8
+                    4 -> if (encoding == C.ENCODING_PCM_FLOAT) {
+                        val value = input.float
+                        val recovered = recover24(value)
+                        if (exact && !isExact24(value, recovered)) exact = false
+                        recovered shl 8
+                    } else {
+                        input.int
+                    }
+                    else -> error("Unsupported PCM encoding $encoding")
+                }
+                putSample(output, sample, outputBits)
+            }
+            return exact
+        } finally {
+            input.order(savedOrder)
         }
-        return exact
     }
 
     /** Writes a sample left-aligned in 32 bits to a little-endian container of [outputBits]. */

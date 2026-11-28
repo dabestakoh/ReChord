@@ -409,6 +409,9 @@ internal object BitPerfectOutput {
                         rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
                         softwareVolume = AppSettings.usbSoftwareVolume.value,
                         softwareLevel = softwareLevels[device.deviceId] ?: 0.5f,
+                        keepAliveSpeaker = context.getSystemService(AudioManager::class.java)
+                            ?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                            ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER },
                     )
                 } catch (error: BitPerfectTransportException) {
                     if (error.message == "volume_unavailable" && !approved) {

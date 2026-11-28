@@ -12,6 +12,11 @@ package com.music.bitchord.playback.audio.bitperfect.usb
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.util.Log
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectDriver
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransport
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransportException
@@ -66,13 +71,14 @@ internal object UsbDirectNative {
  */
 internal class UsbDirectTransport private constructor(
     private val connection: UsbDeviceConnection,
-    private var handle: Long,
+    @Volatile private var handle: Long,
     val usbDeviceId: Int,
     override val deviceName: String,
     private val format: UsbDescriptors.OutputFormat,
     private val volumeControl: UsbVolume.Volume?,
     val softwareVolume: Boolean,
     initialLevel: Float,
+    keepAliveSpeaker: AudioDeviceInfo?,
 ) : BitPerfectTransport {
 
     override val driver = BitPerfectDriver.USB_DIRECT
@@ -86,16 +92,13 @@ internal class UsbDirectTransport private constructor(
 
     @Volatile private var failure: String? = null
     @Volatile private var detached = false
-    private var quiesced = true
-    private var lastFrames = 0L
+    @Volatile private var quiesced = true
+    @Volatile private var lastFrames = 0L
 
     fun accepts(rate: Int, channels: Int, sourceBits: Int): Boolean =
         failure == null && sampleRate == rate && channelCount == channels && validBits >= sourceBits
 
-    private val control: UsbControl = UsbControl { input, request, value, index, data ->
-        val reply = UsbDirectNative.control(handle, input, request, value, index, data)
-        if (input) reply.copyInto(data)
-    }
+    private val control: UsbControl = nativeControl(handle)
 
     val volume: UsbVolume.Snapshot? get() = volumeControl?.snapshot
 
@@ -113,18 +116,25 @@ internal class UsbDirectTransport private constructor(
         failure = "USB disconnected"
     }
 
+    @Volatile private var softwareGain: Double = computeGain(initialLevel)
+
     @Volatile var softwareLevel: Float = initialLevel
+        set(value) {
+            field = value
+            softwareGain = computeGain(value)
+        }
+
     private val scaled by lazy { ByteBuffer.allocateDirect(MAX_WRITE) }
 
     override fun write(buffer: ByteBuffer): Int {
-        val bytes = minOf(buffer.remaining(), MAX_WRITE)
+        val sampleBytes = outputBits / 8
+        val frameBytes = sampleBytes * channelCount
+        val bytes = (minOf(buffer.remaining(), MAX_WRITE) / frameBytes) * frameBytes
+        if (bytes == 0) return 0
         val input = if (softwareVolume) {
-            val sampleBytes = outputBits / 8
-            val frameBytes = sampleBytes * channelCount
             scaled.clear()
-            val level = softwareLevel
-            val gain = if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
-            val end = buffer.position() + bytes - bytes % frameBytes
+            val gain = softwareGain
+            val end = buffer.position() + bytes
             for (offset in buffer.position() until end step sampleBytes) {
                 var sample = buffer.get(offset + sampleBytes - 1).toInt()
                 for (byte in sampleBytes - 2 downTo 0) {
@@ -143,14 +153,21 @@ internal class UsbDirectTransport private constructor(
         return count
     }
 
+    private val keepAliveSpeaker = keepAliveSpeaker
+
     override fun play() {
+        SilentKeepAlive.start(keepAliveSpeaker)
         call { UsbDirectNative.setPlaying(handle, true) }
         quiesced = false
     }
 
-    override fun pause() = call { UsbDirectNative.setPlaying(handle, false) }
+    override fun pause() {
+        SilentKeepAlive.pause()
+        call { UsbDirectNative.setPlaying(handle, false) }
+    }
 
     override fun flush() {
+        SilentKeepAlive.pause()
         if (!quiesced) call { UsbDirectNative.flush(handle) }
         quiesced = true
         lastFrames = 0
@@ -166,6 +183,7 @@ internal class UsbDirectTransport private constructor(
     }
 
     override fun release() {
+        SilentKeepAlive.pause()
         val closing = handle
         if (closing == 0L) return
         try {
@@ -176,7 +194,7 @@ internal class UsbDirectTransport private constructor(
             } else synchronized(volume) {
                 // Stop sending audio before restoring the pre-Direct hardware level.
                 val restored = !detached && runCatching {
-                    flush()
+                    if (!quiesced) flush()
                     volume.restore(control)
                 }.isSuccess
                 handle = 0
@@ -213,6 +231,14 @@ internal class UsbDirectTransport private constructor(
     companion object {
         private const val MAX_WRITE = 256 * 1024
 
+        private fun computeGain(level: Float): Double =
+            if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
+
+        private fun nativeControl(nativeHandle: Long): UsbControl = UsbControl { input, request, value, index, data ->
+            val reply = UsbDirectNative.control(nativeHandle, input, request, value, index, data)
+            if (input) reply.copyInto(data)
+        }
+
         fun open(
             manager: UsbManager,
             device: UsbDevice,
@@ -224,6 +250,7 @@ internal class UsbDirectTransport private constructor(
             rememberedDb: Double?,
             softwareVolume: Boolean,
             softwareLevel: Float,
+            keepAliveSpeaker: AudioDeviceInfo? = null,
         ): UsbDirectTransport {
             val connection = manager.openDevice(device) ?: throw BitPerfectTransportException("cannot_open_usb")
             var handle = 0L
@@ -237,11 +264,7 @@ internal class UsbDirectTransport private constructor(
                     throw BitPerfectTransportException("unsupported", error)
                 }
                 val plan = plans[UsbDirectNative.chosen(handle)]
-                val opened = handle
-                val control = UsbControl { input, request, value, index, data ->
-                    val reply = UsbDirectNative.control(opened, input, request, value, index, data)
-                    if (input) reply.copyInto(data)
-                }
+                val control = nativeControl(handle)
                 // Startup attenuation happens inside Volume.open, before any audio.
                 val volume = UsbVolume.feature(raw, plan.alternate.control, plan.alternate.terminal, channels)
                     ?.let { feature -> runCatching { UsbVolume.Volume.open(control, feature) }.getOrNull() }
@@ -258,6 +281,7 @@ internal class UsbDirectTransport private constructor(
                     volumeControl = volume,
                     softwareVolume = volume == null && softwareVolume,
                     initialLevel = softwareLevel,
+                    keepAliveSpeaker = keepAliveSpeaker,
                 )
             } catch (error: Exception) {
                 if (handle != 0L) UsbDirectNative.close(handle)
@@ -277,5 +301,85 @@ internal class UsbDirectTransport private constructor(
                 .mapNotNull { (alternate, format) -> UsbDescriptors.plan(alternate, format) }
                 .take(32)
         }
+    }
+}
+
+/**
+ * Shared muted looping static AudioTrack active only while Direct USB is playing.
+ * Created once and pinned to the built-in speaker so AudioFlinger is never churned
+ * across sample-rate switches, while keeping OEM schedulers (e.g., Vivo OriginOS)
+ * aware that media playback is active during app switches or screen-off transitions.
+ */
+private object SilentKeepAlive {
+    private var track: AudioTrack? = null
+
+    @Synchronized
+    fun start(speaker: AudioDeviceInfo?) {
+        runCatching {
+            val active = track ?: createTrack(speaker).also { track = it } ?: return
+            if (active.playState != AudioTrack.PLAYSTATE_PLAYING) active.play()
+        }.onFailure {
+            Log.w("UsbDirectTransport", "SilentKeepAlive start failed", it)
+        }
+    }
+
+    @Synchronized
+    fun pause() {
+        runCatching {
+            track?.takeIf { it.playState == AudioTrack.PLAYSTATE_PLAYING }?.pause()
+        }
+    }
+
+    private fun createTrack(speaker: AudioDeviceInfo?): AudioTrack? {
+        val targetSpeaker = speaker ?: return null
+        val sampleRate = 48_000
+        val minBytes = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+        ).coerceAtLeast(0)
+        val rawBytes = maxOf(minBytes, (sampleRate / 5) * 2)
+        val bytes = (rawBytes + 1) and 1.inv()
+        val frames = bytes / 2
+        val t = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setBufferSizeInBytes(bytes)
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+        if (t.state == AudioTrack.STATE_UNINITIALIZED) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive track uninitialized (bytes=$bytes)")
+            t.release()
+            return null
+        }
+        t.write(ByteArray(bytes), 0, bytes)
+        if (t.state != AudioTrack.STATE_INITIALIZED) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive track failed after write (state=${t.state}, bytes=$bytes)")
+            t.release()
+            return null
+        }
+        if (!t.setPreferredDevice(targetSpeaker)) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive failed to pin built-in speaker; skipping")
+            t.release()
+            return null
+        }
+        val loopStatus = t.setLoopPoints(0, frames, -1)
+        if (loopStatus != AudioTrack.SUCCESS) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive setLoopPoints failed: $loopStatus")
+        }
+        t.setVolume(0f)
+        Log.i("UsbDirectTransport", "SilentKeepAlive pinned to built-in speaker (frames=$frames, bytes=$bytes)")
+        return t
     }
 }

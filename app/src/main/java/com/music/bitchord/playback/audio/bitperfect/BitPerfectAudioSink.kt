@@ -10,6 +10,7 @@
 package com.music.bitchord.playback.audio.bitperfect
 
 import android.media.AudioTrack
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
@@ -149,6 +150,13 @@ internal class BitPerfectAudioSink(
     private var exact = true
     private var advancingReported = false
     private var androidStatusPublished = false
+    private var audioPriorityRaised = false
+
+    private fun ensureAudioThreadPriority() {
+        if (audioPriorityRaised) return
+        audioPriorityRaised = true
+        runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO) }
+    }
 
     /** A transport failure raised where Media3 allows no exception, rethrown at the next buffer. */
     private var pendingFailure: BitPerfectTransportException? = null
@@ -196,6 +204,11 @@ internal class BitPerfectAudioSink(
         // Opening waits for the first buffer: whatever is being replaced may
         // still be playing out into this same device.
         configured = Input(format)
+        pausedAtMs = NOT_PAUSED
+        if (suspended && resumeTail == null && !output.hasRemaining()) {
+            suspended = false
+            suspendedWire = null
+        }
     }
 
     override fun handleBuffer(
@@ -204,8 +217,10 @@ internal class BitPerfectAudioSink(
         encodedAccessUnitCount: Int,
     ): Boolean {
         pendingFailure?.let { pendingFailure = null; throw writeException(it) }
-        releaseIfIdle()
         val input = configured ?: return true
+        if (transport != null && input.sameStream(current)) {
+            releaseIfIdle()
+        }
         if (suspended) {
             // Media3 keeps offering buffers while paused; the device stays released until play.
             if (!playing) return false
@@ -354,6 +369,7 @@ internal class BitPerfectAudioSink(
     override fun flush() {
         runCatching { transport?.flush() }
         transportStarted = false
+        if (transport != null) pausedAtMs = NOT_PAUSED
         resetCounters()
         if (transport is MixerTransport) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
         else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
@@ -392,6 +408,7 @@ internal class BitPerfectAudioSink(
     override fun disableTunneling() = Unit
 
     private fun open(input: Input) {
+        ensureAudioThreadPriority()
         val opened = try {
             outputs.open(input.sampleRate, input.channelCount, input.sourceBits, this)
         } catch (error: BitPerfectTransportException) {
@@ -411,6 +428,7 @@ internal class BitPerfectAudioSink(
         }
         transport = opened
         current = input
+        pausedAtMs = NOT_PAUSED
         converter = if (opened.sampleRate != input.sampleRate || opened.validBits < input.sourceBits) {
             DacFormatConverter(
                 encoding = input.encoding,
@@ -523,6 +541,7 @@ internal class BitPerfectAudioSink(
      * or a seek since dropped it), the next buffer opens as any new stream does.
      */
     private fun resume() {
+        ensureAudioThreadPriority()
         val wire = suspendedWire
         suspended = false
         suspendedWire = null
@@ -554,7 +573,9 @@ internal class BitPerfectAudioSink(
     private fun writeResumeTail(): Boolean {
         val tail = resumeTail ?: return true
         val active = transport ?: return false
-        handOver(active, tail)
+        while (tail.hasRemaining()) {
+            if (handOver(active, tail) == 0) break
+        }
         startIfReady()
         if (tail.hasRemaining()) return false
         resumeTail = null
@@ -724,7 +745,7 @@ internal class BitPerfectAudioSink(
         private const val MAX_TIMESTAMP_DRIFT_US = 200_000L
 
         /** A pause this long releases a direct USB or AAudio exclusive device. */
-        const val IDLE_RELEASE_MS = 30_000L
+        const val IDLE_RELEASE_MS = 500L
         private const val NOT_PAUSED = -1L
     }
 }
