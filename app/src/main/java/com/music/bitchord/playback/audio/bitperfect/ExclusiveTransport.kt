@@ -75,7 +75,10 @@ internal class ExclusiveTransport private constructor(
     }
 
     override fun write(buffer: ByteBuffer): Int {
-        val count = call { ExclusiveNative.write(handle, buffer, buffer.position(), minOf(buffer.remaining(), MAX_WRITE)) }
+        val frameBytes = (outputBits / 8) * channelCount
+        val bytes = (minOf(buffer.remaining(), MAX_WRITE) / frameBytes) * frameBytes
+        if (bytes == 0) return 0
+        val count = call { ExclusiveNative.write(handle, buffer, buffer.position(), bytes) }
         buffer.position(buffer.position() + count)
         return count
     }
@@ -125,11 +128,19 @@ internal class ExclusiveTransport private constructor(
          */
         private const val MAX_RATE_ATTEMPTS = 3
 
+        /** Wired headphone, balanced, or analog line outputs eligible for built-in Hi-Res exclusive mode. */
+        fun isWiredHiResDevice(device: AudioDeviceInfo): Boolean =
+            device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                device.type == AudioDeviceInfo.TYPE_LINE_ANALOG ||
+                device.type == AudioDeviceInfo.TYPE_AUX_LINE
+
+        fun wiredHiResDevice(manager: AudioManager): AudioDeviceInfo? =
+            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull(::isWiredHiResDevice)
+
         fun open(manager: AudioManager, rate: Int, channels: Int, sourceBits: Int, convert: Boolean): ExclusiveTransport {
             val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            val wired = outputs.firstOrNull {
-                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
-            }
+            val wired = outputs.firstOrNull(::isWiredHiResDevice)
             val offered = wired?.sampleRates?.takeIf { it.isNotEmpty() }?.toList() ?: BitPerfectPcm.STANDARD_RATES
             val rates = if (convert) BitPerfectPcm.rankRates(rate, offered + rate).take(MAX_RATE_ATTEMPTS) else listOf(rate)
             val depths = if (convert) listOf(32, 24, 16).filter { it <= sourceBits } else listOf(sourceBits)

@@ -18,13 +18,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
@@ -53,8 +56,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.data.settings.AppSettings
@@ -134,6 +145,7 @@ fun DacVolumeKeys() {
             if (window.callback === intercepting) window.callback = original
         }
     }
+    DacVolumeHudOverlay(hazeState = null, usePopup = true)
 }
 
 private const val HIDE_AFTER_MS = 1500L
@@ -161,8 +173,18 @@ private val EDGE_GAP = 10.dp
 @OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
 fun DacVolumeHud(hazeState: HazeState) {
+    DacVolumeHudOverlay(hazeState = hazeState, usePopup = false)
+}
+
+@OptIn(ExperimentalHazeMaterialsApi::class)
+@Composable
+private fun DacVolumeHudOverlay(
+    hazeState: HazeState?,
+    usePopup: Boolean,
+) {
     val level by DacVolume.level.collectAsStateWithLifecycle()
     val current = level ?: return
+    val reduceAnimation by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
 
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -177,31 +199,44 @@ fun DacVolumeHud(hazeState: HazeState) {
     val stretch = remember { Animatable(1f) }
     var stretchFromTop by remember { mutableStateOf(false) }
 
-    val fill by animateFloatAsState(
+    val animatedFill by animateFloatAsState(
         targetValue = current,
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
         label = "fill",
     )
-    val width by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (dragging) EXPANDED_WIDTH else COMPACT_WIDTH,
+    val fill = if (reduceAnimation) current else animatedFill
+    val targetWidth = if (dragging) EXPANDED_WIDTH else COMPACT_WIDTH
+    val animatedWidth by androidx.compose.animation.core.animateDpAsState(
+        targetValue = targetWidth,
         animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
         label = "width",
     )
+    val width = if (reduceAnimation) targetWidth else animatedWidth
 
     fun scheduleHide() {
         hideJob?.cancel()
         hideJob = scope.launch {
             delay(HIDE_AFTER_MS)
             if (dragging) return@launch
-            slide.animateTo(1f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow))
+            if (reduceAnimation) {
+                slide.snapTo(1f)
+            } else {
+                slide.animateTo(1f, spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow))
+            }
             present = false
         }
     }
 
     fun show() {
-        if (VolumeHud.suppressed) return
+        if (!usePopup && VolumeHud.suppressed) return
         present = true
-        scope.launch { slide.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = 420f)) }
+        scope.launch {
+            if (reduceAnimation) {
+                slide.snapTo(0f)
+            } else {
+                slide.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = 420f))
+            }
+        }
         scheduleHide()
     }
 
@@ -209,123 +244,178 @@ fun DacVolumeHud(hazeState: HazeState) {
     fun rubberBand(direction: Int) {
         stretchFromTop = direction < 0
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (reduceAnimation) return
         scope.launch {
             stretch.animateTo(1.07f, tween(durationMillis = 90))
             stretch.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f))
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(usePopup) {
         VolumeHud.pulses.collect { pulse ->
             show()
             if (pulse.atLimit) rubberBand(pulse.direction)
         }
     }
 
-    if (!present || VolumeHud.suppressed) return
+    if (!present || (!usePopup && VolumeHud.suppressed)) return
 
     val reduceBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
+    val layoutDirection = LocalLayoutDirection.current
+    val safeDrawing = WindowInsets.safeDrawing
+    val topInsetPx = safeDrawing.getTop(density)
+    val bottomInsetPx = safeDrawing.getBottom(density)
+    val endInsetPx = if (layoutDirection == LayoutDirection.Ltr) {
+        safeDrawing.getRight(density, layoutDirection)
+    } else {
+        safeDrawing.getLeft(density, layoutDirection)
+    }
+    val edgeGapPx = with(density) { EDGE_GAP.roundToPx() }
     val offscreenPx = with(density) { (EXPANDED_WIDTH + EDGE_GAP * 2).roundToPx() }
     val heightPx = with(density) { HUD_HEIGHT.toPx() }
-    // Lays out nothing but the capsule, so the page under the rest of the
-    // screen keeps every touch.
-    Box(Modifier.fillMaxSize()) {
+    val topOffset = (screenHeight * 0.2f).coerceAtMost((screenHeight - HUD_HEIGHT - 24.dp).coerceAtLeast(8.dp))
+
+    val capsuleBox: @Composable () -> Unit = {
         Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                // Level with a phone's volume keys, about a fifth of the way down.
-                .padding(top = screenHeight * 0.2f, end = EDGE_GAP)
+                .graphicsLayer {
+                    translationX = slide.value * offscreenPx
+                    alpha = 1f - slide.value
+                    scaleY = stretch.value
+                    // Thinner as it stretches, as rubber does.
+                    scaleX = 1f - (stretch.value - 1f) * 1.2f
+                    transformOrigin = TransformOrigin(0.5f, if (stretchFromTop) 0f else 1f)
+                }
                 .height(HUD_HEIGHT)
-                .width(EXPANDED_WIDTH),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            Box(
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = slide.value * offscreenPx
-                        alpha = 1f - slide.value
-                        scaleY = stretch.value
-                        // Thinner as it stretches, as rubber does.
-                        scaleX = 1f - (stretch.value - 1f) * 1.2f
-                        transformOrigin = TransformOrigin(0.5f, if (stretchFromTop) 0f else 1f)
-                    }
-                    .width(width)
-                    .fillMaxHeight()
-                    .shadow(10.dp, RoundedCornerShape(percent = 50), clip = false)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .then(
-                        if (reduceBlur) {
-                            Modifier.background(Color(0xFF1C1C1E).copy(alpha = 0.82f))
-                        } else {
-                            // A light frost, as iOS draws it: the page shows
-                            // through, blurred and only slightly darkened.
-                            Modifier.optimizedHazeEffect(
+                .width(width)
+                .shadow(10.dp, RoundedCornerShape(percent = 50), clip = false)
+                .clip(RoundedCornerShape(percent = 50))
+                .then(
+                    if (reduceBlur || hazeState == null) {
+                        Modifier.background(Color(0xFF1C1C1E).copy(alpha = 0.86f))
+                    } else {
+                        // Translucent dark frost that stays high-contrast in both Light and Dark themes.
+                        Modifier
+                            .optimizedHazeEffect(
                                 state = hazeState,
                                 style = HazeMaterials.ultraThin(Color(0xFF1C1C1E)),
                             )
+                            .background(Color(0xFF1C1C1E).copy(alpha = 0.45f))
+                    },
+                )
+                .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(percent = 50))
+                .pointerInput(Unit) {
+                    var start = 0f
+                    var travelled = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            dragging = true
+                            hideJob?.cancel()
+                            start = DacVolume.level.value ?: 0f
+                            travelled = 0f
                         },
-                    )
-                    .border(0.5.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(percent = 50))
-                    .pointerInput(Unit) {
-                        var start = 0f
-                        var travelled = 0f
-                        detectVerticalDragGestures(
-                            onDragStart = {
-                                dragging = true
-                                hideJob?.cancel()
-                                start = DacVolume.level.value ?: 0f
-                                travelled = 0f
-                            },
-                            onDragEnd = {
-                                dragging = false
-                                scope.launch { stretch.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f)) }
-                                scheduleHide()
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                scope.launch { stretch.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f)) }
-                                scheduleHide()
-                            },
-                        ) { change, dragAmount ->
-                            change.consume()
-                            travelled -= dragAmount
-                            val wanted = start + travelled / heightPx
-                            DacVolume.set(wanted.coerceIn(0f, 1f))
-                            // Past either end the capsule follows the finger a little,
-                            // with diminishing give, then springs back on release.
-                            val over = when {
-                                wanted > 1f -> wanted - 1f
-                                wanted < 0f -> -wanted
-                                else -> 0f
+                        onDragEnd = {
+                            dragging = false
+                            scope.launch {
+                                if (reduceAnimation) stretch.snapTo(1f)
+                                else stretch.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f))
                             }
-                            stretchFromTop = wanted < 0f
+                            scheduleHide()
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            scope.launch {
+                                if (reduceAnimation) stretch.snapTo(1f)
+                                else stretch.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 380f))
+                            }
+                            scheduleHide()
+                        },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        travelled -= dragAmount
+                        val wanted = start + travelled / heightPx
+                        DacVolume.set(wanted.coerceIn(0f, 1f))
+                        // Past either end the capsule follows the finger a little,
+                        // with diminishing give, then springs back on release.
+                        val over = when {
+                            wanted > 1f -> wanted - 1f
+                            wanted < 0f -> -wanted
+                            else -> 0f
+                        }
+                        stretchFromTop = wanted < 0f
+                        if (!reduceAnimation) {
                             scope.launch { stretch.snapTo(1f + minOf(0.12f, over * 0.35f)) }
                         }
+                    }
+                },
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(fill.coerceIn(0f, 1f))
+                    .background(Color.White),
+            )
+            if (width > COMPACT_WIDTH + 18.dp) {
+                Icon(
+                    imageVector = when {
+                        current <= 0f -> Icons.AutoMirrored.Rounded.VolumeMute
+                        current < 0.5f -> Icons.AutoMirrored.Rounded.VolumeDown
+                        else -> Icons.AutoMirrored.Rounded.VolumeUp
                     },
-            ) {
-                Box(
+                    contentDescription = null,
+                    // Dark where the white fill is behind it, as on iOS.
+                    tint = if (fill > 0.12f) Color(0xFF3A3A3C) else Color.White,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .fillMaxHeight(fill.coerceIn(0f, 1f))
-                        .background(Color.White),
+                        .padding(bottom = 12.dp)
+                        .size(20.dp),
                 )
-                if (width > COMPACT_WIDTH + 18.dp) {
-                    Icon(
-                        imageVector = when {
-                            current <= 0f -> Icons.AutoMirrored.Rounded.VolumeMute
-                            current < 0.5f -> Icons.AutoMirrored.Rounded.VolumeDown
-                            else -> Icons.AutoMirrored.Rounded.VolumeUp
-                        },
-                        contentDescription = null,
-                        // Dark where the white fill is behind it, as on iOS.
-                        tint = if (fill > 0.12f) Color(0xFF3A3A3C) else Color.White,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 12.dp)
-                            .size(20.dp),
-                    )
+            }
+        }
+    }
+
+    if (usePopup) {
+        val positionProvider = remember(topInsetPx, bottomInsetPx, endInsetPx, edgeGapPx) {
+            object : PopupPositionProvider {
+                override fun calculatePosition(
+                    anchorBounds: IntRect,
+                    windowSize: IntSize,
+                    layoutDirection: LayoutDirection,
+                    popupContentSize: IntSize,
+                ): IntOffset {
+                    val x = if (layoutDirection == LayoutDirection.Ltr) {
+                        (windowSize.width - endInsetPx - edgeGapPx - popupContentSize.width).coerceAtLeast(0)
+                    } else {
+                        (endInsetPx + edgeGapPx).coerceAtMost((windowSize.width - popupContentSize.width).coerceAtLeast(0))
+                    }
+                    val usableHeight = (windowSize.height - topInsetPx - bottomInsetPx).coerceAtLeast(popupContentSize.height)
+                    val desiredY = topInsetPx + (usableHeight * 0.2f).toInt()
+                    val maxY = (windowSize.height - bottomInsetPx - popupContentSize.height).coerceAtLeast(topInsetPx)
+                    val y = desiredY.coerceIn(topInsetPx, maxY)
+                    return IntOffset(x, y)
                 }
+            }
+        }
+        Popup(
+            popupPositionProvider = positionProvider,
+            properties = PopupProperties(focusable = false, clippingEnabled = false),
+        ) {
+            capsuleBox()
+        }
+    } else {
+        // Lays out nothing but the capsule, so the page under the rest of the
+        // screen keeps every touch.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+            Box(
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = topOffset, end = EDGE_GAP)
+                    .height(HUD_HEIGHT)
+                    .width(EXPANDED_WIDTH),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                capsuleBox()
             }
         }
     }

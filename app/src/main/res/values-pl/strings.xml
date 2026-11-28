@@ -1762,4 +1762,17 @@
     <string name="local_filter_hi_res_only">Tylko Hi-Res</string>
     <string name="no_hi_res_tracks">Brak utworów Hi-Res</string>
     <string name="playlist_updating">Aktualizowanie</string>
+    <string name="advanced_audio">Advanced audio</string>
+    <string name="advanced_audio_subtitle">USB driver, headphone jack mode, and precision overrides</string>
+    <string name="usb_dac_driver">USB DAC driver</string>
+    <string name="usb_dac_driver_subtitle">Android 14+ shares audio with other apps; Direct USB takes exclusive hardware control.</string>
+    <string name="usb_dac_driver_android_14">Android 14+ USB</string>
+    <string name="usb_dac_driver_direct">Direct USB</string>
+    <string name="wired_hires_output">Headphone jack hi-res</string>
+    <string name="wired_hires_output_subtitle">Auto uses Direct Hi-Res or Exclusive on DAPs; Standard AudioTrack keeps full 32-bit float precision.</string>
+    <string name="wired_hires_auto">Auto (Bit-Perfect)</string>
+    <string name="wired_hires_standard">Standard AudioTrack</string>
+    <string name="prefer_usb_dac_subtitle">Keep playback on your USB DAC even when Bluetooth is connected.</string>
+    <string name="output_precision_subtitle">Auto preserves hi-res tracks on supported DACs, DAPs, and LDAC.</string>
+    <string name="bit_perfect_off_summary">Off · Equalizer and effects enabled</string>
 </resources>

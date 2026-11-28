@@ -15,6 +15,7 @@ import android.os.Build
 import android.util.Log
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.BitPerfectMode
+import com.music.bitchord.playback.AudioRouting
 import com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectDevices
 import com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectTransport
 import com.music.bitchord.playback.audio.bitperfect.usb.UsbVolume
@@ -88,6 +89,7 @@ internal object BitPerfectOutput {
         val fallbackReason: String? = null,
         val openingUsb: Boolean = false,
         val androidMixerOutputVerified: Boolean = false,
+        val exclusiveOutputVerified: Boolean = false,
     )
 
     private val _status = MutableStateFlow(Status())
@@ -125,12 +127,180 @@ internal object BitPerfectOutput {
 
     private var lastOutputMode: BitPerfectMode? = null
     private var lastAndroidUsbId: Int? = null
+    @Volatile private var effectiveMode: BitPerfectMode = BitPerfectMode.OFF
+
+    private const val CAPABILITY_PREFS = "rechord_dac_capabilities"
+    private val probeExecutor = Executors.newSingleThreadExecutor { Thread(it, "ReChord-DAC-probe") }
+
+    internal data class WiredCapabilities(
+        val key: String,
+        val aaudioExclusiveSupported: Boolean,
+        val directRatesByDepth: Map<Int, Set<Int>>,
+    ) {
+        val supportsAnyBitPerfect: Boolean
+            get() = aaudioExclusiveSupported || directRatesByDepth.isNotEmpty()
+    }
+
+    @Volatile private var wiredCapabilities: WiredCapabilities? = null
+    @Volatile private var probingWiredKey: String? = null
+    @Volatile private var probingWiredFuture: java.util.concurrent.Future<*>? = null
+
+    private val _usbHasHardwareVolume = MutableStateFlow(false)
+    val usbHasHardwareVolume: StateFlow<Boolean> = _usbHasHardwareVolume.asStateFlow()
+
+    private fun wiredKey(device: android.media.AudioDeviceInfo): String {
+        val addr = if (Build.VERSION.SDK_INT >= 28) device.address.orEmpty() else ""
+        return "${Build.FINGERPRINT}|${device.type}|$addr|${device.productName}"
+    }
+
+    private fun loadWiredCapabilities(context: Context, key: String): WiredCapabilities? {
+        val encoded = context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)
+            .getString("wired_$key", null) ?: return null
+        var aaudio = false
+        val rates = LinkedHashMap<Int, Set<Int>>()
+        for (part in encoded.split(';')) {
+            if (part.startsWith("ex=")) {
+                aaudio = part.substringAfter("ex=") == "1"
+            } else if (':' in part) {
+                val rate = part.substringBefore(':').toIntOrNull() ?: continue
+                val depths = part.substringAfter(':').split(',').mapNotNullTo(LinkedHashSet()) { it.toIntOrNull() }
+                if (depths.isNotEmpty()) rates[rate] = depths
+            }
+        }
+        return WiredCapabilities(key, aaudio, rates)
+    }
+
+    private fun saveWiredCapabilities(context: Context, caps: WiredCapabilities) {
+        val encoded = buildString {
+            append("ex=").append(if (caps.aaudioExclusiveSupported) '1' else '0')
+            for ((rate, depths) in caps.directRatesByDepth) {
+                append(';').append(rate).append(':').append(depths.joinToString(","))
+            }
+        }
+        context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE).edit()
+            .putString("wired_${caps.key}", encoded)
+            .apply()
+    }
+
+    private fun ensureWiredCapabilities(context: Context, audio: AudioManager?) {
+        val wired = audio?.let(ExclusiveTransport::wiredHiResDevice)
+        if (wired == null) {
+            wiredCapabilities = null
+            probingWiredKey = null
+            return
+        }
+        val key = wiredKey(wired)
+        if (wiredCapabilities?.key == key) return
+        val cached = loadWiredCapabilities(context, key)
+        if (cached != null) {
+            wiredCapabilities = cached
+            return
+        }
+        // AudioManager.getDirectPlaybackSupport queries the current active route;
+        // do not probe or persist wired capabilities while Bluetooth or USB is active.
+        val activeKind = runCatching { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS) }
+            .getOrNull()
+            ?.let { AudioRouting.activeOf(it, null) }
+            ?.let { AudioRouting.kindOf(it.type) }
+        if (activeKind != AudioRouting.Kind.WIRED) return
+        if (probingWiredKey == key) return
+        probingWiredKey = key
+        val app = context.applicationContext
+        probingWiredFuture = probeExecutor.submit {
+            val directMap = if (Build.VERSION.SDK_INT >= 29) {
+                DirectAudioTrackTransport.probeCapabilities()
+            } else {
+                emptyMap()
+            }
+            val aaudioOk = if (Build.VERSION.SDK_INT >= 27) {
+                runCatching {
+                    ExclusiveTransport.open(audio, 48_000, 2, 16, convert = true).release()
+                    true
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+            val probed = WiredCapabilities(key, aaudioOk, directMap)
+            saveWiredCapabilities(app, probed)
+            Log.i(
+                TAG,
+                "Probed & persisted wired DAC (${wired.productName}): aaudioExclusive=$aaudioOk, directRates=${directMap.keys}",
+            )
+            synchronized(this@BitPerfectOutput) {
+                if (probingWiredKey == key) {
+                    wiredCapabilities = probed
+                    probingWiredKey = null
+                    probingWiredFuture = null
+                    recomputeReady()
+                }
+            }
+        }
+    }
+
+    private fun selectedOutputKind(audio: AudioManager?): AudioRouting.Kind? {
+        val selectedId = AudioRouting.selectedId.value ?: return null
+        val device = audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull { it.id == selectedId }
+            ?: return null
+        return AudioRouting.kindOf(device.type)
+    }
+
+    private fun hasBluetoothOutput(audio: AudioManager?): Boolean =
+        audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any {
+            AudioRouting.kindOf(it.type) == AudioRouting.Kind.BLUETOOTH
+        } == true
+
+    /**
+     * Resolves the active bit-perfect driver for the user's configured mode,
+     * automatically engaging built-in Hi-Res (AAudio Exclusive) on wired/DAP
+     * outputs when no USB DAC is routed, and respecting Prefer USB DAC,
+     * the Audio Output Picker, and Bluetooth priority.
+     */
+    internal fun resolveEffectiveMode(
+        configuredMode: BitPerfectMode,
+        selectedOutputKind: AudioRouting.Kind?,
+        preferUsbDac: Boolean,
+        hasUsbDirectDevice: Boolean,
+        hasAndroidUsbDevice: Boolean,
+        hasWiredHiResDevice: Boolean,
+        hasBluetoothOutput: Boolean,
+        sdkInt: Int = Build.VERSION.SDK_INT,
+        wiredHiResDriver: com.music.bitchord.data.settings.WiredHiResDriver = AppSettings.wiredHiResDriver.value,
+    ): BitPerfectMode = com.music.bitchord.playback.audio.AudioPathPlanner.resolveEffectiveBitPerfectMode(
+        configuredMode = configuredMode,
+        wiredHiResDriver = wiredHiResDriver,
+        selectedOutputKind = selectedOutputKind,
+        preferUsbDac = preferUsbDac,
+        hasUsbDirectDevice = hasUsbDirectDevice,
+        hasAndroidUsbDevice = hasAndroidUsbDevice,
+        hasWiredHiResDevice = hasWiredHiResDevice,
+        hasBluetoothOutput = hasBluetoothOutput,
+        sdkInt = sdkInt,
+    )
+
+    private fun resolveEffectiveMode(context: Context, audio: AudioManager?): BitPerfectMode {
+        val configuredMode = AppSettings.bitPerfectMode.value
+        if (configuredMode == BitPerfectMode.OFF) return BitPerfectMode.OFF
+        val hasDirect = UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice) != null
+        val hasAndroidUsb = Build.VERSION.SDK_INT >= 34 && audio?.let(MixerTransport::usbDevice) != null
+        val hasWired = audio?.let(ExclusiveTransport::wiredHiResDevice) != null
+        return resolveEffectiveMode(
+            configuredMode = configuredMode,
+            selectedOutputKind = selectedOutputKind(audio),
+            preferUsbDac = AppSettings.preferUsbDac.value,
+            hasUsbDirectDevice = hasDirect,
+            hasAndroidUsbDevice = hasAndroidUsb,
+            hasWiredHiResDevice = hasWired,
+            hasBluetoothOutput = hasBluetoothOutput(audio),
+        )
+    }
 
     @Synchronized
     fun refreshReady(context: Context) {
         appContextForApprovals = context.applicationContext
         val audio = context.getSystemService(AudioManager::class.java)
-        val mode = AppSettings.bitPerfectMode.value
+        val mode = resolveEffectiveMode(context, audio)
+        effectiveMode = mode
+        ensureWiredCapabilities(context, audio)
         val androidUsb = if (mode == BitPerfectMode.USB_ANDROID && Build.VERSION.SDK_INT >= 34) {
             audio?.let(MixerTransport::usbDevice)
         } else null
@@ -148,15 +318,12 @@ internal object BitPerfectOutput {
             BitPerfectMode.USB_DIRECT ->
                 UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice) != null
             BitPerfectMode.DAP_EXCLUSIVE -> Build.VERSION.SDK_INT >= 27 &&
-                audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any {
-                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                        it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET
-                } == true
+                audio?.let(ExclusiveTransport::wiredHiResDevice) != null
         }
         this.attached = attached
         refreshFixedVolumeDevice(
             context,
-            if (AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT)
+            if (mode == BitPerfectMode.USB_DIRECT)
                 UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice)
             else null,
         )
@@ -173,8 +340,14 @@ internal object BitPerfectOutput {
      * stream that was still closing and stayed true with the mode off.
      */
     private fun recomputeReady() {
-        _ready.value = AppSettings.bitPerfectMode.value != BitPerfectMode.OFF &&
-            (attached || _status.value.active)
+        val currentStatus = _status.value
+        val wiredCaps = wiredCapabilities
+        val wiredUnsupported = effectiveMode == BitPerfectMode.DAP_EXCLUSIVE &&
+            wiredCaps != null && !wiredCaps.supportsAnyBitPerfect
+        val wiredFallback = effectiveMode == BitPerfectMode.DAP_EXCLUSIVE &&
+            !currentStatus.active && currentStatus.fallbackReason != null
+        _ready.value = effectiveMode != BitPerfectMode.OFF && !wiredUnsupported && !wiredFallback &&
+            (attached || currentStatus.active)
     }
 
     fun forContext(context: Context): BitPerfectOutputs {
@@ -227,6 +400,7 @@ internal object BitPerfectOutput {
         if (device == null) {
             _fixedVolumeDevice.value = null
             _fixedVolumeApprovalRequest.value = null
+            _usbHasHardwareVolume.value = false
             declinedDuringAttachment = null
             return
         }
@@ -236,6 +410,24 @@ internal object BitPerfectOutput {
         _fixedVolumeDevice.value = info
         if (approved || _fixedVolumeApprovalRequest.value?.key != key) {
             _fixedVolumeApprovalRequest.value = null
+        }
+        val prefs = context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)
+        val prefKey = "usb_hw_vol_$key"
+        if (prefs.contains(prefKey)) {
+            _usbHasHardwareVolume.value = prefs.getBoolean(prefKey, false)
+        } else {
+            val usb = UsbDirectDevices.manager(context)
+            val raw = if (usb != null && usb.hasPermission(device)) UsbDirectDevices.rawDescriptors(usb, device) else null
+            if (raw != null) {
+                val plans = UsbDirectTransport.plans(raw, 48_000, 2, 16, convert = true)
+                val hasHwVol = plans.firstOrNull()?.let { plan ->
+                    UsbVolume.feature(raw, plan.alternate.control, plan.alternate.terminal, 2) != null
+                } ?: false
+                prefs.edit().putBoolean(prefKey, hasHwVol).apply()
+                _usbHasHardwareVolume.value = hasHwVol
+            } else {
+                _usbHasHardwareVolume.value = false
+            }
         }
     }
 
@@ -336,9 +528,10 @@ internal object BitPerfectOutput {
     @Synchronized
     fun canOpen(context: Context, sampleRate: Int, channels: Int, sourceBits: Int, requester: Any): Boolean {
         if (owner != null && owner !== requester) return false
-        val mode = AppSettings.bitPerfectMode.value
-        if (mode == BitPerfectMode.OFF) return false
         val manager = context.getSystemService(AudioManager::class.java) ?: return false
+        val mode = resolveEffectiveMode(context, manager)
+        effectiveMode = mode
+        if (mode == BitPerfectMode.OFF) return false
         return when (mode) {
             BitPerfectMode.OFF -> false
             BitPerfectMode.USB_ANDROID -> {
@@ -349,8 +542,14 @@ internal object BitPerfectOutput {
             }
             // Nothing short of opening a stream says whether Android will grant
             // exclusive mode, so the first track of each format finds out.
-            BitPerfectMode.DAP_EXCLUSIVE -> Build.VERSION.SDK_INT >= 27 &&
+            BitPerfectMode.DAP_EXCLUSIVE -> {
+                if (Build.VERSION.SDK_INT < 27) return false
+                val wired = ExclusiveTransport.wiredHiResDevice(manager) ?: return false
+                val caps = wiredCapabilities?.takeIf { it.key == wiredKey(wired) }
+                    ?: loadWiredCapabilities(context, wiredKey(wired))?.also { wiredCapabilities = it }
+                if (caps != null && !caps.supportsAnyBitPerfect) return false
                 key(mode, NO_DEVICE, sampleRate, channels, sourceBits) !in currentFailures(mode, NO_DEVICE)
+            }
             // Permission is asked for by the service when the mode is chosen or a
             // DAC is attached; until it is granted, tracks use normal output.
             BitPerfectMode.USB_DIRECT -> {
@@ -380,7 +579,8 @@ internal object BitPerfectOutput {
         if (owner != null && owner !== requester) throw BitPerfectTransportException("busy")
         val manager = context.getSystemService(AudioManager::class.java)
             ?: throw BitPerfectTransportException("no_audio_manager")
-        val mode = AppSettings.bitPerfectMode.value
+        val mode = resolveEffectiveMode(context, manager)
+        effectiveMode = mode
         val convert = AppSettings.convertForLimitedDac.value
         val transport = when (mode) {
             BitPerfectMode.OFF -> throw BitPerfectTransportException("off")
@@ -390,41 +590,78 @@ internal object BitPerfectOutput {
             }
             BitPerfectMode.DAP_EXCLUSIVE -> {
                 if (Build.VERSION.SDK_INT < 27) throw BitPerfectTransportException("android_version")
-                ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                val wired = ExclusiveTransport.wiredHiResDevice(manager)
+                    ?: throw BitPerfectTransportException("exclusive_unavailable")
+                val key = wiredKey(wired)
+                val inFlight = probingWiredFuture
+                if (inFlight != null && probingWiredKey == key) {
+                    runCatching { inFlight.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                }
+                val caps = wiredCapabilities?.takeIf { it.key == key }
+                    ?: loadWiredCapabilities(context, key)?.also { wiredCapabilities = it }
+                val cachedForChannels = caps?.directRatesByDepth?.takeIf { channels == 2 }
+                if (caps != null && !caps.aaudioExclusiveSupported && caps.directRatesByDepth.isNotEmpty() && Build.VERSION.SDK_INT >= 29) {
+                    DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert, cachedForChannels)
+                } else if (caps != null && !caps.supportsAnyBitPerfect) {
+                    throw BitPerfectTransportException("exclusive_unavailable")
+                } else {
+                    try {
+                        ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                    } catch (error: BitPerfectTransportException) {
+                        if (error.message == "exclusive_unavailable" && Build.VERSION.SDK_INT >= 29) {
+                            val directMap = cachedForChannels ?: DirectAudioTrackTransport.probeCapabilities(channels)
+                            DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert, directMap).also {
+                                if (sampleRate == 48_000 && channels == 2 && sourceBits == 16) {
+                                    val updated = WiredCapabilities(key, aaudioExclusiveSupported = false, directRatesByDepth = directMap)
+                                    wiredCapabilities = updated
+                                    saveWiredCapabilities(context, updated)
+                                }
+                            }
+                        } else {
+                            throw error
+                        }
+                    }
+                }
             }
             BitPerfectMode.USB_DIRECT -> {
                 val usb = UsbDirectDevices.manager(context) ?: throw BitPerfectTransportException("no_usb")
                 val device = UsbDirectDevices.audioDevice(usb) ?: throw BitPerfectTransportException("no_usb")
                 if (!usb.hasPermission(device)) throw BitPerfectTransportException("permission_denied")
-                val approved = isFixedVolumeApproved(context, device)
-                val opened = try {
-                    UsbDirectTransport.open(
-                        manager = usb,
-                        device = device,
-                        rate = sampleRate,
-                        channels = channels,
-                        sourceBits = sourceBits,
-                        convert = convert,
-                        allowFixedVolume = approved,
-                        rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
-                        softwareVolume = AppSettings.usbSoftwareVolume.value,
-                        softwareLevel = softwareLevels[device.deviceId] ?: 0.5f,
-                        keepAliveSpeaker = context.getSystemService(AudioManager::class.java)
-                            ?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                            ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER },
-                    )
-                } catch (error: BitPerfectTransportException) {
-                    if (error.message == "volume_unavailable" && !approved) {
-                        requestFixedVolumeApproval(context, device)
-                    }
-                    throw error
-                }
-                opened
+                val devKey = deviceKey(device)
+                val prefs = context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)
+                val persistedLevel = prefs.getFloat("usb_sw_vol_$devKey", -1f).takeIf { it in 0f..1f }
+                val initialSwLevel = softwareLevels[device.deviceId] ?: persistedLevel ?: 0.5f
+                softwareLevels[device.deviceId] = initialSwLevel
+                activeUsbDeviceKey = devKey
+                UsbDirectTransport.open(
+                    manager = usb,
+                    device = device,
+                    rate = sampleRate,
+                    channels = channels,
+                    sourceBits = sourceBits,
+                    convert = convert,
+                    allowFixedVolume = true,
+                    rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
+                    softwareVolume = true,
+                    softwareLevel = initialSwLevel,
+                    keepAliveSpeaker = context.getSystemService(AudioManager::class.java)
+                        ?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                        ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER },
+                )
             }
         }
         owner = requester
         active = transport
         val direct = transport as? UsbDirectTransport
+        if (direct != null) {
+            val verifiedHwVol = direct.volume != null
+            _usbHasHardwareVolume.value = verifiedHwVol
+            UsbDirectDevices.manager(context)?.let(UsbDirectDevices::audioDevice)?.let { usbDev ->
+                context.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE).edit()
+                    .putBoolean("usb_hw_vol_${deviceKey(usbDev)}", verifiedHwVol)
+                    .apply()
+            }
+        }
         publishVolume(direct?.volume)
         DacVolume.onSoftwareLevel(direct?.takeIf { it.softwareVolume }?.softwareLevel)
         return transport
@@ -435,11 +672,16 @@ internal object BitPerfectOutput {
      * dragged to; only the last one's read-back is allowed to move it.
      */
     private val softwareLevels = java.util.concurrent.ConcurrentHashMap<Int, Float>()
+    @Volatile private var activeUsbDeviceKey: String? = null
 
     fun setSoftwareVolume(level: Float) {
         val direct = (active as? UsbDirectTransport)?.takeIf { it.softwareVolume } ?: return
         direct.softwareLevel = level
         softwareLevels[direct.usbDeviceId] = level
+        val key = activeUsbDeviceKey ?: return
+        appContextForApprovals?.getSharedPreferences(CAPABILITY_PREFS, Context.MODE_PRIVATE)?.edit()
+            ?.putFloat("usb_sw_vol_$key", level)
+            ?.apply()
     }
 
     private fun publishVolume(snapshot: UsbVolume.Snapshot?) {
@@ -450,9 +692,19 @@ internal object BitPerfectOutput {
     @Synchronized
     fun release(requester: Any) {
         if (owner !== requester) return
-        if (active is UsbDirectTransport) directReleasedAtMs = android.os.SystemClock.elapsedRealtime()
+        if (active is UsbDirectTransport) {
+            val usbStillAttached = appContextForApprovals
+                ?.let(UsbDirectDevices::manager)
+                ?.let(UsbDirectDevices::audioDevice) != null
+            if (usbStillAttached) {
+                directReleasedAtMs = android.os.SystemClock.elapsedRealtime()
+            } else {
+                directReleasedAtMs = 0L
+            }
+        }
         owner = null
         active = null
+        activeUsbDeviceKey = null
         publishVolume(null)
         DacVolume.onSoftwareLevel(null)
     }
@@ -469,7 +721,9 @@ internal object BitPerfectOutput {
             runCatching { transport.setVolume(target) }
                 .onSuccess { snapshot ->
                     UsbDirectDevices.rememberVolume(transport.usbDeviceId, snapshot.currentDb)
-                    if (pendingVolume.get() == null) publishVolume(snapshot) else _hardwareVolume.value = snapshot
+                    synchronized(DacVolume) {
+                        if (pendingVolume.get() == null) publishVolume(snapshot) else _hardwareVolume.value = snapshot
+                    }
                 }
                 .onFailure { Log.w(TAG, "USB volume change failed", it) }
         }
@@ -477,10 +731,11 @@ internal object BitPerfectOutput {
 
     @Synchronized
     private fun reportAndroidMixerFallback(context: Context, rate: Int, channels: Int, bits: Int) {
-        if (AppSettings.bitPerfectMode.value != BitPerfectMode.USB_ANDROID ||
+        val manager = context.getSystemService(AudioManager::class.java) ?: return
+        val mode = resolveEffectiveMode(context, manager)
+        if (mode != BitPerfectMode.USB_ANDROID ||
             Build.VERSION.SDK_INT < 34 || owner != null || _status.value.active
         ) return
-        val manager = context.getSystemService(AudioManager::class.java) ?: return
         val device = MixerTransport.usbDevice(manager) ?: return
         val profiles = MixerTransport.bitPerfectProfiles(manager, device)
         val reason = when {
@@ -498,7 +753,9 @@ internal object BitPerfectOutput {
     /** Records that this stream could not be opened on the attached device. */
     @Synchronized
     fun markFailed(context: Context, sampleRate: Int, channels: Int, sourceBits: Int, reason: String) {
-        val mode = AppSettings.bitPerfectMode.value
+        val audio = context.getSystemService(AudioManager::class.java)
+        val mode = resolveEffectiveMode(context, audio)
+        effectiveMode = mode
         if (reason == ANDROID_MIXER_REJECTED && mode != BitPerfectMode.USB_ANDROID) return
         val deviceId = when (mode) {
             BitPerfectMode.USB_DIRECT ->
@@ -508,7 +765,7 @@ internal object BitPerfectOutput {
         // Android can reject an otherwise supported request while its route
         // is changing. The router falls back for this configuration, and a
         // later configuration is allowed to request the mixer again.
-        if (mode != BitPerfectMode.USB_ANDROID) {
+        if (mode != BitPerfectMode.USB_ANDROID && reason != "Wired Hi-Res route changed") {
             currentFailures(mode, deviceId).add(key(mode, deviceId, sampleRate, channels, sourceBits))
         }
         Log.i(TAG, "Bit-perfect output unavailable ($reason) for $sampleRate Hz/$channels ch/$sourceBits-bit")
@@ -523,7 +780,8 @@ internal object BitPerfectOutput {
 
     /** Clears an active status, leaving a fallback reason in place for the settings row. */
     fun publishIdle() {
-        if (_status.value.active || _status.value.openingUsb) _status.value = Status()
+        val current = _status.value
+        if ((current.active || current.openingUsb) && current.fallbackReason == null) _status.value = Status()
         recomputeReady()
     }
 

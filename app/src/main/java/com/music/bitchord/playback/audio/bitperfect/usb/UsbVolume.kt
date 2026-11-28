@@ -36,6 +36,7 @@ internal object UsbVolume {
          * setting must respect a DAC volume knob that was turned down since.
          */
         val restoreLimitDb: Double = 0.0,
+        val stepDb: Double = 0.0,
     )
 
     /**
@@ -176,20 +177,16 @@ internal object UsbVolume {
             private const val UAC2_RANGE = 2
             private const val UAC1_GET_CUR = 0x81
 
-            /** The quietest level the DAC is brought to before the first audio transfer. */
-            private const val STARTUP_DB = -40
-
             /**
-             * Reads every controlled channel's range and current level, then
-             * lowers each to at most [STARTUP_DB] — never raising one — and
-             * confirms by read-back before any audio may play.
+             * Reads every controlled channel's range and current level, leaving
+             * the DAC at its existing hardware volume so ReChord syncs to the
+             * DAC rather than overriding it.
              */
             fun open(control: UsbControl, feature: Feature): Volume {
                 val index = (feature.unit shl 8) or feature.interface_
                 val ranges = mutableListOf<List<Range>>()
                 var current = Short.MIN_VALUE.toInt()
                 var restoreLimit = Short.MAX_VALUE.toInt()
-                val startup = mutableListOf<Int>()
                 val original = mutableListOf<Int>()
                 for (channel in feature.channels) {
                     val selector = 0x200 or channel
@@ -199,7 +196,6 @@ internal object UsbVolume {
                     current = maxOf(current, level)
                     restoreLimit = minOf(restoreLimit, level)
                     original += level
-                    startup += minOf(level, STARTUP_DB * 256)
                     ranges += if (feature.uac2) {
                         control.transfer(true, UAC2_RANGE, selector, index, data)
                         val count = (data[0].toInt() and 255) or ((data[1].toInt() and 255) shl 8)
@@ -221,10 +217,11 @@ internal object UsbVolume {
                 }
                 val min = ranges.maxOf { r -> r.minOf { it.min } }
                 val max = minOf(ranges.minOf { r -> r.maxOf { it.max } }, 0)
-                if (min >= max || min > STARTUP_DB * 256) {
-                    throw IllegalStateException("USB volume cannot provide startup attenuation")
+                if (min >= max) {
+                    throw IllegalStateException("Invalid USB volume range")
                 }
-                val volume = Volume(
+                val maxStep = ranges.maxOf { r -> r.maxOf { it.step } }.coerceAtLeast(1)
+                return Volume(
                     feature,
                     ranges,
                     original,
@@ -234,16 +231,9 @@ internal object UsbVolume {
                         maxDb = max / 256.0,
                         currentDb = current / 256.0,
                         restoreLimitDb = restoreLimit / 256.0,
+                        stepDb = maxStep / 256.0,
                     ),
                 )
-                // Never raise the device's current volume on connection.
-                try {
-                    volume.setTargets(control, startup)
-                } catch (failure: Exception) {
-                    runCatching { volume.restore(control) }
-                    throw failure
-                }
-                return volume
             }
         }
     }

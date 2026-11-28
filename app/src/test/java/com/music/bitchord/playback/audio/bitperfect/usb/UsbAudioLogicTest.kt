@@ -138,10 +138,10 @@ class UsbAudioLogicTest {
     private val master = UsbVolume.Feature(unit = 2, interface_ = 0, uac2 = true, channels = listOf(0))
 
     @Test
-    fun startupAttenuatesWithoutRaisingAndRoundsDown() {
+    fun startupPreservesExistingLevelAndRoundsDownOnSet() {
         val io = Fake(0)
         val volume = UsbVolume.Volume.open(io, master)
-        assertEquals(-40.0, volume.snapshot.currentDb, 0.0)
+        assertEquals(0.0, volume.snapshot.currentDb, 0.0)
         assertEquals(-26.0, volume.set(io, -25.2).currentDb, 0.0)
         io.db = -70 * 256
         assertEquals(-70.0, UsbVolume.Volume.open(io, master).snapshot.currentDb, 0.0)
@@ -174,8 +174,10 @@ class UsbAudioLogicTest {
 
     @Test
     fun failedReadbackCannotReportSafeVolume() {
+        val io = Fake(0, mismatch = true)
+        val volume = UsbVolume.Volume.open(io, master)
         try {
-            UsbVolume.Volume.open(Fake(0, mismatch = true), master)
+            volume.set(io, -20.0)
             fail("expected a read-back failure")
         } catch (_: IllegalStateException) {
         }
@@ -228,7 +230,7 @@ class UsbAudioLogicTest {
         )
         val control = Uac1(-10 * 256)
         val volume = UsbVolume.Volume.open(control, UsbVolume.feature(raw, 0, 1, 2)!!)
-        assertEquals(-40.0, volume.snapshot.currentDb, 0.0)
+        assertEquals(-10.0, volume.snapshot.currentDb, 0.0)
         assertEquals(-23.5, volume.set(control, -23.1).currentDb, 0.0)
         for (invalid in listOf(Double.NaN, 2.0)) {
             try {
@@ -257,7 +259,7 @@ class UsbAudioLogicTest {
         val io = Stereo(intArrayOf(-70 * 256, -10 * 256))
         val volume = UsbVolume.Volume.open(io, UsbVolume.Feature(2, 0, true, listOf(1, 2)))
         assertEquals(-70 * 256, io.levels[0])
-        assertEquals(-40 * 256, io.levels[1])
+        assertEquals(-10 * 256, io.levels[1])
         assertEquals(-70.0, volume.snapshot.restoreLimitDb, 0.0)
     }
 }

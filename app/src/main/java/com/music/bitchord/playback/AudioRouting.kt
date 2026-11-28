@@ -177,7 +177,10 @@ object AudioRouting {
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
         AudioDeviceInfo.TYPE_WIRED_HEADSET,
         AudioDeviceInfo.TYPE_LINE_ANALOG,
+        AudioDeviceInfo.TYPE_LINE_DIGITAL,
         AudioDeviceInfo.TYPE_AUX_LINE,
+        AudioDeviceInfo.TYPE_DOCK,
+        AudioDeviceInfo.TYPE_DOCK_ANALOG,
         -> Kind.WIRED
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_HEADSET,
@@ -197,6 +200,7 @@ object AudioRouting {
         -> Kind.BLUETOOTH
         AudioDeviceInfo.TYPE_HDMI,
         AudioDeviceInfo.TYPE_HDMI_ARC,
+        AudioDeviceInfo.TYPE_HDMI_EARC,
         -> Kind.HDMI
         else -> null
     }

@@ -360,7 +360,12 @@ internal class BitPerfectAudioSink(
         }
         if (!advancingReported && playing && played > 0) {
             advancingReported = true
-            if (active.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
+            if (active.driver == BitPerfectDriver.USB_DIRECT ||
+                active.driver == BitPerfectDriver.AAUDIO_EXCLUSIVE ||
+                active.driver == BitPerfectDriver.DIRECT_PCM
+            ) {
+                publishStatus()
+            }
             listener?.onPositionAdvancing(System.currentTimeMillis() - playedUs / 1000)
         }
         return startMediaTimeUs + playedUs
@@ -371,6 +376,7 @@ internal class BitPerfectAudioSink(
         transportStarted = false
         if (transport != null) pausedAtMs = NOT_PAUSED
         resetCounters()
+        if (BitPerfectOutput.status.value.fallbackReason != null) return
         if (transport is MixerTransport) outputs.publish(BitPerfectOutput.Status(openingUsb = true))
         else if (transport?.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
     }
@@ -693,11 +699,12 @@ internal class BitPerfectAudioSink(
                 validOutputBits = active.validBits,
                 dacOutputVerified = active.driver == BitPerfectDriver.USB_DIRECT && advancingReported,
                 androidMixerOutputVerified = active is MixerTransport,
+                exclusiveOutputVerified = (active.driver == BitPerfectDriver.AAUDIO_EXCLUSIVE ||
+                    active.driver == BitPerfectDriver.DIRECT_PCM) && advancingReported,
                 openingUsb = active.driver == BitPerfectDriver.USB_DIRECT && !advancingReported,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,
-                exact = exact && converter == null &&
-                    (active as? com.music.bitchord.playback.audio.bitperfect.usb.UsbDirectTransport)?.softwareVolume != true,
+                exact = exact && converter == null,
                 dacLimited = converter != null,
             ),
         )
@@ -730,6 +737,10 @@ internal class BitPerfectAudioSink(
         if (transport is MixerTransport) {
             current?.let {
                 outputs.markFailed(it.sampleRate, it.channelCount, it.sourceBits, BitPerfectOutput.ANDROID_MIXER_REJECTED)
+            }
+        } else if (transport is DirectAudioTrackTransport) {
+            current?.let {
+                outputs.markFailed(it.sampleRate, it.channelCount, it.sourceBits, error.message ?: "direct_pcm_failed")
             }
         }
         return AudioSink.WriteException(

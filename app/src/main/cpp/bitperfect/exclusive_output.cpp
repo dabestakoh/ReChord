@@ -98,47 +98,54 @@ public:
         std::ostringstream attempts;
         attempts << "requested=" << rate << "Hz/" << channels << "ch/" << precision
                  << "bit, device=" << device;
+        const oboe::PerformanceMode performanceModes[] = {
+            oboe::PerformanceMode::LowLatency,
+            oboe::PerformanceMode::None,
+        };
         for (auto format : formats) {
-            oboe::AudioStreamBuilder builder;
-            builder.setDirection(oboe::Direction::Output)
-                ->setAudioApi(oboe::AudioApi::AAudio)
-                ->setSharingMode(oboe::SharingMode::Exclusive)
-                ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-                ->setUsage(oboe::Usage::Media)
-                ->setContentType(oboe::ContentType::Music)
-                ->setSampleRate(rate)
-                ->setChannelCount(channels)
-                ->setFormat(format)
-                ->setDeviceId(device)
-                ->setDataCallback(this)
-                ->setChannelConversionAllowed(false)
-                ->setFormatConversionAllowed(false)
-                ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::None);
-            const auto result = builder.openStream(stream);
-            attempts << "; format=" << oboe::convertToText(format);
-            if (result != oboe::Result::OK) {
-                attempts << " open=" << oboe::convertToText(result);
-                continue;
+            for (auto perfMode : performanceModes) {
+                oboe::AudioStreamBuilder builder;
+                builder.setDirection(oboe::Direction::Output)
+                    ->setAudioApi(oboe::AudioApi::AAudio)
+                    ->setSharingMode(oboe::SharingMode::Exclusive)
+                    ->setPerformanceMode(perfMode)
+                    ->setUsage(oboe::Usage::Media)
+                    ->setContentType(oboe::ContentType::Music)
+                    ->setSampleRate(rate)
+                    ->setChannelCount(channels)
+                    ->setFormat(format)
+                    ->setDeviceId(device)
+                    ->setDataCallback(this)
+                    ->setChannelConversionAllowed(false)
+                    ->setFormatConversionAllowed(false)
+                    ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::None);
+                const auto result = builder.openStream(stream);
+                attempts << "; format=" << oboe::convertToText(format)
+                         << "/perf=" << oboe::convertToText(perfMode);
+                if (result != oboe::Result::OK) {
+                    attempts << " open=" << oboe::convertToText(result);
+                    continue;
+                }
+                // Exclusive is a request: Android can silently return Shared. Reject
+                // that stream instead of showing a misleading exclusive badge.
+                if (stream->getAudioApi() == oboe::AudioApi::AAudio &&
+                    stream->getSharingMode() == oboe::SharingMode::Exclusive &&
+                    stream->getSampleRate() == rate && stream->getChannelCount() == channels &&
+                    stream->getFormat() == format && (device == 0 || stream->getDeviceId() == device)) {
+                    floatOutput = format == oboe::AudioFormat::Float;
+                    bits = format == oboe::AudioFormat::I16 ? 16 : format == oboe::AudioFormat::I24 ? 24 : 32;
+                    frameBytes = channels * (bits / 8);
+                    ring.resize(static_cast<size_t>(rate / 4) * frameBytes);
+                    return;
+                }
+                attempts << " actual=" << oboe::convertToText(stream->getSharingMode()) << "/"
+                         << stream->getSampleRate() << "Hz/" << stream->getChannelCount() << "ch/"
+                         << oboe::convertToText(stream->getFormat())
+                         << ", api=" << oboe::convertToText(stream->getAudioApi())
+                         << ", device=" << stream->getDeviceId();
+                stream->close();
+                stream.reset();
             }
-            // Exclusive is a request: Android can silently return Shared. Reject
-            // that stream instead of showing a misleading exclusive badge.
-            if (stream->getAudioApi() == oboe::AudioApi::AAudio &&
-                stream->getSharingMode() == oboe::SharingMode::Exclusive &&
-                stream->getSampleRate() == rate && stream->getChannelCount() == channels &&
-                stream->getFormat() == format && (device == 0 || stream->getDeviceId() == device)) {
-                floatOutput = format == oboe::AudioFormat::Float;
-                bits = format == oboe::AudioFormat::I16 ? 16 : format == oboe::AudioFormat::I24 ? 24 : 32;
-                frameBytes = channels * (bits / 8);
-                ring.resize(static_cast<size_t>(rate / 4) * frameBytes);
-                return;
-            }
-            attempts << " actual=" << oboe::convertToText(stream->getSharingMode()) << "/"
-                     << stream->getSampleRate() << "Hz/" << stream->getChannelCount() << "ch/"
-                     << oboe::convertToText(stream->getFormat())
-                     << ", api=" << oboe::convertToText(stream->getAudioApi())
-                     << ", device=" << stream->getDeviceId();
-            stream->close();
-            stream.reset();
         }
         throw std::runtime_error("Exact-rate AAudio exclusive output unavailable: " + attempts.str());
     }

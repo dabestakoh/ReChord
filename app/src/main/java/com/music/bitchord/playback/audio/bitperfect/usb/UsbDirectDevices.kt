@@ -44,6 +44,7 @@ internal object UsbDirectDevices {
     private var appContext: Context? = null
     private var permissionAction = ""
     private var requested: Int? = null
+    private val declined = HashSet<Int>()
     private val descriptors = HashMap<Int, ByteArray>()
     private val volumes = HashMap<Int, Double>()
 
@@ -64,12 +65,16 @@ internal object UsbDirectDevices {
                     synchronized(this@UsbDirectDevices) {
                         descriptors.remove(device.deviceId)
                         volumes.remove(device.deviceId)
+                        declined.remove(device.deviceId)
                         if (requested == device.deviceId) requested = null
                     }
                     onDetached?.invoke(device.deviceId)
                     onChanged?.invoke()
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    synchronized(this@UsbDirectDevices) {
+                        declined.remove(device.deviceId)
+                    }
                     // When UsbAttachActivity is enabled and permission is not yet granted,
                     // let Android's single system attach dialog handle it instead of firing
                     // a duplicate requestPermission() from PlaybackService.
@@ -78,8 +83,11 @@ internal object UsbDirectDevices {
                     }
                 }
                 permissionAction -> {
-                    synchronized(this@UsbDirectDevices) { requested = null }
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    synchronized(this@UsbDirectDevices) {
+                        requested = null
+                        if (granted) declined.remove(device.deviceId) else declined.add(device.deviceId)
+                    }
                     Log.i(TAG, "USB permission for ${device.productName}: $granted")
                     if (granted) onChanged?.invoke()
                 }
@@ -116,12 +124,13 @@ internal object UsbDirectDevices {
             }
         }
 
-    /** Asks Android for permission to the attached DAC, once per attachment. */
+    /** Asks Android for permission to the attached DAC, once per attachment unless [force] is true. */
     @Synchronized
-    fun requestPermission(context: Context) {
+    fun requestPermission(context: Context, force: Boolean = false) {
         val manager = manager(context) ?: return
         val device = audioDevice(manager) ?: return
-        if (manager.hasPermission(device) || requested == device.deviceId) return
+        if (force) declined.remove(device.deviceId)
+        if (manager.hasPermission(device) || requested == device.deviceId || device.deviceId in declined) return
         requested = device.deviceId
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0

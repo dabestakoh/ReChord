@@ -17,6 +17,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -299,18 +300,19 @@ fun AudioPipelineDialog(
             val audioTrackMatchesSource = nerdStats?.mediaId?.let { it == outputStatus.audioTrackMediaId } == true
             val comparableAudioTrackRate = outputStatus.actualSampleRateHz.takeIf { audioTrackMatchesSource }
             val verifiedUsb = bitPerfect.dacOutputVerified || bitPerfect.androidMixerOutputVerified
+            val verifiedDedicated = verifiedUsb || bitPerfect.exclusiveOutputVerified
             val fidelity = AudioFidelity.assess(
                 AudioFidelity.Inputs(
                     routeKind = if (verifiedUsb) AudioRouting.Kind.USB else outputStatus.routeKind,
                     usbOpening = bitPerfect.openingUsb,
                     // This driver owns the audio stream when active. Its telemetry,
                     // not the old AudioTrack snapshot, describes the DAC endpoint.
-                    verifiedTransportActive = verifiedUsb,
+                    verifiedTransportActive = verifiedDedicated,
                     verifiedTransportExact = bitPerfect.active && bitPerfect.exact,
                     transportDescription = bitPerfect.driver,
                     dacLimited = bitPerfect.active && bitPerfect.dacLimited,
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
-                    outputBits = bitPerfect.validOutputBits.takeIf { verifiedUsb && it > 0 },
+                    outputBits = bitPerfect.validOutputBits.takeIf { verifiedDedicated && it > 0 },
                     outputExact = !bitPerfect.active && outputStatus.outputExact,
                     // reset() clears the exactness detail while a new decoder/sink
                     // is being configured. Unknown is not proof of PCM loss.
@@ -501,9 +503,12 @@ fun AudioPipelineDialog(
                 val hasAudioTrackEvidence = !bitPerfect.active && audioTrackMatchesSource &&
                     outputStatus.actualEncoding != null && outputStatus.actualSampleRateHz != null &&
                     outputStatus.outputExactDetail != null
-                if (bitPerfect.dacOutputVerified || hasAudioTrackEvidence) {
+                val verifiedDedicated = bitPerfect.dacOutputVerified ||
+                    bitPerfect.exclusiveOutputVerified ||
+                    bitPerfect.androidMixerOutputVerified
+                if (verifiedDedicated || hasAudioTrackEvidence) {
                     PipelineRow(
-                        if (bitPerfect.dacOutputVerified) "Bit-exact to DAC" else "Bit-exact to AudioTrack",
+                        if (verifiedDedicated) "Bit-exact to DAC" else "Bit-exact to AudioTrack",
                         bitExactVerdict(
                             dsd = dsdRateHz != null,
                             bitPerfect = bitPerfect,
@@ -553,10 +558,33 @@ fun AudioPipelineDialog(
                 stageActivationProvider = stageActivation,
                 onStageIconPositioned = onStageIconPositioned,
             ) {
+                val verifiedDedicated = bitPerfect.dacOutputVerified ||
+                    bitPerfect.exclusiveOutputVerified ||
+                    bitPerfect.androidMixerOutputVerified
+                val verifiedUsb = bitPerfect.dacOutputVerified || bitPerfect.androidMixerOutputVerified
+                val routeLabel = if (verifiedUsb) {
+                    "USB"
+                } else {
+                    when (outputStatus.routeKind) {
+                        com.music.bitchord.playback.AudioRouting.Kind.USB -> "USB"
+                        com.music.bitchord.playback.AudioRouting.Kind.WIRED -> "Wired"
+                        com.music.bitchord.playback.AudioRouting.Kind.BLUETOOTH -> "Bluetooth"
+                        com.music.bitchord.playback.AudioRouting.Kind.HDMI -> "HDMI"
+                        com.music.bitchord.playback.AudioRouting.Kind.PHONE -> "Phone Speaker"
+                        com.music.bitchord.playback.AudioRouting.Kind.OTHER -> "Audio Output"
+                    }
+                }
                 PipelineRow(stringResource(R.string.pipeline_device_name), bitPerfect.deviceName ?: deviceName)
-                PipelineRow("Route", if (bitPerfect.dacOutputVerified) "USB" else outputStatus.routeKind.name)
-                if (bitPerfect.dacOutputVerified) {
-                    PipelineRow("Transport", bitPerfect.driver ?: "Direct USB")
+                PipelineRow("Route", routeLabel)
+                if (verifiedDedicated) {
+                    PipelineRow(
+                        "Transport",
+                        bitPerfect.driver ?: when {
+                            bitPerfect.dacOutputVerified -> "Direct USB"
+                            bitPerfect.androidMixerOutputVerified -> "Android 14+ USB (Bit-Perfect)"
+                            else -> "Direct Hi-Res PCM"
+                        },
+                    )
                     val channelText = when (bitPerfect.channelCount) {
                         1 -> stringResource(R.string.mono)
                         2 -> stringResource(R.string.stereo)
@@ -578,7 +606,12 @@ fun AudioPipelineDialog(
                         if (bitPerfect.sourceBits > bitPerfect.validOutputBits) {
                             add("Reduced ${bitPerfect.sourceBits} → ${bitPerfect.validOutputBits} bit")
                         }
-                        if (isEmpty() && !bitPerfect.exact) add("PCM samples changed in the USB output path")
+                        if (isEmpty() && !bitPerfect.exact) {
+                            add(
+                                if (verifiedUsb) "PCM samples changed in the USB output path"
+                                else "PCM samples changed in the output path",
+                            )
+                        }
                     }
                     if (changes.isNotEmpty()) PipelineRow("Changes", changes.joinToString(" · "))
                 } else if (!bitPerfect.active && audioTrackEncoding != null && audioTrackRate != null) {
@@ -587,9 +620,9 @@ fun AudioPipelineDialog(
                 if (bitPerfect.fallbackReason == BitPerfectOutput.NO_ANDROID_MIXER_PROFILE) {
                     PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.usb_standard_android))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_FORMAT_MISMATCH) {
-                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_format_mismatch))
+                    PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.bit_perfect_usb_format_mismatch))
                 } else if (bitPerfect.fallbackReason == BitPerfectOutput.ANDROID_MIXER_REJECTED) {
-                    PipelineRow("Android bit-perfect", stringResource(R.string.bit_perfect_usb_request_failed))
+                    PipelineRow(stringResource(R.string.pipeline_usb_mode), stringResource(R.string.bit_perfect_usb_request_failed))
                 }
 
                 outputStatus.usbEndpointFormat?.let {
@@ -860,12 +893,29 @@ private fun calculateStageActivation(
 /** The one number, and the arithmetic behind it. */
 @Composable
 private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
-    val accent = if (assessment.score >= 72) Color.White else Color(0xFFFFB86B)
-    val animatedScore by animateFloatAsState(
+    val reduceAnimation by AppSettings.reduceAnimation.collectAsStateWithLifecycle()
+    val badgeColor = when {
+        assessment.verification == AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
+        assessment.outputLabel == "Bluetooth Wireless" -> Color(0xFF9DB4FF)
+        assessment.verification == AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
+        assessment.outputLabel.startsWith("High-Precision") || assessment.outputLabel == "Direct Output" ->
+            Color(0xFF74C7FF)
+        else -> Color.White.copy(alpha = 0.78f)
+    }
+    val accent = when {
+        assessment.verification == AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
+        assessment.outputLabel == "Bluetooth Wireless" -> Color(0xFF9DB4FF)
+        assessment.verification == AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
+        assessment.outputLabel.startsWith("High-Precision") || assessment.outputLabel == "Direct Output" ->
+            Color(0xFF74C7FF)
+        else -> Color.White
+    }
+    val animatedTarget by animateFloatAsState(
         targetValue = assessment.score.toFloat(),
         animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "fidelityScore",
     )
+    val animatedScore = if (reduceAnimation) assessment.score.toFloat() else animatedTarget
 
     Column(
         modifier = Modifier
@@ -953,16 +1003,19 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
                     color = Color.White,
                     modifier = Modifier.padding(top = 1.dp),
                 )
-                Text(
-                    text = assessment.outputLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = when (assessment.verification) {
-                        AudioFidelity.Verification.VERIFIED -> Color(0xFF84D9AE)
-                        AudioFidelity.Verification.MODIFIED -> Color(0xFFFFB86B)
-                        AudioFidelity.Verification.UNVERIFIED -> Color.White.copy(alpha = 0.65f)
-                    },
-                    modifier = Modifier.padding(top = 3.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 5.dp)
+                        .background(badgeColor.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
+                        .border(0.5.dp, badgeColor.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = assessment.outputLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        color = badgeColor,
+                    )
+                }
 
             }
         }
@@ -980,11 +1033,11 @@ private fun FidelitySummary(assessment: AudioFidelity.Assessment) {
         if (shown.isEmpty()) {
             Text(
                 text = when (assessment.verification) {
-                    AudioFidelity.Verification.VERIFIED -> "No PCM conversion detected"
+                    AudioFidelity.Verification.VERIFIED -> "Exact audio sent to DAC"
                     AudioFidelity.Verification.UNVERIFIED ->
-                        if (assessment.grade == "PCM Preserved") "No PCM conversion detected"
-                        else "Awaiting PCM output details"
-                    AudioFidelity.Verification.MODIFIED -> "Audio changed during playback"
+                        if (assessment.grade == "Full-Resolution") assessment.verificationDetail
+                        else "Checking output…"
+                    AudioFidelity.Verification.MODIFIED -> "Audio adjusted"
                 },
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                 color = Color.White.copy(alpha = 0.68f),

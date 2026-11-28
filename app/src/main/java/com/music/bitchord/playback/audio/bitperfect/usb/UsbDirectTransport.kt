@@ -232,7 +232,7 @@ internal class UsbDirectTransport private constructor(
         private const val MAX_WRITE = 256 * 1024
 
         private fun computeGain(level: Float): Double =
-            if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
+            if (level <= 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 3.0)
 
         private fun nativeControl(nativeHandle: Long): UsbControl = UsbControl { input, request, value, index, data ->
             val reply = UsbDirectNative.control(nativeHandle, input, request, value, index, data)
