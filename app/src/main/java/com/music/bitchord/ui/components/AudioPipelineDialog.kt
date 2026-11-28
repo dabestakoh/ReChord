@@ -299,18 +299,19 @@ fun AudioPipelineDialog(
             val audioTrackMatchesSource = nerdStats?.mediaId?.let { it == outputStatus.audioTrackMediaId } == true
             val comparableAudioTrackRate = outputStatus.actualSampleRateHz.takeIf { audioTrackMatchesSource }
             val verifiedUsb = bitPerfect.dacOutputVerified || bitPerfect.androidMixerOutputVerified
+            val verifiedDedicated = verifiedUsb || bitPerfect.exclusiveOutputVerified
             val fidelity = AudioFidelity.assess(
                 AudioFidelity.Inputs(
                     routeKind = if (verifiedUsb) AudioRouting.Kind.USB else outputStatus.routeKind,
                     usbOpening = bitPerfect.openingUsb,
                     // This driver owns the audio stream when active. Its telemetry,
                     // not the old AudioTrack snapshot, describes the DAC endpoint.
-                    verifiedTransportActive = verifiedUsb,
+                    verifiedTransportActive = verifiedDedicated,
                     verifiedTransportExact = bitPerfect.active && bitPerfect.exact,
                     transportDescription = bitPerfect.driver,
                     dacLimited = bitPerfect.active && bitPerfect.dacLimited,
                     sourceBits = bitPerfect.sourceBits.takeIf { bitPerfect.active && it > 0 },
-                    outputBits = bitPerfect.validOutputBits.takeIf { verifiedUsb && it > 0 },
+                    outputBits = bitPerfect.validOutputBits.takeIf { verifiedDedicated && it > 0 },
                     outputExact = !bitPerfect.active && outputStatus.outputExact,
                     // reset() clears the exactness detail while a new decoder/sink
                     // is being configured. Unknown is not proof of PCM loss.
@@ -555,8 +556,8 @@ fun AudioPipelineDialog(
             ) {
                 PipelineRow(stringResource(R.string.pipeline_device_name), bitPerfect.deviceName ?: deviceName)
                 PipelineRow("Route", if (bitPerfect.dacOutputVerified) "USB" else outputStatus.routeKind.name)
-                if (bitPerfect.dacOutputVerified) {
-                    PipelineRow("Transport", bitPerfect.driver ?: "Direct USB")
+                if (bitPerfect.dacOutputVerified || bitPerfect.exclusiveOutputVerified) {
+                    PipelineRow("Transport", bitPerfect.driver ?: if (bitPerfect.dacOutputVerified) "Direct USB" else "Direct Hi-Res PCM")
                     val channelText = when (bitPerfect.channelCount) {
                         1 -> stringResource(R.string.mono)
                         2 -> stringResource(R.string.stereo)
@@ -578,7 +579,12 @@ fun AudioPipelineDialog(
                         if (bitPerfect.sourceBits > bitPerfect.validOutputBits) {
                             add("Reduced ${bitPerfect.sourceBits} → ${bitPerfect.validOutputBits} bit")
                         }
-                        if (isEmpty() && !bitPerfect.exact) add("PCM samples changed in the USB output path")
+                        if (isEmpty() && !bitPerfect.exact) {
+                            add(
+                                if (bitPerfect.dacOutputVerified) "PCM samples changed in the USB output path"
+                                else "PCM samples changed in the output path",
+                            )
+                        }
                     }
                     if (changes.isNotEmpty()) PipelineRow("Changes", changes.joinToString(" · "))
                 } else if (!bitPerfect.active && audioTrackEncoding != null && audioTrackRate != null) {

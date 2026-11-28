@@ -89,6 +89,7 @@ internal object BitPerfectOutput {
         val fallbackReason: String? = null,
         val openingUsb: Boolean = false,
         val androidMixerOutputVerified: Boolean = false,
+        val exclusiveOutputVerified: Boolean = false,
     )
 
     private val _status = MutableStateFlow(Status())
@@ -469,36 +470,35 @@ internal object BitPerfectOutput {
             }
             BitPerfectMode.DAP_EXCLUSIVE -> {
                 if (Build.VERSION.SDK_INT < 27) throw BitPerfectTransportException("android_version")
-                ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                try {
+                    ExclusiveTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                } catch (error: BitPerfectTransportException) {
+                    if (error.message == "exclusive_unavailable" && Build.VERSION.SDK_INT >= 29) {
+                        DirectAudioTrackTransport.open(manager, sampleRate, channels, sourceBits, convert)
+                    } else {
+                        throw error
+                    }
+                }
             }
             BitPerfectMode.USB_DIRECT -> {
                 val usb = UsbDirectDevices.manager(context) ?: throw BitPerfectTransportException("no_usb")
                 val device = UsbDirectDevices.audioDevice(usb) ?: throw BitPerfectTransportException("no_usb")
                 if (!usb.hasPermission(device)) throw BitPerfectTransportException("permission_denied")
-                val approved = isFixedVolumeApproved(context, device)
-                val opened = try {
-                    UsbDirectTransport.open(
-                        manager = usb,
-                        device = device,
-                        rate = sampleRate,
-                        channels = channels,
-                        sourceBits = sourceBits,
-                        convert = convert,
-                        allowFixedVolume = approved,
-                        rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
-                        softwareVolume = AppSettings.usbSoftwareVolume.value,
-                        softwareLevel = softwareLevels[device.deviceId] ?: 0.5f,
-                        keepAliveSpeaker = context.getSystemService(AudioManager::class.java)
-                            ?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                            ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER },
-                    )
-                } catch (error: BitPerfectTransportException) {
-                    if (error.message == "volume_unavailable" && !approved) {
-                        requestFixedVolumeApproval(context, device)
-                    }
-                    throw error
-                }
-                opened
+                UsbDirectTransport.open(
+                    manager = usb,
+                    device = device,
+                    rate = sampleRate,
+                    channels = channels,
+                    sourceBits = sourceBits,
+                    convert = convert,
+                    allowFixedVolume = true,
+                    rememberedDb = UsbDirectDevices.rememberedVolume(device.deviceId),
+                    softwareVolume = AppSettings.usbSoftwareVolume.value,
+                    softwareLevel = softwareLevels[device.deviceId] ?: 0.5f,
+                    keepAliveSpeaker = context.getSystemService(AudioManager::class.java)
+                        ?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                        ?.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER },
+                )
             }
         }
         owner = requester

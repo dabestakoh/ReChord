@@ -15,6 +15,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioProfile
+import android.media.AudioTrack
 import android.os.Build
 import androidx.annotation.RequiresApi
 
@@ -68,15 +69,74 @@ object DirectAudioProbe {
         channelCount: Int,
         activeDevice: AudioDeviceInfo? = null,
     ): DirectSupport {
-        if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return DirectSupport.NONE
         }
 
         return try {
-            probeDirectSupportApi33(audioManager, sampleRateHz, channelCount, activeDevice)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                probeDirectSupportApi33(audioManager, sampleRateHz, channelCount, activeDevice)
+            } else {
+                probeDirectSupportApi29(sampleRateHz, channelCount)
+            }
         } catch (_: Throwable) {
             DirectSupport.NONE
         }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun probeDirectSupportApi29(
+        sampleRateHz: Int,
+        channelCount: Int,
+    ): DirectSupport {
+        val channelMask = if (channelCount == 1) {
+            AudioFormat.CHANNEL_OUT_MONO
+        } else {
+            AudioFormat.CHANNEL_OUT_STEREO
+        }
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+
+        @Suppress("DEPRECATION")
+        fun supported(encoding: Int): Boolean = runCatching {
+            val format = AudioFormat.Builder()
+                .setEncoding(encoding)
+                .setSampleRate(sampleRateHz)
+                .setChannelMask(channelMask)
+                .build()
+            AudioTrack.isDirectPlaybackSupported(format, attributes)
+        }.getOrDefault(false)
+
+        val supportsFloatDirect = supported(AudioFormat.ENCODING_PCM_FLOAT)
+        val supportsPcm24Direct = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (supported(AudioFormat.ENCODING_PCM_24BIT_PACKED) || supported(AudioFormat.ENCODING_PCM_32BIT))
+        val supportsPcm16Direct = supported(AudioFormat.ENCODING_PCM_16BIT)
+        val anyDirect = supportsFloatDirect || supportsPcm24Direct || supportsPcm16Direct
+
+        val description = buildString {
+            if (anyDirect) {
+                append("Direct PCM supported: ")
+                val formats = mutableListOf<String>()
+                if (supportsFloatDirect) formats.add("Float32")
+                if (supportsPcm24Direct) formats.add("24-bit")
+                if (supportsPcm16Direct) formats.add("16-bit")
+                append(formats.joinToString("/"))
+                append(" @ $sampleRateHz Hz")
+            } else {
+                append("Direct PCM not exposed for $sampleRateHz Hz (AudioFlinger mixer route)")
+            }
+        }
+
+        return DirectSupport(
+            isDirectSupported = anyDirect,
+            isOffloadSupported = false,
+            supportsFloat = supportsFloatDirect,
+            supportsPcm24 = supportsPcm24Direct,
+            supportsPcm16 = supportsPcm16Direct,
+            description = description,
+        )
     }
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)

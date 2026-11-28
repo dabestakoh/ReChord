@@ -360,7 +360,12 @@ internal class BitPerfectAudioSink(
         }
         if (!advancingReported && playing && played > 0) {
             advancingReported = true
-            if (active.driver == BitPerfectDriver.USB_DIRECT) publishStatus()
+            if (active.driver == BitPerfectDriver.USB_DIRECT ||
+                active.driver == BitPerfectDriver.AAUDIO_EXCLUSIVE ||
+                active.driver == BitPerfectDriver.DIRECT_PCM
+            ) {
+                publishStatus()
+            }
             listener?.onPositionAdvancing(System.currentTimeMillis() - playedUs / 1000)
         }
         return startMediaTimeUs + playedUs
@@ -693,6 +698,8 @@ internal class BitPerfectAudioSink(
                 validOutputBits = active.validBits,
                 dacOutputVerified = active.driver == BitPerfectDriver.USB_DIRECT && advancingReported,
                 androidMixerOutputVerified = active is MixerTransport,
+                exclusiveOutputVerified = (active.driver == BitPerfectDriver.AAUDIO_EXCLUSIVE ||
+                    active.driver == BitPerfectDriver.DIRECT_PCM) && advancingReported,
                 openingUsb = active.driver == BitPerfectDriver.USB_DIRECT && !advancingReported,
                 sourceBits = current?.sourceBits ?: 0,
                 sourceRateHz = current?.sampleRate ?: 0,

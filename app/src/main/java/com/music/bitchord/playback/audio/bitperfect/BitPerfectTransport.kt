@@ -68,6 +68,7 @@ internal enum class BitPerfectDriver(val label: String, val releasesWhenIdle: Bo
     ANDROID_MIXER("Android bit-perfect mixer", releasesWhenIdle = false),
     USB_DIRECT("Direct USB", releasesWhenIdle = true),
     AAUDIO_EXCLUSIVE("AAudio exclusive", releasesWhenIdle = true),
+    DIRECT_PCM("Direct Hi-Res PCM", releasesWhenIdle = false),
 }
 
 internal class BitPerfectTransportException(message: String, cause: Throwable? = null) : Exception(message, cause)

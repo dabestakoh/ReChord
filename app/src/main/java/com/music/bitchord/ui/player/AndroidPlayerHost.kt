@@ -375,7 +375,7 @@ private fun AudioOutputStatus.Snapshot.toOutputFormat(bitPerfect: BitPerfectOutp
     val dacLimited = bitPerfect.active && bitPerfect.dacLimited
     return OutputFormatUi(
         summary = if (dacLimited) "$format · DAC max" else format,
-        bitPerfect = bitPerfect.dacOutputVerified && bitPerfect.exact,
+        bitPerfect = (bitPerfect.dacOutputVerified || bitPerfect.exclusiveOutputVerified) && bitPerfect.exact,
         dacLimited = dacLimited,
     )
 }

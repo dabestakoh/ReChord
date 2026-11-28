@@ -8476,12 +8476,18 @@ class PlaybackService : MediaLibraryService() {
         val routeKind = resolveActiveRouteKind(activeDevice)
         val encodings = activeDevice?.encodings ?: intArrayOf()
         val mode = AppSettings.outputPcmMode.value
-        val advertisesFloat = AudioFormat.ENCODING_PCM_FLOAT in encodings ||
-            (mode == OutputPcmMode.AUTO && routeKind == AudioRouting.Kind.USB &&
-                (AudioFormat.ENCODING_PCM_24BIT_PACKED in encodings || AudioFormat.ENCODING_PCM_32BIT in encodings))
-        val directFloatSupported = audioManager?.let { mgr ->
-            DirectAudioProbe.probeDirectSupport(mgr, 48000, 2, activeDevice).supportsFloat
-        } ?: false
+        val isExternalWiredOrUsb = routeKind == AudioRouting.Kind.USB ||
+            routeKind == AudioRouting.Kind.WIRED ||
+            routeKind == AudioRouting.Kind.HDMI
+        val advertisesHiRes = AudioFormat.ENCODING_PCM_FLOAT in encodings ||
+            (isExternalWiredOrUsb &&
+                (AudioFormat.ENCODING_PCM_24BIT_PACKED in encodings || AudioFormat.ENCODING_PCM_32BIT in encodings)) ||
+            (mode == OutputPcmMode.FLOAT_32 && routeKind == AudioRouting.Kind.WIRED)
+        val directSupport = audioManager?.let { mgr ->
+            DirectAudioProbe.probeDirectSupport(mgr, 48000, 2, activeDevice)
+        }
+        val directHiResSupported = directSupport != null &&
+            (directSupport.supportsFloat || (isExternalWiredOrUsb && directSupport.supportsPcm24))
         // Worth knowing which way this cuts for a hi-res stream: with float
         // off, Media3 downconverts *every* input encoding to 16-bit, because
         // float and 16-bit are the only two linear-PCM tracks its sink can
@@ -8489,9 +8495,9 @@ class PlaybackService : MediaLibraryService() {
         // so "32-bit float" in Output precision is the setting that preserves
         // a hi-res source, not the one that embellishes it.
         return AudioOutputPolicy.shouldUseFloatOutput(
-            requestedMode = AppSettings.outputPcmMode.value,
+            requestedMode = mode,
             routeKind = routeKind,
-            advertisesPcmFloat = advertisesFloat || directFloatSupported,
+            advertisesPcmFloat = advertisesHiRes || directHiResSupported,
             bluetoothCodecBitDepth = bluetoothCodecBitDepth(routeKind),
         )
     }

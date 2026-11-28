@@ -699,8 +699,9 @@ fun SettingsScreen(
                     icon = SfIcons.GraphicEq,
                     title = outputPrecisionTitle,
                     subtitle = when {
-                        bitPerfectStatus.dacOutputVerified -> "${bitPerfectStatus.outputBits}-bit PCM · " +
-                            "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
+                        bitPerfectStatus.dacOutputVerified || bitPerfectStatus.exclusiveOutputVerified ->
+                            "${bitPerfectStatus.outputBits}-bit PCM · " +
+                                "${bitPerfectStatus.sampleRateHz / 1000.0} kHz · ${bitPerfectStatus.driver}"
                         !bitPerfectStatus.active && outputStatus.actualEncoding != null ->
                             listOfNotNull(
                                 AudioOutputStatus.encodingLabel(outputStatus),
@@ -802,29 +803,6 @@ fun SettingsScreen(
                         subtitle = stringResource(R.string.usb_software_volume_subtitle),
                         checked = softwareVolumeEnabled,
                         onCheckedChange = AppSettings::setUsbSoftwareVolume,
-                    )
-                }
-            }
-            if (bitPerfectMode == BitPerfectMode.USB_DIRECT && fixedVolumeDevice != null) {
-                // This permission is remembered for the connected DAC only.
-                // A new DAC cannot inherit a global full-scale playback opt-in.
-                val device = fixedVolumeDevice!!
-                val fixedVolumeTitle = stringResource(R.string.usb_volume_fixed_permission)
-                row(fixedVolumeTitle, "volume", "usb", "dac", divided = false) {
-                    SettingsSubRow(
-                        title = fixedVolumeTitle,
-                        subtitle = "${device.label} · " +
-                            if (device.approved) "Approved for fixed-volume output"
-                            else "Off unless this DAC is explicitly approved",
-                        checked = device.approved,
-                        onCheckedChange = { on ->
-                            if (on) {
-                                BitPerfectOutput.requestCurrentFixedVolumeApproval()
-                                onConfirmFixedVolume()
-                            } else {
-                                BitPerfectOutput.revokeFixedVolume(context)
-                            }
-                        },
                     )
                 }
             }
