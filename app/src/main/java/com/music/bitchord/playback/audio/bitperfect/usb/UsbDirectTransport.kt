@@ -15,6 +15,7 @@ import android.hardware.usb.UsbManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.util.Log
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectDriver
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransport
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransportException
@@ -312,6 +313,8 @@ private class SilentKeepAlive {
         runCatching {
             val active = track ?: createTrack().also { track = it } ?: return
             if (active.playState != AudioTrack.PLAYSTATE_PLAYING) active.play()
+        }.onFailure {
+            Log.w("UsbDirectTransport", "SilentKeepAlive start failed", it)
         }
     }
 
@@ -335,8 +338,14 @@ private class SilentKeepAlive {
 
     private fun createTrack(): AudioTrack? {
         val sampleRate = 48_000
-        val frames = sampleRate / 10 // 100 ms of silence
-        val bytes = frames * 2
+        val minBytes = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+        ).coerceAtLeast(0)
+        val rawBytes = maxOf(minBytes, (sampleRate / 5) * 2)
+        val bytes = (rawBytes + 1) and 1.inv()
+        val frames = bytes / 2
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -355,12 +364,17 @@ private class SilentKeepAlive {
             .setTransferMode(AudioTrack.MODE_STATIC)
             .build()
         if (t.state != AudioTrack.STATE_INITIALIZED) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive track failed to initialize (bytes=$bytes)")
             t.release()
             return null
         }
         t.write(ByteArray(bytes), 0, bytes)
-        t.setLoopPoints(0, frames, -1)
+        val loopStatus = t.setLoopPoints(0, frames, -1)
+        if (loopStatus != AudioTrack.SUCCESS) {
+            Log.w("UsbDirectTransport", "SilentKeepAlive setLoopPoints failed: $loopStatus")
+        }
         t.setVolume(0f)
+        Log.i("UsbDirectTransport", "SilentKeepAlive initialized (frames=$frames, bytes=$bytes)")
         return t
     }
 }
