@@ -100,6 +100,20 @@ static void ringBufferWrapAroundAndClear() {
     EXPECT(rb.freeSpace() == 16);
 }
 
+static void primeTargetCoversInFlightWindow() {
+    const uint32_t rates[] = {44100, 96000, 192000};
+    for (uint32_t rate : rates) {
+        const size_t frame = 8;
+        const size_t capacity = std::max<size_t>((static_cast<size_t>(rate) * frame * 3) / 5, 512 * 1024);
+        const size_t primeTarget = std::min(
+            capacity / 2,
+            std::max<size_t>(static_cast<size_t>(rate) * frame / 8, 16384)
+        ) / frame * frame;
+        const size_t inFlight24Slots = (static_cast<size_t>(rate) * 96 / 1000) * frame;
+        EXPECT(primeTarget >= inFlight24Slots);
+    }
+}
+
 int main() {
     fractionalRatesDoNotDrift();
     invalidFeedbackCannotOverrunEndpoint();
@@ -107,6 +121,7 @@ int main() {
     dop32PaddingAndChannelMarkersMatch();
     nativeDsdAndPcmKeepOriginalDataAndUseDifferentSilence();
     ringBufferWrapAroundAndClear();
+    primeTargetCoversInFlightWindow();
     std::printf(failures ? "%d failure(s)\n" : "all passed\n", failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }
