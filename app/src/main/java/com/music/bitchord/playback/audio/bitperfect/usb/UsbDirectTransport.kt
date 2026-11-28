@@ -12,6 +12,9 @@ package com.music.bitchord.playback.audio.bitperfect.usb
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectDriver
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransport
 import com.music.bitchord.playback.audio.bitperfect.BitPerfectTransportException
@@ -146,14 +149,21 @@ internal class UsbDirectTransport private constructor(
         return count
     }
 
+    private val keepAlive = SilentKeepAlive()
+
     override fun play() {
+        keepAlive.start()
         call { UsbDirectNative.setPlaying(handle, true) }
         quiesced = false
     }
 
-    override fun pause() = call { UsbDirectNative.setPlaying(handle, false) }
+    override fun pause() {
+        keepAlive.pause()
+        call { UsbDirectNative.setPlaying(handle, false) }
+    }
 
     override fun flush() {
+        keepAlive.pause()
         if (!quiesced) call { UsbDirectNative.flush(handle) }
         quiesced = true
         lastFrames = 0
@@ -169,6 +179,7 @@ internal class UsbDirectTransport private constructor(
     }
 
     override fun release() {
+        keepAlive.release()
         val closing = handle
         if (closing == 0L) return
         try {
@@ -284,5 +295,72 @@ internal class UsbDirectTransport private constructor(
                 .mapNotNull { (alternate, format) -> UsbDescriptors.plan(alternate, format) }
                 .take(32)
         }
+    }
+}
+
+/**
+ * Tiny muted looping static AudioTrack active only while Direct USB is playing.
+ * Keeps Android/OEM AudioFlinger aware that media playback is active so OEM
+ * schedulers (e.g., Vivo OriginOS) do not throttle the process during app
+ * switches or screen-off transitions.
+ */
+private class SilentKeepAlive {
+    private var track: AudioTrack? = null
+
+    @Synchronized
+    fun start() {
+        runCatching {
+            val active = track ?: createTrack().also { track = it } ?: return
+            if (active.playState != AudioTrack.PLAYSTATE_PLAYING) active.play()
+        }
+    }
+
+    @Synchronized
+    fun pause() {
+        runCatching {
+            track?.takeIf { it.playState == AudioTrack.PLAYSTATE_PLAYING }?.pause()
+        }
+    }
+
+    @Synchronized
+    fun release() {
+        runCatching {
+            track?.let {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
+                it.release()
+            }
+        }
+        track = null
+    }
+
+    private fun createTrack(): AudioTrack? {
+        val sampleRate = 48_000
+        val frames = sampleRate / 10 // 100 ms of silence
+        val bytes = frames * 2
+        val t = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setBufferSizeInBytes(bytes)
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+        if (t.state != AudioTrack.STATE_INITIALIZED) {
+            t.release()
+            return null
+        }
+        t.write(ByteArray(bytes), 0, bytes)
+        t.setLoopPoints(0, frames, -1)
+        t.setVolume(0f)
+        return t
     }
 }
