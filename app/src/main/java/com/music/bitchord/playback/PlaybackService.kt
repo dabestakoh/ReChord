@@ -8591,6 +8591,7 @@ class PlaybackService : MediaLibraryService() {
             // or off the exclusive output when its sink is configured again.
             AppSettings.bitPerfectMode.collect { mode ->
                 BitPerfectOutput.refreshReady(this@PlaybackService)
+                UsbDirectDevices.setAttachPromptEnabled(this@PlaybackService, mode == BitPerfectMode.USB_DIRECT)
                 if (mode == BitPerfectMode.USB_DIRECT) UsbDirectDevices.requestPermission(this@PlaybackService)
             }
         }

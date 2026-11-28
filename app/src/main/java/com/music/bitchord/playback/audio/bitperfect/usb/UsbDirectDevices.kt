@@ -9,16 +9,23 @@
  */
 package com.music.bitchord.playback.audio.bitperfect.usb
 
+import android.app.Activity
+import android.app.Application
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
+import com.music.bitchord.data.settings.AppSettings
+import com.music.bitchord.data.settings.BitPerfectMode
 
 /**
  * The USB side of the direct driver that is not about streaming: which
@@ -138,5 +145,62 @@ internal object UsbDirectDevices {
     @Synchronized
     fun rememberVolume(deviceId: Int, db: Double) {
         volumes[deviceId] = db
+    }
+
+    /** Called by [UsbAttachActivity] after the user approves a system USB attach prompt. */
+    fun notifyAttached() {
+        onChanged?.invoke()
+    }
+
+    /**
+     * Enables or disables [UsbAttachActivity] so Android prompts for exclusive
+     * USB DAC access on external attach only while Direct USB mode is active.
+     */
+    fun setAttachPromptEnabled(context: Context, enabled: Boolean) {
+        runCatching {
+            val app = context.applicationContext
+            val component = ComponentName(app, UsbAttachActivity::class.java)
+            val desired = if (enabled) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            if (app.packageManager.getComponentEnabledSetting(component) != desired) {
+                app.packageManager.setComponentEnabledSetting(
+                    component,
+                    desired,
+                    PackageManager.DONT_KILL_APP,
+                )
+            }
+        }
+    }
+
+    /**
+     * Requests USB DAC permission from the foreground Activity whenever the app
+     * resumes while Direct USB mode is active, avoiding Android 14+/OEM
+     * background-service dialog restrictions without touching MainActivity.
+     */
+    fun installForegroundPrompt(app: Application) {
+        val direct = AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT
+        setAttachPromptEnabled(app, direct)
+        app.registerActivityLifecycleCallbacks(
+            object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityResumed(activity: Activity) {
+                    if (activity is UsbAttachActivity) return
+                    val isDirect = AppSettings.bitPerfectMode.value == BitPerfectMode.USB_DIRECT
+                    setAttachPromptEnabled(activity, isDirect)
+                    if (isDirect) {
+                        init(activity)
+                        requestPermission(activity)
+                    }
+                }
+                override fun onActivityCreated(a: Activity, s: Bundle?) = Unit
+                override fun onActivityStarted(a: Activity) = Unit
+                override fun onActivityPaused(a: Activity) = Unit
+                override fun onActivityStopped(a: Activity) = Unit
+                override fun onActivitySaveInstanceState(a: Activity, o: Bundle) = Unit
+                override fun onActivityDestroyed(a: Activity) = Unit
+            },
+        )
     }
 }
