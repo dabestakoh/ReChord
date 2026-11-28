@@ -140,7 +140,7 @@ struct Slot {
         size_t total = 0;
         for (int i = 0; i < count; ++i) total += lengths[i];
         libusb_fill_iso_transfer(transfer, handle, address, bytes.data(), static_cast<int>(total), count,
-                                 completed, this, 500);
+                                 completed, this, 2000);
         for (int i = 0; i < count; ++i) transfer->iso_packet_desc[i].length = static_cast<unsigned>(lengths[i]);
         check(libusb_submit_transfer(transfer));
         pending = true;
@@ -195,6 +195,7 @@ public:
                 const int packets = packetsPerTransfer();
                 for (int s = 0; s < 24; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
                 if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
+                controlBuffer.reserve(LIBUSB_CONTROL_SETUP_SIZE + 1024);
                 return;
             }
             throw std::runtime_error(failure);
@@ -205,7 +206,17 @@ public:
     }
 
     ~Session() {
-        drain();
+        const bool drained = drain();
+        if (!drained) {
+            for (auto &slot : slots) {
+                if (slot && slot->pending) slot.release();
+            }
+            if (feedbackSlot && feedbackSlot->pending) feedbackSlot.release();
+            if (activeControl) controlTransfer.release();
+            slots.clear();
+            feedbackSlot.reset();
+            return;
+        }
         slots.clear();
         feedbackSlot.reset();
         closeDevice();
@@ -273,8 +284,8 @@ public:
     }
 
     // Cancellation is asynchronous: keep every buffer and the context alive
-    // until libusb acknowledges it, including after a detach or an error.
-    void drain() {
+    // until libusb acknowledges it, or time out safely if the kernel wedges.
+    bool drain() {
         auto any = [this] {
             for (auto &slot : slots) if (slot->pending) return true;
             return activeControl || (feedbackSlot && feedbackSlot->pending);
@@ -287,6 +298,11 @@ public:
             timeval timeout{0, 1000};
             libusb_handle_events_timeout(context, &timeout);
         }
+        if (any()) {
+            __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "drain timed out with pending transfers");
+            return false;
+        }
+        return true;
     }
 
     void release() {
@@ -334,6 +350,13 @@ public:
         }
     }
 
+    static void LIBUSB_CALL onPollFdChanged(int, short, void *userData) {
+        *static_cast<bool *>(userData) = true;
+    }
+    static void LIBUSB_CALL onPollFdRemoved(int, void *userData) {
+        *static_cast<bool *>(userData) = true;
+    }
+
     void run(State &state) {
         const size_t frame = static_cast<size_t>(chosen.format.subslot) * chosen.format.channels;
         const int packets = packetsPerTransfer();
@@ -343,23 +366,23 @@ public:
         bool started = false;
         bool priming = true;
         const size_t primeTarget = std::min(
-            state.bytes.capacity() / 4,
-            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 25, 8192)
+            state.bytes.capacity() / 2,
+            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 8, 16384)
         ) / frame * frame;
-        const auto descriptors = libusb_get_pollfds(context);
-        require(descriptors != nullptr, "USB poll descriptors unavailable");
-        std::unique_ptr<const libusb_pollfd *, decltype(&libusb_free_pollfds)> descriptorList(descriptors, libusb_free_pollfds);
-        std::vector<pollfd> pollFds{{state.wakeFd, POLLIN, 0}};
-        for (size_t i = 0; descriptors[i]; ++i) {
-            pollFds.push_back({descriptors[i]->fd, descriptors[i]->events, 0});
-        }
+        bool pollFdsDirty = true;
+        libusb_set_pollfd_notifiers(context, onPollFdChanged, onPollFdRemoved, &pollFdsDirty);
+        struct PollFdGuard {
+            libusb_context *ctx;
+            ~PollFdGuard() { libusb_set_pollfd_notifiers(ctx, nullptr, nullptr, nullptr); }
+        } pollFdGuard{context};
+        std::vector<pollfd> pollFds;
         for (;;) {
             events();
             std::unique_lock<std::mutex> lock(state.mutex);
             if (state.closed) break;
             if (state.flush != state.flushed) {
                 lock.unlock();
-                drain();
+                require(drain(), "USB transfer cancellation timed out");
                 lock.lock();
                 state.bytes.clear();
                 state.frames = 0;
@@ -368,6 +391,7 @@ public:
                     slot->musicFrames = 0;
                     slot->submitted = false;
                 }
+                if (feedbackSlot) feedbackSlot->submitted = false;
                 clock = PacketClock(chosen.format.sampleRate, interval);
                 marker = 0x05;
                 started = false;
@@ -422,7 +446,10 @@ public:
                         total += lengths[i];
                     }
                     const size_t available = priming ? 0 : state.bytes.read(slot->bytes.data(), total / frame * frame);
-                    if (!priming && available < total) priming = true;
+                    if (!priming && available < total) {
+                        priming = true;
+                        __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "underrun: available=%zu total=%zu", available, total);
+                    }
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                     slot->musicFrames = available / frame;
                     slot->submit(handle, chosen.data.address, lengths, packets);
@@ -444,6 +471,17 @@ public:
             check(hasDeadline);
             const int timeout = hasDeadline == 1
                 ? static_cast<int>(next.tv_sec * 1000 + (next.tv_usec + 999) / 1000) : -1;
+            if (pollFdsDirty) {
+                pollFds.clear();
+                pollFds.push_back({state.wakeFd, POLLIN, 0});
+                const auto descriptors = libusb_get_pollfds(context);
+                require(descriptors != nullptr, "USB poll descriptors unavailable");
+                for (size_t i = 0; descriptors[i]; ++i) {
+                    pollFds.push_back({descriptors[i]->fd, descriptors[i]->events, 0});
+                }
+                libusb_free_pollfds(descriptors);
+                pollFdsDirty = false;
+            }
             const int ready = poll(pollFds.data(), pollFds.size(), timeout);
             const int pollError = ready < 0 ? errno : 0;
             require(ready >= 0 || pollError == EINTR, "USB poll failed");
@@ -452,7 +490,6 @@ public:
                 while (::read(state.wakeFd, &signal, sizeof(signal)) < 0 && errno == EINTR) {}
             }
         }
-        drain();
     }
 };
 
@@ -485,7 +522,16 @@ public:
                 // Android owns the descriptor and keeps it open until this
                 // worker has joined.
                 session = std::make_unique<Session>(fd, candidates);
-                opened.set_value({session->chosenIndex, session->chosen.format});
+                const auto &fmt = session->chosen.format;
+                const size_t fBytes = static_cast<size_t>(fmt.subslot) * fmt.channels;
+                const size_t cap = std::max<size_t>((static_cast<size_t>(fmt.sampleRate) * fBytes * 3) / 5, 512 * 1024);
+                {
+                    std::lock_guard<std::mutex> lock(state.mutex);
+                    state.bytes.reset(cap);
+                }
+                frameBytes = fBytes;
+                capacity = cap;
+                opened.set_value({session->chosenIndex, fmt});
             } catch (...) {
                 opened.set_exception(std::current_exception());
                 return;
@@ -513,9 +559,6 @@ public:
             worker.join();
             throw;
         }
-        frameBytes = static_cast<size_t>(format.subslot) * format.channels;
-        capacity = std::max<size_t>((static_cast<size_t>(format.sampleRate) * frameBytes * 3) / 5, 512 * 1024);
-        state.bytes.reset(capacity);
     }
 
     ~Output() { close(); }

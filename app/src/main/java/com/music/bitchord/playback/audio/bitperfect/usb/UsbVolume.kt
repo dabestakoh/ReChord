@@ -49,17 +49,13 @@ internal object UsbVolume {
         val sources = HashMap<Int, Int>()
         val features = HashMap<Int, Feature>()
         val outputs = mutableListOf<Int>()
-        var offset = 0
-        while (offset + 2 <= raw.size) {
-            val len = raw[offset].toInt() and 255
-            if (len < 2 || len > raw.size - offset) return null
-            val d = raw.copyOfRange(offset, offset + len)
-            offset += len
-            fun u(i: Int) = d[i].toInt() and 255
-            if (u(1) == 4 && len >= 9) {
+        var valid = true
+        UsbDescriptors.forEachDescriptor(raw, onMalformed = { valid = false }) { offset, len, type ->
+            fun u(i: Int) = raw[offset + i].toInt() and 255
+            if (type == 4 && len >= 9) {
                 active = u(2) == interface_ && u(5) == 1 && u(6) == 1
                 uac2 = u(7) == 0x20
-            } else if (active && u(1) == 0x24 && len >= 4) {
+            } else if (active && type == 0x24 && len >= 4) {
                 when (u(2)) {
                     3 -> if (len >= 9) {
                         sources[u(3)] = u(7)
@@ -69,7 +65,7 @@ internal object UsbVolume {
                         sources[u(3)] = u(4)
                         val size = if (uac2) 4 else u(5)
                         val start = if (uac2) 5 else 6
-                        if (size == 0 || size > 4 || len < start + size + 1) continue
+                        if (size == 0 || size > 4 || len < start + size + 1) return@forEachDescriptor
                         fun writable(channel: Int): Boolean {
                             val pos = start + channel * size
                             if (pos + size >= len) return false
@@ -78,13 +74,14 @@ internal object UsbVolume {
                         val controlled = when {
                             writable(0) -> listOf(0)
                             (1..channels).all(::writable) -> (1..channels).toList()
-                            else -> continue
+                            else -> return@forEachDescriptor
                         }
                         features[u(3)] = Feature(u(3), interface_, uac2, controlled)
                     }
                 }
             }
         }
+        if (!valid) return null
         val matches = mutableListOf<Feature>()
         for (output in outputs) {
             var id = output

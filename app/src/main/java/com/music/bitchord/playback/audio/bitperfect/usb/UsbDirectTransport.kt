@@ -66,7 +66,7 @@ internal object UsbDirectNative {
  */
 internal class UsbDirectTransport private constructor(
     private val connection: UsbDeviceConnection,
-    private var handle: Long,
+    @Volatile private var handle: Long,
     val usbDeviceId: Int,
     override val deviceName: String,
     private val format: UsbDescriptors.OutputFormat,
@@ -86,16 +86,13 @@ internal class UsbDirectTransport private constructor(
 
     @Volatile private var failure: String? = null
     @Volatile private var detached = false
-    private var quiesced = true
-    private var lastFrames = 0L
+    @Volatile private var quiesced = true
+    @Volatile private var lastFrames = 0L
 
     fun accepts(rate: Int, channels: Int, sourceBits: Int): Boolean =
         failure == null && sampleRate == rate && channelCount == channels && validBits >= sourceBits
 
-    private val control: UsbControl = UsbControl { input, request, value, index, data ->
-        val reply = UsbDirectNative.control(handle, input, request, value, index, data)
-        if (input) reply.copyInto(data)
-    }
+    private val control: UsbControl = nativeControl(handle)
 
     val volume: UsbVolume.Snapshot? get() = volumeControl?.snapshot
 
@@ -113,7 +110,14 @@ internal class UsbDirectTransport private constructor(
         failure = "USB disconnected"
     }
 
+    @Volatile private var softwareGain: Double = computeGain(initialLevel)
+
     @Volatile var softwareLevel: Float = initialLevel
+        set(value) {
+            field = value
+            softwareGain = computeGain(value)
+        }
+
     private val scaled by lazy { ByteBuffer.allocateDirect(MAX_WRITE) }
 
     override fun write(buffer: ByteBuffer): Int {
@@ -122,8 +126,7 @@ internal class UsbDirectTransport private constructor(
             val sampleBytes = outputBits / 8
             val frameBytes = sampleBytes * channelCount
             scaled.clear()
-            val level = softwareLevel
-            val gain = if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
+            val gain = softwareGain
             val end = buffer.position() + bytes - bytes % frameBytes
             for (offset in buffer.position() until end step sampleBytes) {
                 var sample = buffer.get(offset + sampleBytes - 1).toInt()
@@ -213,6 +216,14 @@ internal class UsbDirectTransport private constructor(
     companion object {
         private const val MAX_WRITE = 256 * 1024
 
+        private fun computeGain(level: Float): Double =
+            if (level == 0f) 0.0 else Math.pow(10.0, (level - 1.0) * 4.0)
+
+        private fun nativeControl(nativeHandle: Long): UsbControl = UsbControl { input, request, value, index, data ->
+            val reply = UsbDirectNative.control(nativeHandle, input, request, value, index, data)
+            if (input) reply.copyInto(data)
+        }
+
         fun open(
             manager: UsbManager,
             device: UsbDevice,
@@ -237,11 +248,7 @@ internal class UsbDirectTransport private constructor(
                     throw BitPerfectTransportException("unsupported", error)
                 }
                 val plan = plans[UsbDirectNative.chosen(handle)]
-                val opened = handle
-                val control = UsbControl { input, request, value, index, data ->
-                    val reply = UsbDirectNative.control(opened, input, request, value, index, data)
-                    if (input) reply.copyInto(data)
-                }
+                val control = nativeControl(handle)
                 // Startup attenuation happens inside Volume.open, before any audio.
                 val volume = UsbVolume.feature(raw, plan.alternate.control, plan.alternate.terminal, channels)
                     ?.let { feature -> runCatching { UsbVolume.Volume.open(control, feature) }.getOrNull() }
