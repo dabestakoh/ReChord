@@ -305,6 +305,26 @@ public:
         return true;
     }
 
+    void recoverInterface() {
+        drain();
+        check(libusb_set_interface_alt_setting(handle, chosen.interface, 0));
+        if (chosen.uac2) {
+            const uint16_t index = static_cast<uint16_t>((chosen.clock << 8) | chosen.control);
+            uint8_t rate[4];
+            std::memcpy(rate, &chosen.format.sampleRate, 4);
+            uint8_t current[4] = {};
+            control(true, 1, 0x100, index, current, 4, false);
+            if (std::memcmp(current, rate, 4) != 0) control(false, 1, 0x100, index, rate, 4, false);
+        }
+        check(libusb_set_interface_alt_setting(handle, chosen.interface, chosen.alternate));
+        if (!chosen.uac2 && chosen.data.rateControl) {
+            uint8_t rate[3] = {static_cast<uint8_t>(chosen.format.sampleRate),
+                               static_cast<uint8_t>(chosen.format.sampleRate >> 8),
+                               static_cast<uint8_t>(chosen.format.sampleRate >> 16)};
+            control(false, 1, 0x100, chosen.data.address, rate, 3, true);
+        }
+    }
+
     void release() {
         if (!handle) return;
         if (chosen.alternate > 0) libusb_set_interface_alt_setting(handle, chosen.interface, 0);
@@ -364,6 +384,7 @@ public:
         uint8_t marker = 0x05;
         auto lastFeedback = std::chrono::steady_clock::now();
         bool started = false;
+        bool hadInFlight = false;
         bool priming = true;
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
@@ -395,6 +416,7 @@ public:
                 clock = PacketClock(chosen.format.sampleRate, interval);
                 marker = 0x05;
                 started = false;
+                hadInFlight = false;
                 priming = true;
                 state.changed.notify_all();
             }
@@ -413,9 +435,25 @@ public:
             }
             if (!state.playing) {
                 started = false;
+                hadInFlight = false;
                 priming = true;
             }
             if (state.playing) {
+                size_t inFlight = 0;
+                for (auto &slot : slots) if (slot->pending) ++inFlight;
+                if (hadInFlight && inFlight == 0) {
+                    __android_log_print(ANDROID_LOG_WARN, "ReChordUsb",
+                                        "hardware xHCI underrun (0 slots in flight) — recovering USB interface");
+                    lock.unlock();
+                    recoverInterface();
+                    lock.lock();
+                    if (feedbackSlot) feedbackSlot->submitted = false;
+                    clock = PacketClock(chosen.format.sampleRate, interval);
+                    marker = 0x05;
+                    hadInFlight = false;
+                    priming = true;
+                    lastFeedback = std::chrono::steady_clock::now();
+                }
                 if (!started) {
                     lastFeedback = std::chrono::steady_clock::now();
                     started = true;
@@ -453,6 +491,7 @@ public:
                     finishTransfer(slot->bytes.data(), total, available, chosen.format, marker);
                     slot->musicFrames = available / frame;
                     slot->submit(handle, chosen.data.address, lengths, packets);
+                    hadInFlight = true;
                 }
             }
             if (!activeControl && !state.controls.empty()) {
@@ -514,7 +553,7 @@ public:
         auto result = opened.get_future();
         worker = std::thread([this, fd, candidates = std::move(candidates), opened = std::move(opened)]() mutable {
             pthread_setname_np(pthread_self(), "ReChordUsbOut");
-            if (setpriority(PRIO_PROCESS, 0, -16) != 0) {
+            if (setpriority(PRIO_PROCESS, 0, -19) != 0 && setpriority(PRIO_PROCESS, 0, -16) != 0) {
                 __android_log_print(ANDROID_LOG_WARN, "ReChordUsb", "Could not raise USB worker priority: errno=%d", errno);
             }
             std::unique_ptr<Session> session;
