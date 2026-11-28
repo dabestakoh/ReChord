@@ -107,10 +107,10 @@ static void primeTargetCoversInFlightWindow() {
         const size_t capacity = std::max<size_t>((static_cast<size_t>(rate) * frame * 3) / 5, 512 * 1024);
         const size_t primeTarget = std::min(
             capacity / 2,
-            std::max<size_t>(static_cast<size_t>(rate) * frame / 8, 16384)
+            std::max<size_t>(static_cast<size_t>(rate) * frame / 20, 8192)
         ) / frame * frame;
-        const size_t inFlight24Slots = (static_cast<size_t>(rate) * 96 / 1000) * frame;
-        EXPECT(primeTarget >= inFlight24Slots);
+        const size_t inFlight6Slots = (static_cast<size_t>(rate) * 24 / 1000) * frame;
+        EXPECT(primeTarget >= inFlight6Slots);
     }
 }
 

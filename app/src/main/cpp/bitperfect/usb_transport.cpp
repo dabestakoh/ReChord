@@ -193,7 +193,7 @@ public:
                 }
                 chosenIndex = static_cast<int>(i);
                 const int packets = packetsPerTransfer();
-                for (int s = 0; s < 24; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
+                for (int s = 0; s < 6; ++s) slots.push_back(std::make_unique<Slot>(packets, chosen.data.maxPacket));
                 if (chosen.hasFeedback) feedbackSlot = std::make_unique<Slot>(1, chosen.feedback.maxPacket);
                 controlBuffer.reserve(LIBUSB_CONTROL_SETUP_SIZE + 1024);
                 return;
@@ -367,7 +367,7 @@ public:
         bool priming = true;
         const size_t primeTarget = std::min(
             state.bytes.capacity() / 2,
-            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 8, 16384)
+            std::max<size_t>(static_cast<size_t>(chosen.format.sampleRate) * frame / 20, 8192)
         ) / frame * frame;
         bool pollFdsDirty = true;
         libusb_set_pollfd_notifiers(context, onPollFdChanged, onPollFdRemoved, &pollFdsDirty);
